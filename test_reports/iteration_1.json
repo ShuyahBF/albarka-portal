@@ -1,0 +1,44 @@
+{
+  "summary": "Backend-only testing of ALBARKA portal (FastAPI + MongoDB). Created pytest suites covering health, two-step auth (password + OTP -> JWT), dashboard, clients/staff CRUD, missions, échéances, documents upload/download/delete and the async Claude Sonnet 5 AI analysis, plus RBAC/tenant-isolation edge cases. 61/61 tests passed against the public preview URL. No backend errors in supervisor logs. Frontend not tested (as requested).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/login", "issue": "No rate limiting / attempt cap on OTP verification and no invalidation of previously issued OTP sessions on new login; a 6-digit code is brute-forceable within the 10-min window. Also dev_otp is returned in the API response (acceptable for the pilot, but should be gated behind an explicit env flag e.g. ALLOW_DEV_OTP so it can never leak in production)."},
+      {"endpoint": "DELETE /api/documents/{id}", "issue": "Deletes the Mongo document + synthesis but leaves the file on disk (UPLOAD_DIR) and the stored_objects record untouched -> orphaned storage growth."},
+      {"endpoint": "POST /api/missions, POST /api/echeances, POST /api/documents (staff)", "issue": "tenant_id is accepted without verifying the referenced client user exists / has role client -> orphan records possible from a typo in the frontend."},
+      {"endpoint": "GET /api/documents, /api/missions, /api/echeances, /api/clients", "issue": "Hardcoded to_list(500/1000) with no pagination or total count; will silently truncate once the pilot grows."},
+      {"endpoint": "/api/auth/*", "issue": "No change-password / forgot-password endpoint; staff created via /clients/staff receive a plaintext password chosen by the supervisor and cannot rotate it."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_rbac_edge.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional hardening (no blocker): cap OTP verify attempts + invalidate previous OTP sessions on new login; gate dev_otp behind an env flag before production.",
+    "Delete the physical file and the stored_objects record when a document is deleted.",
+    "Validate that tenant_id refers to an existing client account on mission/echeance/document creation."
+  ],
+  "critical_code_review_comments": [
+    "albarka_auth.py: OTP has no attempt counter and old unused OTP sessions stay valid -> brute-force / session-fixation surface.",
+    "albarka_documents.py: asyncio.create_task for AI analysis is fire-and-forget; if the worker restarts mid-analysis the document stays stuck in 'en_analyse' forever with no retry/timeout path.",
+    "albarka_documents.py: delete_document leaves storage objects and stored_objects rows orphaned.",
+    "albarka_models.tenant_id_of() returns the client user id (tenant == user), so a company with two user accounts cannot share data — worth revisiting before multi-user clients are supported.",
+    "All list endpoints use fixed to_list() limits without pagination."
+  ],
+  "updated_files": [
+    "/app/backend/tests/conftest.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_rbac_edge.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "not tested"},
+  "seed_data_creation": "Tests create and then delete temporary TEST_ clients/staff/missions/échéances/documents (unique uuid emails). Seeded demo data untouched. One test document uploaded and deleted after AI analysis verification.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "/app/memory/test_credentials.md valid: superviseur@albarka-demo.bf/Superviseur2026!, comptable@albarka-demo.bf/Comptable2026!, client1|client2@albarka-demo.bf/Client2026!",
+  "context_for_next_testing_agent": "Backend is fully green (61 tests). Reuse /app/backend/tests/conftest.py which exposes API, CREDENTIALS, login_full() (handles the 2-step login + dev_otp) and session fixtures superviseur/comptable/client1/client2. tenant_id of a client == its user id. AI analysis (Claude Sonnet 5) completed in <15s for a text PDF and returned summary + extracted_fields + model=claude-sonnet-5. GET /api/documents/_meta/storage-mode is NOT shadowed (two path segments). Next step: frontend E2E (login+OTP screen, dashboard, documents upload/synthesis view, missions, échéances, clients/collaborateurs admin).",
+  "rca_of_the_issue": "No failures to root-cause. Verified explicitly: client cannot spoof tenant_id on upload (server overrides), cross-tenant document/mission access returns 403, deactivated account login returns 403 and existing token 403, deleted-user token returns 401, OTP is single-use, invalid roles/types return 422."
+}
