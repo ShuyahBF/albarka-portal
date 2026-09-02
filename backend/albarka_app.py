@@ -12,6 +12,7 @@ Lancer en local : uvicorn albarka_app:app --reload --port 8000
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import APIRouter, FastAPI
 from starlette.middleware.cors import CORSMiddleware
@@ -37,10 +38,18 @@ async def health():
 
 app.include_router(api_router)
 
+# CORS_ORIGINS : liste d'origines autorisées séparées par des virgules
+# (ex. "https://albarka-bf.com,https://www.albarka-bf.com"). Par défaut,
+# seul le développement local est autorisé — à définir explicitement en
+# production (une origine "*" est de toute façon incompatible avec
+# allow_credentials=True côté navigateur).
+_default_origins = "http://localhost:3000,http://127.0.0.1:3000"
+cors_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=["*"],  # à restreindre au domaine du portail avant mise en production
+    allow_origins=cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
