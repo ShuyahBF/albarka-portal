@@ -25,7 +25,7 @@ class TestHealth:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["status"] == "ok"
-        assert body["storage"] == "local"
+        assert body["storage"] in ("local", "r2")
         assert body["app"] == "albarka-portal"
 
     def test_root(self):
@@ -436,11 +436,16 @@ class TestDocuments:
         assert c2.get(f"{API}/documents/{TestDocuments.doc_id}/download", timeout=60).status_code == 403
         assert c2.delete(f"{API}/documents/{TestDocuments.doc_id}", timeout=60).status_code == 403
 
-    def test_download_url_local_mode(self, client1):
+    def test_download_url_mode(self, client1):
         s, _ = client1
         r = s.get(f"{API}/documents/{TestDocuments.doc_id}/download-url", timeout=60)
         assert r.status_code == 200, r.text
-        assert r.json() == {"url": None, "mode": "local"}
+        body = r.json()
+        assert body["mode"] in ("local", "r2"), body
+        if body["mode"] == "local":
+            assert body["url"] is None
+        else:
+            assert isinstance(body["url"], str) and body["url"].startswith("https://"), body
 
     def test_download_binary(self, client1):
         s, _ = client1
@@ -515,7 +520,7 @@ class TestMisc:
         s, _ = superviseur
         r = s.get(f"{API}/documents/_meta/storage-mode", timeout=60)
         assert r.status_code == 200, f"route shadowed by /documents/{{document_id}}: {r.status_code} {r.text[:200]}"
-        assert r.json()["mode"] == "local"
+        assert r.json()["mode"] in ("local", "r2")
 
     def test_documents_requires_auth(self):
         r = requests.get(f"{API}/documents", timeout=60)

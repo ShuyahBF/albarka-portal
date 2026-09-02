@@ -12,10 +12,14 @@ import {
   Menu,
   X,
   History,
+  Scale,
+  Wallet,
+  ClipboardList,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 
+// Client sidebar (unchanged for pure clients).
 const CLIENT_LINKS = [
   { to: "/portal", label: "Tableau de bord", icon: LayoutDashboard, end: true },
   { to: "/portal/documents", label: "Mes pièces", icon: FileText },
@@ -24,20 +28,39 @@ const CLIENT_LINKS = [
   { to: "/portal/historique", label: "Historique", icon: History },
 ];
 
-const STAFF_LINKS = [
-  { to: "/admin", label: "Tableau de bord", icon: LayoutDashboard, end: true },
-  { to: "/admin/clients", label: "Clients", icon: Users },
-  { to: "/admin/staff", label: "Collaborateurs", icon: UserCog },
-  { to: "/admin/documents", label: "Pièces", icon: FileText },
-  { to: "/admin/missions", label: "Missions", icon: Briefcase },
-  { to: "/admin/echeances", label: "Échéances", icon: CalendarClock },
+// Staff menu items with the roles that grant access. `superviseur` = full access.
+const STAFF_MENU = [
+  { to: "/admin", label: "Tableau de bord", icon: LayoutDashboard, end: true,
+    roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
+  { to: "/admin/clients", label: "Clients", icon: Users,
+    roles: ["superviseur", "direction", "secretariat"] },
+  { to: "/admin/staff", label: "Collaborateurs", icon: UserCog,
+    roles: ["superviseur", "direction"] },
+  { to: "/admin/documents", label: "Pièces", icon: FileText,
+    roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
+  { to: "/admin/missions", label: "Missions", icon: Briefcase,
+    roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable"] },
+  { to: "/admin/echeances", label: "Échéances fiscales", icon: Scale,
+    roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable"] },
+  { to: "/admin/paie", label: "Paie & RH", icon: Wallet,
+    roles: ["superviseur", "direction", "rh"] },
+  { to: "/admin/rapports", label: "Rapports client", icon: ClipboardList,
+    roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
 ];
+
+function allowedFor(link, roles) {
+  if (roles.includes("superviseur")) return true;
+  return link.roles.some((r) => roles.includes(r));
+}
 
 export default function PortalLayout({ admin = false }) {
   const { user, logout } = useAuth();
   const [openSidebar, setOpenSidebar] = useState(false);
   const navigate = useNavigate();
-  const links = admin ? STAFF_LINKS : CLIENT_LINKS;
+  const roles = user?.roles || [];
+  const links = admin
+    ? STAFF_MENU.filter((l) => allowedFor(l, roles))
+    : CLIENT_LINKS;
 
   const handleLogout = () => {
     logout();
@@ -64,7 +87,7 @@ export default function PortalLayout({ admin = false }) {
             </div>
           </div>
         </div>
-        <nav className="p-3 space-y-1">
+        <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-220px)]">
           {links.map((link) => (
             <NavLink
               key={link.to}
@@ -72,17 +95,21 @@ export default function PortalLayout({ admin = false }) {
               end={link.end}
               className={({ isActive }) => `albarka-sidebar-link ${isActive ? "active" : ""}`}
               onClick={() => setOpenSidebar(false)}
-              data-testid={`sidebar-link-${link.label.toLowerCase().replace(/\s+/g, "-")}`}
+              data-testid={`sidebar-link-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
             >
               <link.icon className="w-4 h-4" />
               <span>{link.label}</span>
             </NavLink>
           ))}
         </nav>
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10">
-          <div className="text-xs text-white/60 mb-2 truncate">{user?.full_name}</div>
-          <div className="text-[11px] text-white/40 mb-3 truncate">
-            {user?.roles?.join(", ")}
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10 bg-[#0B1912]">
+          <div className="text-xs text-white/70 mb-1 truncate font-medium">{user?.full_name}</div>
+          <div className="flex flex-wrap gap-1 mb-3">
+            {(user?.roles || []).map((r) => (
+              <span key={r} className="text-[9px] uppercase tracking-wider bg-white/10 text-[#E5A24B] px-1.5 py-0.5 rounded" data-testid={`role-badge-${r}`}>
+                {r.replace("_", " ")}
+              </span>
+            ))}
           </div>
           <Button
             variant="outline"

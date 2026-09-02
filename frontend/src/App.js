@@ -26,6 +26,7 @@ import Historique from "@/pages/portal/Historique";
 import AdminClients from "@/pages/admin/AdminClients";
 import AdminStaff from "@/pages/admin/AdminStaff";
 import AdminClientDetail from "@/pages/admin/AdminClientDetail";
+import AdminReports from "@/pages/admin/AdminReports";
 import { AdminDashboard, AdminDocuments, AdminMissions, AdminEcheances } from "@/pages/admin/AdminShared";
 
 function RootRedirect() {
@@ -66,6 +67,8 @@ function App() {
             <Route path="documents" element={<AdminDocuments />} />
             <Route path="missions" element={<AdminMissions />} />
             <Route path="echeances" element={<AdminEcheances />} />
+            <Route path="rapports" element={<AdminReports />} />
+            <Route path="paie" element={<AdminEcheances />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,0 +1,83 @@
+{
+  "summary": "Iteration 2 backend-only testing of Portail ALBARKA (MongoDB Atlas + Cloudflare R2). Ran 90 pytest tests: 61 iteration-1 regression tests plus 29 new tests covering PDF client reports, manual échéance notifications, cron webhook auth/idempotency, email transport and multi-role RBAC. Final result: 90/90 passing. All requested feature endpoints work as specified. Two genuine defects found outside the test assertions: (1) /app/.emergent/crons.yml sends no Authorization header while /api/cron/notify-echeances requires Bearer WEBHOOK_CRON_SECRET, so the scheduled 07:00 UTC run will get 401 and no reminders will ever be sent in production; (2) notification_log dedup rows are written even when the email send fails, permanently blocking same-day retries. Also confirmed the Emergent Resend proxy returns 422 undeliverable_recipient for the seeded @albarka-demo.bf demo addresses, so email_sent is always 0 with seed data (transport itself verified working against delivered@resend.dev, returning message ids). WhatsApp correctly returns None silently with no TWILIO_* env vars, as expected.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/cron/notify-echeances (via /app/.emergent/crons.yml)",
+        "issue": "crons.yml defines no request headers, but _verify_cron_auth() requires 'Authorization: Bearer <WEBHOOK_CRON_SECRET>' and returns 401 otherwise (verified: POST without header -> 401). The daily 07:00 UTC scheduled job will therefore always fail with 401 and J-7/J-1 reminders will never be sent in production. Fix by adding the Authorization header to crons.yml, or by accepting the platform's own cron authentication mechanism.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "/api/cron/notify-echeances/_trigger (albarka_reports_router._run_daily_notifications)",
+        "issue": "The notification_log dedup document is inserted unconditionally after notify_echeance(), even when result['sent_email'] is False (send_email swallows the exception and returns None). Because the dedup key is '{echeance_id}:{days_left}:{today}', a transient email/proxy failure permanently suppresses that reminder for the whole day with no retry and no visible error. Only insert the dedup row on success, or persist a status field and allow retry when status != sent.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "notifications / seed data",
+        "issue": "All seeded client emails use the non-routable domain @albarka-demo.bf. The Emergent Resend proxy rejects them with HTTP 422 {'code': 'undeliverable_recipient'}, so stats.email_sent is always 0 for demo accounts. Transport verified good with delivered@resend.dev (returns a message id). Consider seeding at least one deliverable address for the pilot demo."
+      },
+      {
+        "endpoint": "/api/cron/notify-echeances",
+        "issue": "Idempotency uses a non-atomic find_one-then-insert_one on cron_runs, and no unique index exists on cron_runs.run_id (no create_index calls anywhere in the backend). Two concurrent deliveries of the same X-Webhook-Id can both pass the check and double-send. Add a unique index on cron_runs.run_id and notification_log.key and rely on DuplicateKeyError."
+      },
+      {
+        "endpoint": "/api/echeances/{id}/notify",
+        "issue": "days_left = max(0, ...) collapses every past-due échéance to 0, so an overdue reminder is worded 'Cette échéance est à traiter aujourd'hui' instead of flagging it as overdue."
+      },
+      {
+        "endpoint": "/api/cron/notify-echeances/_trigger",
+        "issue": "Runs _run_daily_notifications() synchronously inside the request; with many échéances each doing a sequential 30s-timeout HTTP email call, the request can block for minutes. Acceptable for QA, but should be backgrounded or bounded."
+      },
+      {
+        "endpoint": "_run_daily_notifications",
+        "issue": "Matches due dates with {'due_date': {'$regex': '^<date>'}}; there is no index on echeances.due_date, so this is a full collection scan on Atlas each morning."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_reports_notifications.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_rbac_edge.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/tests/cleanup_test_data.py",
+    "/app/tests/inspect_notify_state.py"
+  ],
+  "action_items": [
+    "CRITICAL: Add the 'Authorization: Bearer <WEBHOOK_CRON_SECRET>' header to /app/.emergent/crons.yml (or otherwise reconcile cron auth), otherwise the daily reminder job 401s forever.",
+    "HIGH: Do not write the notification_log dedup row when the email send failed; persist a status and allow same-day retry.",
+    "Add unique indexes on cron_runs.run_id and notification_log.key to make idempotency race-safe; add an index on echeances.due_date.",
+    "Consider seeding one deliverable demo email so the notification feature is demonstrable (current @albarka-demo.bf recipients are blocked with 422 by the Resend proxy).",
+    "Distinguish overdue échéances from same-day ones in /echeances/{id}/notify (days_left is clamped to 0)."
+  ],
+  "critical_code_review_comments": [
+    "albarka_reports_router._run_daily_notifications: dedup insert must be conditional on send success, otherwise a proxy hiccup silently drops a client's J-7/J-1 reminder for the day.",
+    "albarka_notifications.send_email catches every exception and returns None; the caller cannot distinguish 'not configured' from 'proxy rejected'. Return/raise a typed result so cron stats and logs surface real failures.",
+    "Idempotency for the cron webhook relies on read-then-write without a unique index — not safe against duplicate concurrent deliveries.",
+    "EMAIL_KEY and WEBHOOK_SECRET are captured at module import time; fine under supervisor, but any import before load_dotenv silently disables email (this is exactly what made the transport test fail until dotenv was loaded in the test).",
+    "No create_index() calls exist anywhere in the backend — queries on echeances.due_date, notification_log.key and cron_runs.run_id are unindexed collection scans on Atlas."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_reports_notifications.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/tests/cleanup_test_data.py",
+    "/app/tests/inspect_notify_state.py"
+  ],
+  "success_rate": {
+    "backend": "100% (90/90 pytest tests passing)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "seed_data_creation": "Created and deleted transient TEST_ échéances (TEST Notify Echeance, TEST J7 Pipeline) for client1, plus TEST- cron_runs rows. All purged via /app/tests/cleanup_test_data.py; orphan notification_log rows also removed (final counts: notification_log 0, cron_runs 1 pre-existing).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "/app/memory/test_credentials.md is present and all 4 accounts work via the 2-step login (/auth/login -> dev_otp -> /auth/verify-otp): superviseur@albarka-demo.bf, comptable@albarka-demo.bf (roles comptable+fiscaliste), client1@albarka-demo.bf, client2@albarka-demo.bf.",
+  "context_for_next_testing_agent": "Backend tests live in /app/backend/tests/ (conftest.py has login_full/make_session helpers and superviseur/comptable/client1/client2 session fixtures). New iteration-2 suite is test_reports_notifications.py: PDF reports (superviseur/comptable/own-client 200, cross-tenant 403, unknown 404, unauth 401), manual notify (staff 200 with days_left, client 403, unknown 404), cron webhook (no/wrong/malformed auth 401, valid 2xx in <15s, duplicate X-Webhook-Id -> {ok,duplicate:true}), _trigger stats, email transport against delivered@resend.dev, and multi-role RBAC. I fixed three stale iteration-1 assertions in backend_test.py that hardcoded storage=='local' (env is now r2) — they now accept local|r2 and validate a presigned https URL in r2 mode. IMPORTANT for future assertions: stats.email_sent will be 0 for seeded @albarka-demo.bf clients (Resend proxy 422 undeliverable_recipient) — assert transport via delivered@resend.dev instead, and remember to load_dotenv('/app/backend/.env') before importing albarka_notifications in-process. Dedup is per (echeance_id, days_left, date), so re-running _trigger the same day yields processed=0; create a fresh échéance to exercise the pipeline. Run /app/tests/cleanup_test_data.py after suites that create échéances. Frontend was never exercised — the whole UI (report download button, multi-role sidebar) still needs a pass.",
+  "rca_of_the_issue": "Cron auth mismatch: albarka_reports_router._verify_cron_auth requires an 'Authorization: Bearer <WEBHOOK_CRON_SECRET>' header, but /app/.emergent/crons.yml declares only name/endpoint/method with no headers block, so the scheduled invocation is rejected with 401 before any work is enqueued — reproduced by POSTing the endpoint without the header. Email non-delivery RCA: send_email posts a correct payload to the Emergent Resend proxy, but the proxy returns 422 code=undeliverable_recipient for the fake @albarka-demo.bf seed domain; httpx raise_for_status throws, the broad except returns None, and notify_echeance reports sent_email=False while _run_daily_notifications still records the dedup key — so the failure is invisible in the API response and the reminder is never retried that day. The same payload sent to delivered@resend.dev succeeds and returns a message id, proving the integration and the email guardrail checks are correct."
+}

@@ -1,0 +1,8 @@
+crons:
+  - name: albarka-echeances
+    description: "Envoie les rappels d'échéances fiscales (email + WhatsApp) J-7 et J-1 chaque matin à 07h UTC"
+    cron: "0 7 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/notify-echeances"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true

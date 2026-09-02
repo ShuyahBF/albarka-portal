@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, CalendarClock } from "lucide-react";
+import { Plus, CalendarClock, Send } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -98,6 +98,15 @@ export default function Echeances({ tenantIdOverride = null, staffMode = false }
       await apiClient.patch(`/echeances/${id}`, { status });
       toast.success("Statut mis à jour");
       await load();
+    } catch (err) {
+      toast.error(extractError(err));
+    }
+  };
+
+  const notifyNow = async (id) => {
+    try {
+      await apiClient.post(`/echeances/${id}/notify`);
+      toast.success("Notification envoyée (email + WhatsApp si numéro renseigné)");
     } catch (err) {
       toast.error(extractError(err));
     }
@@ -210,12 +219,23 @@ export default function Echeances({ tenantIdOverride = null, staffMode = false }
                 </TableCell>
                 {canCreate && (
                   <TableCell>
-                    <Select value={e.status} onValueChange={(v) => updateStatus(e.id, v)}>
-                      <SelectTrigger className="w-32 h-8" data-testid={`echeance-status-${e.id}`}><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {STATUSES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-2">
+                      <Select value={e.status} onValueChange={(v) => updateStatus(e.id, v)}>
+                        <SelectTrigger className="w-32 h-8" data-testid={`echeance-status-${e.id}`}><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {STATUSES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => notifyNow(e.id)}
+                        title="Notifier le client (email + WhatsApp)"
+                        data-testid={`notify-echeance-${e.id}`}
+                      >
+                        <Send className="w-4 h-4 text-[#0F6B4A]" />
+                      </Button>
+                    </div>
                   </TableCell>
                 )}
               </TableRow>

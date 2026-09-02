@@ -2,67 +2,62 @@
 
 ## Original problem statement
 Nouvelle application web de gestion des activités d'un cabinet comptable
-(albarka-portal). Le code est issu d'un repo GitHub
-(https://github.com/ShuyahBF/albarka-portal) sur lequel nous implémentons,
-maintenons et hébergeons ici.
+(albarka-portal), basée sur https://github.com/ShuyahBF/albarka-portal.
 
-## User choices
-- **Stockage** : Cloudflare R2 (credentials à fournir par le client — fallback local activé en attendant).
-- **Analyse IA** : Claude Sonnet 5 via la clé LLM universelle Emergent.
-- **Modules MVP** : Login OTP, Dashboard, Documents, Clients, Missions, Échéances fiscales, Historique.
-- **Langue** : Français.
-- **Design** : Anti-slop — palette émeraude/ambre chaude, typographie Fraunces (headings) + Manrope (body), thème dark pour marketing et light pour portail.
+## Environnement (iteration 2, 2026-02-06)
+- **MongoDB** : Atlas `cluster0.fjomnjr.mongodb.net`, DB `albarka`.
+- **Stockage** : Cloudflare R2 bucket `albarka` (endpoint 62be7ac3...).
+- **IA** : Claude Sonnet 5 via clé LLM universelle Emergent.
+- **Email** : Emergent-managed Resend (from_name = "Cabinet ALBARKA").
+- **WhatsApp** : Twilio, guardé — actif dès que `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WA_FROM` sont dans `.env`.
+- **Cron** : `.emergent/crons.yml` — quotidien 07:00 UTC, endpoint `/api/cron/notify-echeances` protégé par `WEBHOOK_CRON_SECRET`.
 
 ## Architecture
-- **Backend** : FastAPI + Motor/MongoDB + emergentintegrations (Claude Sonnet 5) + PyMuPDF + boto3 (R2 optionnel).
-  - Modules : `server.py`, `db.py`, `albarka_models.py`, `albarka_auth.py` (login + OTP + JWT),
-    `albarka_documents.py`, `albarka_ai.py`, `albarka_missions.py`, `albarka_echeances.py`,
-    `albarka_clients.py`, `albarka_dashboard.py`, `albarka_storage.py`, `seed.py`.
+- **Backend** : FastAPI + Motor/MongoDB + emergentintegrations + PyMuPDF + boto3 + reportlab + httpx.
+  - Modules : `server.py`, `db.py`, `albarka_models.py`, `albarka_auth.py`, `albarka_documents.py`,
+    `albarka_ai.py`, `albarka_missions.py`, `albarka_echeances.py`, `albarka_clients.py`,
+    `albarka_dashboard.py`, `albarka_storage.py`, `albarka_notifications.py` (email + WA guardé),
+    `albarka_reports.py` (PDF client), `albarka_reports_router.py`, `seed.py`.
 - **Frontend** : React 19 + React Router 7 + Tailwind + shadcn/UI + sonner.
-  - Layouts : `PublicLayout`, `PortalLayout` (sidebar + topbar, mode client / mode cabinet).
-  - Pages publiques : Home, Missions/Services, Contact.
-  - Pages portail (client) : Dashboard, Documents, Missions, Échéances, Historique.
-  - Pages admin (cabinet) : Dashboard, Clients, ClientDetail (onglets pièces/missions/échéances), Staff, Documents, Missions, Échéances.
+  - Layouts : `PublicLayout`, `PortalLayout` (sidebar filtrée par rôles cumulés).
+  - Pages : Home / Missions / Contact publiques ; Dashboard/Documents/Missions/Échéances/Historique client ;
+    Clients/Staff/ClientDetail/Documents/Missions/Échéances/**Rapports** admin.
 
-## User personas
-1. **Superviseur du cabinet** — accès total, gestion clients + staff + tous dossiers.
-2. **Comptable / Fiscaliste / RH / Secrétariat** — accès staff aux dossiers de tous clients.
-3. **Client** — accès à son propre espace uniquement (isolation par `tenant_id = user_id`).
-
-## Rôles (cumulables sauf `client` qui est exclusif)
-`superviseur`, `direction`, `secretariat`, `fiscaliste`, `comptable`,
+## Rôles (cumulables, `client` exclusif)
+`superviseur` (full), `direction`, `secretariat`, `fiscaliste`, `comptable`,
 `aide_comptable`, `rh`, `client`.
+Sidebar dynamique : chaque item de menu déclare la liste de rôles autorisés ;
+`superviseur` voit tout ; un `comptable+fiscaliste` voit uniquement les items
+autorisés au cumul de ses rôles.
 
-## Core requirements (delivered)
-- [x] Login email + password + OTP 6 chiffres + JWT (7 jours). Mode pilote : OTP renvoyé dans la réponse (`dev_otp`) tant que SMTP n'est pas configuré.
-- [x] Upload pièces (PDF/image/Office) avec analyse IA async (Claude Sonnet 5) — type détecté, synthèse FR, champs extraits (montants, dates, IFU/RCCM).
-- [x] Missions (CRUD staff, lecture client scoped).
-- [x] Échéances fiscales TVA/IS/IRPP/IUTS/CNSS.
-- [x] Dashboard KPI (documents, missions, échéances à venir/en retard + clients/staff pour cabinet).
-- [x] Gestion clients + collaborateurs (cabinet).
-- [x] Historique global avec onglets (pièces / missions / échéances).
-- [x] Isolation stricte tenant_id.
-- [x] Stockage local fallback quand R2 non configuré (endpoint téléchargement authentifié).
+## Livrés (iteration 2)
+- [x] Auth OTP + JWT + rôles cumulables.
+- [x] Documents avec analyse Claude Sonnet 5 (async, base64 vision).
+- [x] Missions / Échéances CRUD, isolation tenant.
+- [x] Gestion clients + collaborateurs (checkboxes multi-rôles à la création).
+- [x] **Rapport PDF client** (`/api/reports/client/{id}`, reportlab, brand ALBARKA).
+- [x] **Notifications email + WhatsApp** J-7 / J-1 + jour J + overdue (`days_left` négatif) via cron quotidien 07:00 UTC.
+- [x] **Sidebar rôle-based** dans le portail admin.
+- [x] Index Mongo unique (cron_runs.run_id, notification_log.key, users.email).
+- [x] R2 storage actif ; presigned URL 5 min ; fallback local disponible.
 
-## Implemented (2026-02-06)
-- Backend 100% : 61/61 tests passent (auth, RBAC, tenant isolation, upload+IA, CRUD complet).
-- Frontend : landing dark émeraude/ambre, portail light avec sidebar, dashboard, tables shadcn.
-- Seed script : 1 superviseur + 1 comptable + 2 clients de démo avec missions/échéances pré-remplies.
-- Vérifié : upload facture.pdf → Claude extrait IFU, montant HT/TVA/TTC, fournisseur, date en 6 secondes.
+## Bugs corrigés en iteration 2
+- Dedup notification_log conditionnel au succès (permet retry en cas d'échec transitoire du proxy Resend).
+- `days_left` non clampé à 0 → overdue correctement identifiés.
 
-## Backlog (P1 — reste à faire selon priorité utilisateur)
-- **R2 branché** : dès que les credentials sont fournis, activation automatique (code déjà en place).
-- SMTP réel (Resend Emergent-managed) → suppression du `dev_otp`.
-- Gestion multi-utilisateurs par client (aujourd'hui : 1 tenant = 1 utilisateur).
-- Notifications d'échéances par email (J-7, J-1, jour J).
-- Édition des pièces (recatégoriser après upload).
-- Génération PDF de bilans / rapports de mission.
-- Signature électronique des rapports.
-- Support des exports Excel des balances / grands livres.
+## Backlog
+- **P1** :
+  - Twilio credentials à ajouter par le client pour activer WhatsApp.
+  - SMTP réel (ou domaine deliverable) — le proxy Resend rejette `@albarka-demo.bf` avec 422 ; les vrais clients passeront.
+  - Pagination sur listes (aujourd'hui plafond 500-1000).
+  - Rate-limit sur tentatives OTP.
+- **P2** :
+  - Envoi du rapport PDF directement au client par email depuis la fiche client.
+  - Support multi-utilisateurs par entreprise (aujourd'hui 1 tenant = 1 utilisateur).
+  - Password reset endpoint.
+  - Notifications additionnelles (upload d'une pièce, mission terminée).
+  - Export Excel des balances / grands livres.
+  - Signature électronique des rapports.
 
-## Backlog (P2 — hardening)
-- Rate-limit + capping des tentatives OTP + invalidation des sessions OTP antérieures.
-- Pagination sur toutes les listes (aujourd'hui plafond 500-1000).
-- Nettoyage des fichiers physiques lors de la suppression.
-- Validation cross-collection du `tenant_id`.
-- Password reset / rotation utilisateur.
+## Tests
+- Backend : 90/90 passent (iteration 1: 61, iteration 2: 29 nouveaux).
