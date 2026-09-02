@@ -16,14 +16,19 @@ load_dotenv(Path(__file__).parent / ".env")
 
 from albarka_auth import router as auth_router  # noqa: E402
 from albarka_admin_settings import router as admin_settings_router  # noqa: E402
+from albarka_branding import router as branding_router  # noqa: E402
 from albarka_clients import router as clients_router  # noqa: E402
+from albarka_contact_groups import router as contact_groups_router  # noqa: E402
 from albarka_contacts import router as contacts_router  # noqa: E402
+from albarka_contacts_import import router as contacts_import_router  # noqa: E402
 from albarka_dashboard import router as dashboard_router  # noqa: E402
 from albarka_documents import router as documents_router  # noqa: E402
 from albarka_echeances import router as echeances_router  # noqa: E402
 from albarka_missions import router as missions_router  # noqa: E402
+from albarka_report_templates import router as report_templates_router  # noqa: E402
 from albarka_reports_mgmt import router as reports_mgmt_router  # noqa: E402
 from albarka_reports_router import router as reports_router  # noqa: E402
+from albarka_signing import router as signing_router  # noqa: E402
 from albarka_storage import storage_mode  # noqa: E402
 from db import client as mongo_client  # noqa: E402
 
@@ -35,14 +40,19 @@ app = FastAPI(title="Portail ALBARKA — API", version="1.0.0")
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
 api_router.include_router(admin_settings_router)
+api_router.include_router(branding_router)
+api_router.include_router(signing_router)
 api_router.include_router(clients_router)
 api_router.include_router(contacts_router)
+api_router.include_router(contacts_import_router)
+api_router.include_router(contact_groups_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(documents_router)
 api_router.include_router(echeances_router)
 api_router.include_router(missions_router)
 api_router.include_router(reports_router)
 api_router.include_router(reports_mgmt_router)
+api_router.include_router(report_templates_router)
 
 
 @api_router.get("/")

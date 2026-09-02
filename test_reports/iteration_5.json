@@ -1,0 +1,42 @@
+{
+  "summary": "Frontend-only E2E validation of ALBARKA iteration 5 (8 scenarios requested). Real OTP UI login validated (dev_otp read from the amber 'Mode pilote' card, typed in the shadcn InputOTP, redirect to /admin + albarka_token stored). All iteration-5 features validated end-to-end through the public preview URL: Paramètres→Signature (certificate create 'Cabinet TEST' → shown 'Actif' → delete), Paramètres→Branding (1x1 PNG upload on kind 'logo' → listed with size/date → 'Appliquer' switch toggle persisted via PUT /admin/branding/toggles → delete), Rapports client→Modèles (create 'Test modèle standard' with is_default → star displayed → edit rename → delete), Rapports client→Rapports (client select, generate dialog exposes 'Modèle de rapport' dropdown with 'Modèle par défaut' + templates, 'Ponctuel' report generated for current month and appears in list), Contacts→Par client (sub-tabs Contacts/Groupes present, group 'Direction TEST' created with 0 members then deleted), Contacts→Importer CSV (template CSV download starts, modal closes, real CSV upload imported 1 contact and appears in list), Send-to-group (send dialog shows 'Ou envoyer à des groupes' with the created group, checkbox checkable, direct 'to' input correctly disabled when a group is selected). No console errors, no 4xx/5xx observed. All test data cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Paramètres → Branding (BrandingPanel.jsx)",
+        "issues": [
+          "No real thumbnail preview of the uploaded image: a generic grey ImageIcon placeholder is shown instead. The helper previewUrl(kind) is defined but never used (dead code) — consider fetching the authenticated image as a blob URL for a true preview."
+        ]
+      },
+      {
+        "screen": "Paramètres → Signature (CertificatesPanel.jsx)",
+        "issues": [
+          "Deleting the currently active certificate leaves the cabinet with zero active certificates (remaining cert stays 'Inactif') with no warning; PDF signing would then fail until an admin manually re-activates one. Suggest a confirm warning or auto-activation fallback."
+        ]
+      }
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_iteration5.py"],
+  "action_items": [
+    "Optional: render a real image thumbnail in BrandingPanel (or remove the unused previewUrl helper).",
+    "Optional: warn (or auto-activate a fallback) when the active signing certificate is deleted."
+  ],
+  "critical_code_review_comments": [
+    "BrandingPanel.jsx: `tokenCache`/`setTokenCache` state and `previewUrl()` are unused dead code — remove or wire up for previews.",
+    "Report numbering uses a deterministic slug + 4-char tenant hash (RAP-AMINATA35D6-...); older reports in the DB use the legacy slug (RAP-AMINATA-...), so historical numbering is inconsistent — expected, but worth noting for the client."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "100% (8/8 requested scenarios pass)"},
+  "seed_data_creation": "Temporary data created and fully removed during testing: certificate 'Cabinet TEST', branding logo tiny.png, report templates 'Test modèle standard'/'v2', contact groups 'Direction TEST' & 'Direction TEST QA', imported contact 'TEST Import Un'. One extra 'Ponctuel' report (RAP-AMINATA35D6-PONCTUEL-202609-0001) was left in place for Traoré BTP SARL as proof of generation.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "Admin@sawalismartsystems.com / Admin@Sawali2026 (OTP dev shown in the page, also returned as dev_otp by /api/auth/login)",
+  "context_for_next_testing_agent": "OTP UI login works: the shadcn InputOTP element itself carries data-testid='otp-input' (it IS the <input>), so click it and page.keyboard.type(code) — there are no per-digit inputs matching '[data-testid=\"otp-input\"] input'. dev_otp digits can be extracted from [data-testid='dev-otp-hint'] text. Faster path: set localStorage 'albarka_token' with a JWT obtained from /api/auth/login + /api/auth/verify-otp then navigate to /admin/*. All delete actions use window.confirm → register page.on('dialog', accept). Iteration-5 UI is fully functional; next focus could be PDF content verification (branding applied, template intro/conclusion) and the pyHanko signing flow.",
+  "rca_of_the_issue": "No functional defect found in iteration 5 frontend."
+}

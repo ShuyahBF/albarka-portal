@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Save, Send, Building, MessageCircle, Bell, Hash } from "lucide-react";
+import { Save, Send, Building, MessageCircle, Bell, Hash, KeyRound, Image as ImageIcon } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import CertificatesPanel from "@/pages/admin/CertificatesPanel";
+import BrandingPanel from "@/pages/admin/BrandingPanel";
 
 const FIELDS_TABS = ["cabinet", "whatsapp", "notifications", "rapports"];
 
@@ -86,6 +88,12 @@ export default function AdminSettings() {
           </TabsTrigger>
           <TabsTrigger value="rapports" data-testid="tab-rapports">
             <Hash className="w-4 h-4 mr-1.5" /> Rapports
+          </TabsTrigger>
+          <TabsTrigger value="branding" data-testid="tab-branding">
+            <ImageIcon className="w-4 h-4 mr-1.5" /> Branding
+          </TabsTrigger>
+          <TabsTrigger value="signature" data-testid="tab-signature">
+            <KeyRound className="w-4 h-4 mr-1.5" /> Signature
           </TabsTrigger>
         </TabsList>
 
@@ -333,6 +341,16 @@ export default function AdminSettings() {
               Enregistrer
             </Button>
           </div>
+        </TabsContent>
+
+        {/* --- BRANDING --- */}
+        <TabsContent value="branding" className="pt-6">
+          <BrandingPanel />
+        </TabsContent>
+
+        {/* --- SIGNATURE --- */}
+        <TabsContent value="signature" className="pt-6">
+          <CertificatesPanel />
         </TabsContent>
       </Tabs>
     </div>

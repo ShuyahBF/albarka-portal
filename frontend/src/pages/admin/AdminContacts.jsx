@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Star, Trash2, Pencil, Users, Building } from "lucide-react";
+import { Plus, Star, Trash2, Pencil, Users, Building, Users2, Contact as ContactIcon } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import ImportContactsButton from "@/pages/admin/ImportContactsButton";
+import { ContactGroupsPanel } from "@/pages/admin/ContactGroupsPanel";
 
 const FUNCTIONS = [
   { value: "dg", label: "Directeur Général" },
@@ -149,13 +151,16 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
                 : "Interlocuteurs externes récurrents : impôts, banques, avocats…"}
             </div>
           </div>
-          <Button
-            onClick={openNew}
-            className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
-            data-testid={`add-contact-${scope}-btn`}
-          >
-            <Plus className="w-4 h-4 mr-2" />Ajouter
-          </Button>
+          <div className="flex gap-2">
+            <ImportContactsButton scope={scope} tenantId={tenantId} onDone={load} />
+            <Button
+              onClick={openNew}
+              className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
+              data-testid={`add-contact-${scope}-btn`}
+            >
+              <Plus className="w-4 h-4 mr-2" />Ajouter
+            </Button>
+          </div>
         </div>
       )}
 
@@ -327,10 +332,42 @@ export default function AdminContacts() {
               </SelectContent>
             </Select>
           </div>
-          {selected && <ContactsPanel scope="client" tenantId={selected} />}
+          {selected && (
+            <Tabs defaultValue="contacts">
+              <TabsList data-testid="client-contacts-tabs">
+                <TabsTrigger value="contacts" data-testid="tab-client-contacts">
+                  <ContactIcon className="w-4 h-4 mr-2" />Contacts
+                </TabsTrigger>
+                <TabsTrigger value="groups" data-testid="tab-client-groups">
+                  <Users2 className="w-4 h-4 mr-2" />Groupes
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="contacts" className="pt-4">
+                <ContactsPanel scope="client" tenantId={selected} />
+              </TabsContent>
+              <TabsContent value="groups" className="pt-4">
+                <ContactGroupsPanel scope="client" tenantId={selected} />
+              </TabsContent>
+            </Tabs>
+          )}
         </TabsContent>
         <TabsContent value="cabinet" className="pt-4">
-          <ContactsPanel scope="cabinet" />
+          <Tabs defaultValue="contacts">
+            <TabsList data-testid="cabinet-contacts-tabs">
+              <TabsTrigger value="contacts" data-testid="tab-cabinet-contacts">
+                <ContactIcon className="w-4 h-4 mr-2" />Contacts
+              </TabsTrigger>
+              <TabsTrigger value="groups" data-testid="tab-cabinet-groups">
+                <Users2 className="w-4 h-4 mr-2" />Groupes
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="contacts" className="pt-4">
+              <ContactsPanel scope="cabinet" />
+            </TabsContent>
+            <TabsContent value="groups" className="pt-4">
+              <ContactGroupsPanel scope="cabinet" />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
     </div>

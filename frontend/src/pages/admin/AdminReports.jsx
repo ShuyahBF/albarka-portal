@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FileDown, Send, PenTool, Trash2, Plus, Search, Calendar as CalIcon } from "lucide-react";
+import { FileDown, Send, PenTool, Trash2, Plus, Search, Calendar as CalIcon, FileText as FileTextIcon, Users2 } from "lucide-react";
 import { apiClient, extractError, API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
@@ -15,6 +16,8 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import ReportTemplatesPanel from "@/pages/admin/ReportTemplatesPanel";
 
 const REPORT_KINDS = [
   { value: "mensuel", label: "Rapport mensuel" },
@@ -40,10 +43,26 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
   const [active, setActive] = useState(null);
   const [kind, setKind] = useState("mensuel");
   const [month, setMonth] = useState(currentMonth());
+  const [templateId, setTemplateId] = useState("");
+  const [templates, setTemplates] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [filterMonth, setFilterMonth] = useState("all");
   const [filterKind, setFilterKind] = useState("all");
-  const [sendForm, setSendForm] = useState({ to: "", subject: "", message: "" });
+  const [sendForm, setSendForm] = useState({ to: "", subject: "", message: "", to_groups: [] });
   const [signForm, setSignForm] = useState({ signature_name: "", signature_provider: "", signature_reference: "" });
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [{ data: t }, { data: g }] = await Promise.all([
+          apiClient.get("/report-templates"),
+          apiClient.get("/contact-groups", { params: { scope: "client", tenant_id: tenantId } }),
+        ]);
+        setTemplates(t);
+        setGroups(g);
+      } catch (err) { /* silent — panels still work */ }
+    })();
+  }, [tenantId]);
 
   const load = async () => {
     setLoading(true);
@@ -69,7 +88,9 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
   const generate = async () => {
     if (!kind || !month) return;
     try {
-      const { data } = await apiClient.post(`/reports/client/${tenantId}/generate`, { kind, period_month: month });
+      const payload = { kind, period_month: month };
+      if (templateId) payload.template_id = templateId;
+      const { data } = await apiClient.post(`/reports/client/${tenantId}/generate`, payload);
       toast.success(`Rapport ${data.number} généré`);
       setGenOpen(false);
       await load();
@@ -101,19 +122,35 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
       to: clientEmail || "",
       subject: `${r.kind_label} — ${r.number}`,
       message: "",
+      to_groups: [],
     });
     setSendOpen(true);
   };
 
   const doSend = async () => {
     try {
-      const { data } = await apiClient.post(`/reports/${active.id}/send`, sendForm);
-      toast.success(`Envoyé à ${data.to}`);
+      const payload = {
+        subject: sendForm.subject, message: sendForm.message,
+      };
+      if (sendForm.to_groups.length > 0) {
+        payload.to_groups = sendForm.to_groups;
+      } else if (sendForm.to) {
+        payload.to = sendForm.to;
+      }
+      const { data } = await apiClient.post(`/reports/${active.id}/send`, payload);
+      toast.success(`Envoyé à ${data.to.join(", ")}`);
       setSendOpen(false);
       await load();
     } catch (err) {
       toast.error(extractError(err));
     }
+  };
+
+  const toggleSendGroup = (id) => {
+    setSendForm((f) => ({
+      ...f,
+      to_groups: f.to_groups.includes(id) ? f.to_groups.filter((x) => x !== id) : [...f.to_groups, id],
+    }));
   };
 
   const openSign = (r) => {
@@ -256,6 +293,23 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
               <Label>Mois (YYYY-MM)</Label>
               <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="gen-month-input" />
             </div>
+            <div>
+              <Label>Modèle de rapport (optionnel)</Label>
+              <Select value={templateId || "__default__"} onValueChange={(v) => setTemplateId(v === "__default__" ? "" : v)}>
+                <SelectTrigger data-testid="gen-template-select"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__default__">Modèle par défaut</SelectItem>
+                  {templates.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}{t.is_default ? " ★" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="text-xs text-muted-foreground mt-1">
+                Contrôle les sections, l'intro et la conclusion imprimées.
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setGenOpen(false)}>Annuler</Button>
@@ -269,7 +323,24 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
         <DialogContent data-testid="send-report-dialog">
           <DialogHeader><DialogTitle>Envoyer le rapport par email</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div><Label>Destinataire</Label><Input value={sendForm.to} onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })} data-testid="send-to-input" /></div>
+            <div>
+              <Label>Destinataire direct</Label>
+              <Input value={sendForm.to} onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })} placeholder="email@exemple.com" disabled={sendForm.to_groups.length > 0} data-testid="send-to-input" />
+            </div>
+            {groups.length > 0 && (
+              <div>
+                <Label className="flex items-center gap-1"><Users2 className="w-4 h-4" /> Ou envoyer à des groupes ({sendForm.to_groups.length} sélectionnés)</Label>
+                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto border rounded-md p-2">
+                  {groups.map((g) => (
+                    <label key={g.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox checked={sendForm.to_groups.includes(g.id)} onCheckedChange={() => toggleSendGroup(g.id)} data-testid={`send-group-${g.id}`} />
+                      <span className="font-medium">{g.name}</span>
+                      <span className="text-xs text-muted-foreground">({(g.contact_ids || []).length} membres)</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             <div><Label>Objet</Label><Input value={sendForm.subject} onChange={(e) => setSendForm({ ...sendForm, subject: e.target.value })} data-testid="send-subject-input" /></div>
             <div><Label>Message (optionnel)</Label><Textarea rows={4} value={sendForm.message} onChange={(e) => setSendForm({ ...sendForm, message: e.target.value })} data-testid="send-message-input" /></div>
             <div className="text-xs text-muted-foreground">Le rapport PDF sera joint automatiquement.</div>
@@ -357,58 +428,73 @@ export default function AdminReports() {
         </p>
       </div>
 
-      {!selectedClient ? (
-        <>
-          <div className="albarka-card p-4">
-            <div className="relative max-w-md">
-              <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
-              <Input placeholder="Rechercher un client…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="reports-search-input" />
+      <Tabs defaultValue="reports">
+        <TabsList data-testid="reports-tabs">
+          <TabsTrigger value="reports" data-testid="tab-reports">Rapports</TabsTrigger>
+          <TabsTrigger value="templates" data-testid="tab-templates">
+            <FileTextIcon className="w-4 h-4 mr-2" />Modèles
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="reports" className="pt-4">
+          {!selectedClient ? (
+            <>
+              <div className="albarka-card p-4">
+                <div className="relative max-w-md">
+                  <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                  <Input placeholder="Rechercher un client…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="reports-search-input" />
+                </div>
+              </div>
+              <div className="albarka-card overflow-hidden mt-4">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Client</TableHead>
+                      <TableHead>Entreprise</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead className="text-right">Rapports</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+                    {!loading && filtered.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
+                    {filtered.map((c) => (
+                      <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
+                        <TableCell className="font-medium">{c.full_name}</TableCell>
+                        <TableCell className="text-sm">{c.company || "—"}</TableCell>
+                        <TableCell className="text-sm">{c.email}</TableCell>
+                        <TableCell className="text-right">
+                          <Button size="sm" onClick={() => setSelectedClient(c)} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid={`open-reports-${c.id}`}>
+                            Ouvrir
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-muted-foreground">Rapports de</div>
+                  <div className="font-display text-2xl">{selectedClient.full_name}</div>
+                  {selectedClient.company && <div className="text-sm text-muted-foreground">{selectedClient.company}</div>}
+                </div>
+                <Button variant="outline" onClick={() => setSelectedClient(null)} data-testid="back-to-client-list-btn">
+                  ← Retour à la liste
+                </Button>
+              </div>
+              <ClientReportsPanel tenantId={selectedClient.id} clientEmail={selectedClient.email} />
             </div>
-          </div>
-          <div className="albarka-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Client</TableHead>
-                  <TableHead>Entreprise</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead className="text-right">Rapports</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-                {!loading && filtered.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
-                {filtered.map((c) => (
-                  <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
-                    <TableCell className="font-medium">{c.full_name}</TableCell>
-                    <TableCell className="text-sm">{c.company || "—"}</TableCell>
-                    <TableCell className="text-sm">{c.email}</TableCell>
-                    <TableCell className="text-right">
-                      <Button size="sm" onClick={() => setSelectedClient(c)} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid={`open-reports-${c.id}`}>
-                        Ouvrir
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </>
-      ) : (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs text-muted-foreground">Rapports de</div>
-              <div className="font-display text-2xl">{selectedClient.full_name}</div>
-              {selectedClient.company && <div className="text-sm text-muted-foreground">{selectedClient.company}</div>}
-            </div>
-            <Button variant="outline" onClick={() => setSelectedClient(null)} data-testid="back-to-client-list-btn">
-              ← Retour à la liste
-            </Button>
-          </div>
-          <ClientReportsPanel tenantId={selectedClient.id} clientEmail={selectedClient.email} />
-        </div>
-      )}
+          )}
+        </TabsContent>
+
+        <TabsContent value="templates" className="pt-4">
+          <ReportTemplatesPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
