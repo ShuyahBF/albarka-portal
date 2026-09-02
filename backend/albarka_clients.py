@@ -21,6 +21,7 @@ class ClientCreate(BaseModel):
     company: Optional[str] = None
     phone: Optional[str] = None
     password: str = Field(..., min_length=8)
+    can_receive_notifications: bool = True
 
 
 class StaffCreate(BaseModel):
@@ -30,6 +31,7 @@ class StaffCreate(BaseModel):
     company: Optional[str] = None
     phone: Optional[str] = None
     password: str = Field(..., min_length=8)
+    can_receive_notifications: bool = True
 
     @field_validator("roles")
     @classmethod
@@ -47,6 +49,17 @@ class UserUpdate(BaseModel):
     company: Optional[str] = None
     phone: Optional[str] = None
     is_active: Optional[bool] = None
+    can_receive_notifications: Optional[bool] = None
+    roles: Optional[List[str]] = None
+
+    @field_validator("roles")
+    @classmethod
+    def _valid_roles(cls, v):
+        if v is None: return v
+        unknown = set(v) - set(ALBARKA_ROLES)
+        if unknown:
+            raise ValueError(f"Rôle(s) invalide(s) : {sorted(unknown)}")
+        return v
 
 
 def _public(user: dict) -> dict:
@@ -84,6 +97,7 @@ async def create_client(payload: ClientCreate, user: dict = Depends(require_staf
         "company": payload.company,
         "phone": payload.phone,
         "is_active": True,
+        "can_receive_notifications": payload.can_receive_notifications,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "last_login": None,
     }
@@ -105,6 +119,7 @@ async def create_staff(payload: StaffCreate, user: dict = Depends(require_staff(
         "company": payload.company,
         "phone": payload.phone,
         "is_active": True,
+        "can_receive_notifications": payload.can_receive_notifications,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "last_login": None,
     }

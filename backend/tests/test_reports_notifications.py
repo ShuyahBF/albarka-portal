@@ -54,7 +54,6 @@ class TestClientReportPdf:
         text = "\n".join(p.get_text() for p in doc)
         doc.close()
         assert "CABINET ALBARKA" in text.upper()
-        assert "RAPPORT CLIENT" in text.upper()
         assert u1["full_name"] in text, f"client name missing in PDF; got {text[:400]!r}"
 
     def test_report_as_comptable_multirole(self, comptable, client2):
@@ -231,12 +230,37 @@ class TestNotificationPipelineE2E:
         # blocks the fake @albarka-demo.bf domain (422 undeliverable_recipient).
         # Transport itself is verified in TestEmailTransport below.
 
-        # second run same day -> deduped, nothing re-sent
+        # Iteration-3 behaviour change: the dedup row is now only written when a
+        # channel actually delivered, so a failed send (422 for @albarka-demo.bf)
+        # is retried on the next tick instead of being silently suppressed.
         r2 = s.post(f"{API}/cron/notify-echeances/_trigger", timeout=180)
         assert r2.status_code == 200
         st2 = r2.json()["stats"]
-        assert st2["processed"] == 0, f"dedup failed, re-processed: {st2}"
+        assert st2["processed"] >= 1, f"failed send should be retried, got {st2}"
         assert st2["email_sent"] == 0, st2
+
+    def test_dedup_row_suppresses_resend(self, superviseur, j7_echeance):
+        """When a dedup row exists (successful send), the échéance is skipped."""
+        import os
+
+        from dotenv import dotenv_values
+        from pymongo import MongoClient
+        env = dotenv_values("/app/backend/.env")
+        cli = MongoClient(os.environ.get("MONGO_URL") or env["MONGO_URL"])
+        db = cli[os.environ.get("DB_NAME") or env["DB_NAME"]]
+        today = datetime.now(timezone.utc).date().isoformat()
+        keys = [f"{j7_echeance}:{d}:{today}" for d in (7, 1, 0, -1)]
+        db.notification_log.insert_many([
+            {"key": k, "echeance_id": j7_echeance, "created_at": today} for k in keys
+        ])
+        try:
+            s, _ = superviseur
+            r = s.post(f"{API}/cron/notify-echeances/_trigger", timeout=180)
+            assert r.status_code == 200, r.text[:300]
+            assert r.json()["stats"]["processed"] == 0, r.json()
+        finally:
+            db.notification_log.delete_many({"echeance_id": j7_echeance})
+            cli.close()
 
 
 # ---------------- Email transport (Emergent Resend proxy) ----------------
@@ -256,7 +280,7 @@ class TestEmailTransport:
             full_name="TEST Client",
             echeance={"title": "TVA", "type": "tva", "due_date": "2026-09-09",
                       "period": "2026-08", "amount": 250000},
-            days_left=7,
+            days_left=7, cabinet_name="Cabinet ALBARKA",
         )
         eid = asyncio.run(an.send_email(
             to="delivered@resend.dev", subject="TEST Rappel d'echeance (J-7)", html=html,

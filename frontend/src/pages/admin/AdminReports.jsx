@@ -1,17 +1,329 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FileDown, Send, Search } from "lucide-react";
+import { FileDown, Send, PenTool, Trash2, Plus, Search, Calendar as CalIcon } from "lucide-react";
 import { apiClient, extractError, API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
 
+const REPORT_KINDS = [
+  { value: "mensuel", label: "Rapport mensuel" },
+  { value: "trimestriel", label: "Rapport trimestriel" },
+  { value: "annuel", label: "Rapport annuel" },
+  { value: "audit", label: "Rapport d'audit" },
+  { value: "conseil", label: "Note de conseil" },
+  { value: "ponctuel", label: "Rapport ponctuel" },
+];
+
+function currentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+/** Client reports panel — filter by month, generate, download, send, sign. */
+export function ClientReportsPanel({ tenantId, clientEmail }) {
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [genOpen, setGenOpen] = useState(false);
+  const [sendOpen, setSendOpen] = useState(false);
+  const [signOpen, setSignOpen] = useState(false);
+  const [active, setActive] = useState(null);
+  const [kind, setKind] = useState("mensuel");
+  const [month, setMonth] = useState(currentMonth());
+  const [filterMonth, setFilterMonth] = useState("all");
+  const [filterKind, setFilterKind] = useState("all");
+  const [sendForm, setSendForm] = useState({ to: "", subject: "", message: "" });
+  const [signForm, setSignForm] = useState({ signature_name: "", signature_provider: "", signature_reference: "" });
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params = {};
+      if (filterMonth !== "all") params.month_key = filterMonth;
+      if (filterKind !== "all") params.kind = filterKind;
+      const { data } = await apiClient.get(`/reports/client/${tenantId}/list`, { params });
+      setReports(data);
+    } catch (err) {
+      toast.error(extractError(err));
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, [tenantId, filterMonth, filterKind]);
+
+  // Distinct months available in this client's reports (for the filter dropdown).
+  const availableMonths = useMemo(() => {
+    const s = new Set(reports.map((r) => r.month_key));
+    return Array.from(s).sort().reverse();
+  }, [reports]);
+
+  const generate = async () => {
+    if (!kind || !month) return;
+    try {
+      const { data } = await apiClient.post(`/reports/client/${tenantId}/generate`, { kind, period_month: month });
+      toast.success(`Rapport ${data.number} généré`);
+      setGenOpen(false);
+      await load();
+    } catch (err) {
+      toast.error(extractError(err));
+    }
+  };
+
+  const download = async (r) => {
+    try {
+      const token = localStorage.getItem("albarka_token");
+      const res = await fetch(`${API}/reports/${r.id}/download`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Échec téléchargement");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${r.number}.pdf`; a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const openSend = (r) => {
+    setActive(r);
+    setSendForm({
+      to: clientEmail || "",
+      subject: `${r.kind_label} — ${r.number}`,
+      message: "",
+    });
+    setSendOpen(true);
+  };
+
+  const doSend = async () => {
+    try {
+      const { data } = await apiClient.post(`/reports/${active.id}/send`, sendForm);
+      toast.success(`Envoyé à ${data.to}`);
+      setSendOpen(false);
+      await load();
+    } catch (err) {
+      toast.error(extractError(err));
+    }
+  };
+
+  const openSign = (r) => {
+    setActive(r);
+    setSignForm({ signature_name: "", signature_provider: "cabinet_seal", signature_reference: "" });
+    setSignOpen(true);
+  };
+
+  const doSign = async () => {
+    try {
+      await apiClient.post(`/reports/${active.id}/sign`, signForm);
+      toast.success("Rapport signé");
+      setSignOpen(false);
+      await load();
+    } catch (err) {
+      toast.error(extractError(err));
+    }
+  };
+
+  const del = async (r) => {
+    if (!window.confirm(`Supprimer le rapport ${r.number} ?`)) return;
+    try {
+      await apiClient.delete(`/reports/${r.id}`);
+      toast.success("Supprimé");
+      await load();
+    } catch (err) {
+      toast.error(extractError(err));
+    }
+  };
+
+  return (
+    <div className="space-y-4" data-testid="client-reports-panel">
+      <div className="flex flex-col md:flex-row md:items-end gap-3 md:justify-between">
+        <div className="flex gap-2 items-end flex-wrap">
+          <div>
+            <Label className="text-xs">Mois</Label>
+            <Select value={filterMonth} onValueChange={setFilterMonth}>
+              <SelectTrigger className="w-40 h-9" data-testid="filter-month-select"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous les mois</SelectItem>
+                {availableMonths.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Type</Label>
+            <Select value={filterKind} onValueChange={setFilterKind}>
+              <SelectTrigger className="w-48 h-9" data-testid="filter-kind-select"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tous types</SelectItem>
+                {REPORT_KINDS.map((k) => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <Button
+          onClick={() => { setKind("mensuel"); setMonth(currentMonth()); setGenOpen(true); }}
+          className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
+          data-testid="generate-report-btn"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Générer un rapport
+        </Button>
+      </div>
+
+      <div className="albarka-card overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>N° Rapport</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Période</TableHead>
+              <TableHead>Généré le</TableHead>
+              <TableHead>État</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+            {!loading && reports.length === 0 && (
+              <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                Aucun rapport encore généré pour ce client.
+              </TableCell></TableRow>
+            )}
+            {reports.map((r) => (
+              <TableRow key={r.id} className="hover:bg-[#0F6B4A]/5">
+                <TableCell className="font-mono text-xs">{r.number}</TableCell>
+                <TableCell className="text-sm">{r.kind_label}</TableCell>
+                <TableCell className="text-sm">{r.month_key}</TableCell>
+                <TableCell className="text-sm">{r.generated_at?.slice(0, 10)}</TableCell>
+                <TableCell>
+                  <div className="flex flex-col gap-1">
+                    {r.signed
+                      ? <span className="albarka-chip bg-emerald-100 text-emerald-800">Signé</span>
+                      : <span className="albarka-chip bg-slate-100 text-slate-600">Non signé</span>}
+                    {r.email_sent_at
+                      ? <span className="text-[10px] text-muted-foreground">✉︎ envoyé le {r.email_sent_at?.slice(0, 10)}</span>
+                      : <span className="text-[10px] text-muted-foreground">Non envoyé</span>}
+                  </div>
+                </TableCell>
+                <TableCell className="text-right whitespace-nowrap">
+                  <Button variant="ghost" size="sm" onClick={() => download(r)} title="Télécharger" data-testid={`report-download-${r.id}`}>
+                    <FileDown className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => openSend(r)} title="Envoyer par email" data-testid={`report-send-${r.id}`}>
+                    <Send className="w-4 h-4 text-[#0F6B4A]" />
+                  </Button>
+                  {!r.signed && (
+                    <Button variant="ghost" size="sm" onClick={() => openSign(r)} title="Signer" data-testid={`report-sign-${r.id}`}>
+                      <PenTool className="w-4 h-4 text-[#E5A24B]" />
+                    </Button>
+                  )}
+                  {!r.signed && (
+                    <Button variant="ghost" size="sm" onClick={() => del(r)} title="Supprimer" data-testid={`report-delete-${r.id}`}>
+                      <Trash2 className="w-4 h-4 text-red-600" />
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Generate dialog */}
+      <Dialog open={genOpen} onOpenChange={setGenOpen}>
+        <DialogContent data-testid="generate-report-dialog">
+          <DialogHeader><DialogTitle>Générer un rapport</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Type de rapport</Label>
+              <Select value={kind} onValueChange={setKind}>
+                <SelectTrigger data-testid="gen-kind-select"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {REPORT_KINDS.map((k) => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Mois (YYYY-MM)</Label>
+              <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="gen-month-input" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setGenOpen(false)}>Annuler</Button>
+            <Button onClick={generate} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="gen-submit-btn">Générer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Send dialog */}
+      <Dialog open={sendOpen} onOpenChange={setSendOpen}>
+        <DialogContent data-testid="send-report-dialog">
+          <DialogHeader><DialogTitle>Envoyer le rapport par email</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Destinataire</Label><Input value={sendForm.to} onChange={(e) => setSendForm({ ...sendForm, to: e.target.value })} data-testid="send-to-input" /></div>
+            <div><Label>Objet</Label><Input value={sendForm.subject} onChange={(e) => setSendForm({ ...sendForm, subject: e.target.value })} data-testid="send-subject-input" /></div>
+            <div><Label>Message (optionnel)</Label><Textarea rows={4} value={sendForm.message} onChange={(e) => setSendForm({ ...sendForm, message: e.target.value })} data-testid="send-message-input" /></div>
+            <div className="text-xs text-muted-foreground">Le rapport PDF sera joint automatiquement.</div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSendOpen(false)}>Annuler</Button>
+            <Button onClick={doSend} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="send-submit-btn">
+              <Send className="w-4 h-4 mr-2" />Envoyer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sign dialog */}
+      <Dialog open={signOpen} onOpenChange={setSignOpen}>
+        <DialogContent data-testid="sign-report-dialog">
+          <DialogHeader><DialogTitle>Signer le rapport</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><Label>Nom du signataire</Label><Input value={signForm.signature_name} onChange={(e) => setSignForm({ ...signForm, signature_name: e.target.value })} data-testid="sign-name-input" /></div>
+            <div>
+              <Label>Type de signature</Label>
+              <Select value={signForm.signature_provider} onValueChange={(v) => setSignForm({ ...signForm, signature_provider: v })}>
+                <SelectTrigger data-testid="sign-provider-select"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cabinet_seal">Sceau du cabinet</SelectItem>
+                  <SelectItem value="qualified">Signature qualifiée (eIDAS)</SelectItem>
+                  <SelectItem value="advanced">Signature avancée</SelectItem>
+                  <SelectItem value="handwritten">Manuscrite scannée</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>Référence externe (optionnel)</Label><Input value={signForm.signature_reference} onChange={(e) => setSignForm({ ...signForm, signature_reference: e.target.value })} placeholder="ex: identifiant DocuSign, hash…" data-testid="sign-ref-input" /></div>
+            <div className="text-xs text-muted-foreground">
+              Enregistre les métadonnées de signature du rapport. Le câblage au service de signature externe se fait via <span className="font-mono">signature_provider</span>/<span className="font-mono">signature_reference</span>.
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSignOpen(false)}>Annuler</Button>
+            <Button onClick={doSign} className="bg-[#E5A24B] hover:bg-[#c8871a] text-[#0B1912]" data-testid="sign-submit-btn">
+              <PenTool className="w-4 h-4 mr-2" />Signer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/** Global "Rapports client" page — list of clients with quick access. */
 export default function AdminReports() {
   const [clients, setClients] = useState([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
+  const [selectedClient, setSelectedClient] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -34,85 +346,69 @@ export default function AdminReports() {
     );
   });
 
-  const downloadReport = async (client) => {
-    try {
-      const token = localStorage.getItem("albarka_token");
-      const res = await fetch(`${API}/reports/client/${client.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error("Échec génération PDF");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `rapport-albarka-${(client.full_name || "client").replace(/\s+/g, "_")}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success("Rapport téléchargé");
-    } catch (err) {
-      toast.error(err.message || "Erreur");
-    }
-  };
-
   return (
     <div className="space-y-6" data-testid="admin-reports-page">
       <div>
         <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
         <h1 className="font-display text-3xl md:text-4xl text-foreground">Rapports client</h1>
         <p className="text-muted-foreground mt-1 max-w-2xl">
-          Génération PDF d'une synthèse à jour du dossier client : missions, échéances,
-          pièces déposées et analyses IA. Le rapport peut être envoyé au client par email
-          depuis la fiche client.
+          Génération, envoi par email et signature des rapports. Numérotation
+          automatique : <span className="font-mono">PREFIXE-CLIENT-TYPE-YYYYMM-NNNN</span>.
         </p>
       </div>
 
-      <div className="albarka-card p-4">
-        <div className="relative max-w-md">
-          <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
-          <Input
-            placeholder="Rechercher un client…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="pl-9"
-            data-testid="reports-search-input"
-          />
+      {!selectedClient ? (
+        <>
+          <div className="albarka-card p-4">
+            <div className="relative max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+              <Input placeholder="Rechercher un client…" value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" data-testid="reports-search-input" />
+            </div>
+          </div>
+          <div className="albarka-card overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Client</TableHead>
+                  <TableHead>Entreprise</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead className="text-right">Rapports</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {loading && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+                {!loading && filtered.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
+                {filtered.map((c) => (
+                  <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
+                    <TableCell className="font-medium">{c.full_name}</TableCell>
+                    <TableCell className="text-sm">{c.company || "—"}</TableCell>
+                    <TableCell className="text-sm">{c.email}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" onClick={() => setSelectedClient(c)} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid={`open-reports-${c.id}`}>
+                        Ouvrir
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs text-muted-foreground">Rapports de</div>
+              <div className="font-display text-2xl">{selectedClient.full_name}</div>
+              {selectedClient.company && <div className="text-sm text-muted-foreground">{selectedClient.company}</div>}
+            </div>
+            <Button variant="outline" onClick={() => setSelectedClient(null)} data-testid="back-to-client-list-btn">
+              ← Retour à la liste
+            </Button>
+          </div>
+          <ClientReportsPanel tenantId={selectedClient.id} clientEmail={selectedClient.email} />
         </div>
-      </div>
-
-      <div className="albarka-card overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Client</TableHead>
-              <TableHead>Entreprise</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && filtered.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
-            {filtered.map((c) => (
-              <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
-                <TableCell className="font-medium">{c.full_name}</TableCell>
-                <TableCell className="text-sm">{c.company || "—"}</TableCell>
-                <TableCell className="text-sm">{c.email}</TableCell>
-                <TableCell className="text-right">
-                  <Button
-                    size="sm"
-                    onClick={() => downloadReport(c)}
-                    className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
-                    data-testid={`download-report-${c.id}`}
-                  >
-                    <FileDown className="w-4 h-4 mr-2" />
-                    PDF
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      )}
     </div>
   );
 }

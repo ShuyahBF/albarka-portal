@@ -29,6 +29,7 @@ export default function AdminStaff() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     email: "", full_name: "", phone: "", password: "", roles: ["comptable"],
+    can_receive_notifications: true,
   });
 
   const load = async () => {
@@ -57,7 +58,7 @@ export default function AdminStaff() {
       await apiClient.post("/clients/staff", form);
       toast.success("Collaborateur créé");
       setOpen(false);
-      setForm({ email: "", full_name: "", phone: "", password: "", roles: ["comptable"] });
+      setForm({ email: "", full_name: "", phone: "", password: "", roles: ["comptable"], can_receive_notifications: true });
       await load();
     } catch (err) {
       toast.error(extractError(err));
@@ -100,6 +101,14 @@ export default function AdminStaff() {
                   ))}
                 </div>
               </div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer pt-1">
+                <Checkbox
+                  checked={form.can_receive_notifications}
+                  onCheckedChange={(v) => setForm({ ...form, can_receive_notifications: !!v })}
+                  data-testid="staff-notif-checkbox"
+                />
+                <span>Autoriser la réception des notifications (dépôts, échéances, rapports…)</span>
+              </label>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>

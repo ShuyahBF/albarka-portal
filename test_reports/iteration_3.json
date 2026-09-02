@@ -1,0 +1,99 @@
+{
+  "summary": "Iteration 3 backend-only testing of Portail ALBARKA. Added /app/backend/tests/test_iteration3.py (39 new tests) covering: the seeded Admin@sawalismartsystems.com account (login + OTP -> roles ['direction','superviseur']), admin settings GET/PUT/RBAC + masking of wa_access_token, WhatsApp Meta Cloud API guarding (wa/test with wa_enabled=false -> {ok:false,message_id:null}), report numbering PREFIX-CLIENT-TYPE-YYYYMM-NNNN with per-client/per-type/per-month sequences, report list (sort desc + month_key/kind filters), PDF download (headers + parsed content containing number/kind/period), send-by-email with base64 PDF attachment, sign/double-sign/delete rules, tenant isolation on list/download/sign/delete, notify_upload firing on client uploads (confirmed in backend logs: emails attempted to superviseur, comptable and admin), the can_receive_notifications gate on notify_echeance and the Mongo staff filter, and the can_receive_notifications field on client create/patch. Full suite result: 130 tests, 129 passing. The single failure (TestEmailTransport::test_notify_echeance_skips_whatsapp_silently) is the Emergent Resend proxy returning HTTP 429 'email rate limit exceeded' because the suite itself (notify_upload fans out one email per staff member on every upload + cron trigger + 2 transport tests + report send) exceeds the proxy quota; the same call succeeds after the quota window resets (verified 202 + message id). Report send WITH the base64 PDF attachment works (returns a real Resend message id and persists email_sent_at/email_sent_to). Two stale iteration-2 assertions were updated (PDF header text changed; dedup row is now only written on successful send, so a failed send is retried - I added a positive dedup test instead). Two genuine defects found: (1) report numbers collide across different clients whose names share the first 7 letters (proved: two clients both got RAP-SAWADOG-MENSUEL-203201-0001); (2) the iteration-2 CRITICAL cron auth mismatch is still unfixed - crons.yml has no Authorization header and POST /api/cron/notify-echeances without a header still returns 401.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/reports/client/{tenant_id}/generate",
+        "issue": "Report numbers are NOT unique across clients. _client_slug() takes only the first 7 alphabetic chars of full_name while the counter is keyed on tenant_id, so two distinct clients whose names share those 7 letters produce the exact same number. Reproduced: clients 'Sawadogo Alpha QA' and 'Sawadogo Beta QA' both received 'RAP-SAWADOG-MENSUEL-203201-0001'. For an accounting deliverable this is a compliance problem. Fix: include a per-client stable discriminator (client code / short id) in the slug, or add a unique index on client_reports.number and retry on collision.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "/api/cron/notify-echeances (via /app/.emergent/crons.yml)",
+        "issue": "STILL UNFIXED from iteration 2. crons.yml declares no headers, but the endpoint requires 'Authorization: Bearer <WEBHOOK_CRON_SECRET>'. Re-verified now: POST without header -> 401 {'detail':'Auth manquante'}. The 07:00 UTC job will 401 forever and no reminder will ever be sent in production.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/reports/{id}/send",
+        "issue": "This endpoint re-implements the Resend proxy call inline instead of reusing albarka_notifications.send_email, so the email guardrails (_assert_safe_email: no forms, no credential asks, https-only links, anchor-host match) are BYPASSED for report emails. Route the payload through a shared helper that runs the guardrails and adds the attachment."
+      },
+      {
+        "endpoint": "notify_upload (POST /api/documents as client)",
+        "issue": "Fans out one sequential Resend call per staff member on every single upload, with no batching, no 429 handling and no retry (errors are swallowed by send_email). This is what tripped the proxy's 'email rate limit exceeded' (429) during the suite. Use one message with multiple recipients/BCC, or a queue with backoff."
+      },
+      {
+        "endpoint": "DELETE /api/reports/{id}",
+        "issue": "Deletes only the Mongo document; the archived PDF at albarka/{tenant}/reports/{month}/{number}.pdf is left orphaned in R2/local storage forever. Also the report_series counter is not decremented (acceptable) so numbers are consumed by deleted drafts."
+      },
+      {
+        "endpoint": "POST /api/admin/settings/wa/test",
+        "issue": "Returns {ok:false, message_id:null} with no reason. An admin cannot distinguish 'wa_enabled=false', 'missing token/phone id' and 'Meta rejected the token' - all three paths return the same body while the real error is only in the server log. Return a short diagnostic message."
+      },
+      {
+        "endpoint": "PUT /api/admin/settings",
+        "issue": "report_prefix has only max_length=10 and no pattern; setting 'rap 1' or 'r@p' produces numbers that no longer match the documented ^RAP-[A-Z]+-... contract. Validate with pattern ^[A-Z]{2,10}$ (and uppercase it)."
+      },
+      {
+        "endpoint": "GET /api/reports/client/{tenant_id} (legacy PDF route)",
+        "issue": "Since build_client_report_pdf gained header_number/report_kind_label/month_key, the legacy route passes none of them, so the produced PDF now has no title/type at all in its header (only 'CABINET ALBARKA' + client name). Either pass a label or drop the legacy route in favour of /reports/client/{id}/generate."
+      },
+      {
+        "endpoint": "startup indexes / db",
+        "issue": "server.py creates indexes for cron_runs, notification_log, echeances, users, otps and documents but none for the new collections: no index on client_reports (tenant_id, generated_at) or client_reports.id, and no UNIQUE index on report_series.key - the find_one_and_update upsert is atomic per document but a race can still create two series docs for the same key without the unique constraint."
+      },
+      {
+        "endpoint": "GET /api/reports/client/{tenant_id}/list",
+        "issue": "Hard 500-item cap with no pagination and no total count; month_key/kind are not validated (an unknown kind silently returns [] instead of 400)."
+      },
+      {
+        "endpoint": "seed.py / users",
+        "issue": "The admin email is stored lowercased ('admin@sawalismartsystems.com') while the docs/credentials show 'Admin@sawalismartsystems.com'. Login is case-insensitive so this is cosmetic, but any code doing an exact-match lookup on the documented casing will miss the account."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/test_reports_notifications.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_rbac_edge.py",
+    "/app/backend/tests/conftest.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: make report numbers unique per client (slug collision proved) - add a client code to the slug and/or a unique index on client_reports.number.",
+    "CRITICAL (carried over from iteration 2): add the Authorization: Bearer <WEBHOOK_CRON_SECRET> header in /app/.emergent/crons.yml, or accept the platform cron auth - /api/cron/notify-echeances still 401s without it.",
+    "Route /reports/{id}/send through albarka_notifications so the email guardrails run; support attachments in that shared helper.",
+    "Batch notify_upload into a single multi-recipient email and handle the proxy's 429 (rate limit was hit during testing).",
+    "Delete the stored PDF object when a report is deleted.",
+    "Return a diagnostic message from /admin/settings/wa/test and validate report_prefix with ^[A-Z]{2,10}$.",
+    "Add indexes: client_reports (tenant_id, generated_at) + unique report_series.key; add pagination to the report list."
+  ],
+  "critical_code_review_comments": [
+    "albarka_reports_mgmt._client_slug: derives the human part of a legally-referenced number from a truncated name; combined with a per-tenant counter this yields duplicate numbers for similarly named clients. Numbering must be provably unique (unique index + retry).",
+    "albarka_reports_mgmt.send_report_email duplicates ~40 lines of Resend transport already present in albarka_notifications.send_email and skips _assert_safe_email - a DRY and a safety-guardrail violation at once.",
+    "albarka_admin_settings imports get_current_user but never uses it; also _load_settings performs a write ($set of every default key) on a GET path whenever a new default key appears - fine once, but it makes GET /admin/settings non-idempotent on deploy.",
+    "albarka_documents uses bare asyncio.create_task for notify_upload and for _analyze_and_store with no reference kept and no exception handler; tasks can be GC'd mid-flight and failures are only visible in logs. Prefer FastAPI BackgroundTasks or a task set with a done-callback.",
+    "No index exists for the new client_reports/report_series collections while /reports/client/{id}/list sorts on generated_at - an unindexed collection scan on Atlas.",
+    "send_email swallows every exception and returns None, so callers (notify_upload, cron) cannot distinguish 'not configured' from 429 rate-limited from 422 undeliverable; this hid the rate-limit condition until logs were read."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration3.py",
+    "/app/backend/tests/test_reports_notifications.py"
+  ],
+  "success_rate": {
+    "backend": "99% (129/130 pytest tests passing; the single failure is the Resend proxy 429 rate limit, not application logic)",
+    "frontend": "not tested (backend-only request)"
+  },
+  "seed_data_creation": "Ran /app/backend/seed.py (idempotent, 5 accounts incl. Admin@sawalismartsystems.com). Created and removed transient data: reports for months 2031-03/04/05/06 and 2032-01, TEST_ uploads for client1, TEST_ staff rows, TEST_crn_client@example.com, and two 'Sawadogo * QA' clients used to prove the number collision. All purged (client_reports/report_series for 2031-*/2032-* deleted, TEST users/documents/notification_log = 0). Settings doc restored to defaults with wa_access_token empty and wa_enabled=false. Two pre-existing reports for client2 (RAP-AMINATA-MENSUEL-202609-0001/0002) were left untouched.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "/app/memory/test_credentials.md documents the 4 demo accounts but NOT the new admin. All 5 work via the 2-step login: Admin@sawalismartsystems.com / Admin@Sawali2026 (roles superviseur+direction, stored lowercase), superviseur@albarka-demo.bf / Superviseur2026!, comptable@albarka-demo.bf / Comptable2026!, client1|client2@albarka-demo.bf / Client2026!. Please add the admin row to test_credentials.md.",
+  "context_for_next_testing_agent": "Suite layout: /app/backend/tests/{conftest.py,backend_test.py,test_rbac_edge.py,test_reports_notifications.py,test_iteration3.py}; run with `cd /app/backend && python -m pytest tests/ -q` (pytest.ini forces -n 2 --dist loadscope). conftest exposes make_session/login_full and superviseur/comptable/client1/client2 fixtures; test_iteration3 adds an `admin` session fixture and a `mongo` fixture (pymongo on MONGO_URL/DB_NAME from backend/.env) used for direct DB assertions (masked-token persistence, email_sent_at, un-signing a report before delete). IMPORTANT: the Emergent Resend proxy is rate-limited - running the whole suite twice back-to-back WILL produce 429s and email-dependent tests (TestEmailTransport, TestReportSendSignDelete::test_send_report_email) will fail spuriously; wait ~4 minutes between full runs. Seeded @albarka-demo.bf recipients always 422 (undeliverable_recipient) - use delivered@resend.dev. I also saw one transient Cloudflare 502 HTML page from the ingress on /reports/{id}/send while the proxy was rate-limiting; it passed on retry, so treat a lone 502 there as flaky and re-run. Reports use future months (2031-*) to keep numbering deterministic - delete the report_series rows for those months if you re-run number-sequence assertions. Frontend has never been exercised in any iteration: the admin settings screen, report list/month filter/send button and signature UI all still need a pass.",
+  "rca_of_the_issue": "Number collision RCA: generate_report builds the number as f\"{prefix}-{_client_slug(full_name)}-{KIND}-{YYYYMM}-{seq:04d}\" where _client_slug strips non-alpha chars and truncates to 7, while _next_number keys the counter on tenant_id. Two different tenants therefore keep independent counters that both start at 1 while producing an identical visible slug - so the emitted numbers are identical strings, and nothing (no unique index on client_reports.number) detects it. Email 429 RCA: albarka_notifications.notify_upload loops over every active staff member and awaits a separate POST to the Emergent Resend proxy per recipient; combined with the cron trigger and the two transport tests, a single suite run issues well over a dozen sends in ~80s and the proxy answers 429 'email rate limit exceeded'. send_email's broad except returns None, so the caller reports sent_email=False with no distinction from a configuration problem, which is why the failure surfaced as an opaque assertion error rather than a rate-limit signal."
+}

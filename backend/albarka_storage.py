@@ -136,6 +136,23 @@ async def presigned_url(path: str, expires_in: int = 300) -> Optional[str]:
     return None
 
 
+def _r2_delete_sync(path: str) -> None:
+    _get_r2_client().delete_object(Bucket=os.environ["R2_BUCKET_NAME"], Key=path)
+
+
+def _local_delete_sync(path: str) -> None:
+    full = UPLOAD_DIR / path
+    if full.exists():
+        full.unlink()
+
+
+async def delete_object(path: str) -> None:
+    if _r2_configured():
+        await asyncio.to_thread(_r2_delete_sync, path)
+    else:
+        await asyncio.to_thread(_local_delete_sync, path)
+
+
 def storage_mode() -> str:
     return "r2" if _r2_configured() else "local"
 

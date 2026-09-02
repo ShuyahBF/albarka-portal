@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Link } from "react-router-dom";
 
 export default function AdminClients() {
@@ -19,6 +20,7 @@ export default function AdminClients() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     email: "", full_name: "", company: "", phone: "", password: "",
+    can_receive_notifications: true,
   });
 
   const load = async () => {
@@ -40,7 +42,7 @@ export default function AdminClients() {
       await apiClient.post("/clients", form);
       toast.success("Client créé");
       setOpen(false);
-      setForm({ email: "", full_name: "", company: "", phone: "", password: "" });
+      setForm({ email: "", full_name: "", company: "", phone: "", password: "", can_receive_notifications: true });
       await load();
     } catch (err) {
       toast.error(extractError(err));
@@ -74,6 +76,14 @@ export default function AdminClients() {
               <div><Label>Entreprise</Label><Input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} data-testid="client-company-input" /></div>
               <div><Label>Téléphone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="client-phone-input" /></div>
               <div><Label>Mot de passe (temp)</Label><Input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="client-password-input" /></div>
+              <label className="flex items-center gap-2 text-sm cursor-pointer pt-1">
+                <Checkbox
+                  checked={form.can_receive_notifications}
+                  onCheckedChange={(v) => setForm({ ...form, can_receive_notifications: !!v })}
+                  data-testid="client-notif-checkbox"
+                />
+                <span>Autoriser la réception des notifications (rappels échéances, rapports…)</span>
+              </label>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>

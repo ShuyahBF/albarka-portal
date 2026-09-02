@@ -117,6 +117,7 @@ def _table(headers, rows, col_widths=None):
 def build_client_report_pdf(
     *, client: dict, missions: List[dict], echeances: List[dict],
     documents: List[dict], syntheses_by_doc: dict = None,
+    header_number: str = None, report_kind_label: str = None, month_key: str = None,
 ) -> bytes:
     """Return the PDF bytes for a client report."""
     buf = io.BytesIO()
@@ -132,7 +133,11 @@ def build_client_report_pdf(
     syntheses_by_doc = syntheses_by_doc or {}
 
     # -------- Cover header --------
-    story.append(Paragraph("CABINET ALBARKA · RAPPORT CLIENT", ss["AlbSubtitle"]))
+    header_bits = ["CABINET ALBARKA"]
+    if report_kind_label: header_bits.append(report_kind_label.upper())
+    if month_key: header_bits.append(month_key)
+    if header_number: header_bits.append(f"N° {header_number}")
+    story.append(Paragraph(" · ".join(header_bits), ss["AlbSubtitle"]))
     story.append(Paragraph(client.get("full_name", "—"), ss["AlbTitle"]))
     subtitle_bits = []
     if client.get("company"): subtitle_bits.append(client["company"])
@@ -223,10 +228,14 @@ def build_client_report_pdf(
 
     # -------- Footer note --------
     story.append(Spacer(1, 20))
-    story.append(Paragraph(
+    footer = (
         "<font color='#64748B' size='8'>Document généré automatiquement par le portail ALBARKA. "
-        "Confidentiel — usage interne au cabinet et au client concerné.</font>", ss["AlbBody"],
-    ))
+        "Confidentiel — usage interne au cabinet et au client concerné."
+    )
+    if header_number:
+        footer += f" · Référence : {header_number}"
+    footer += "</font>"
+    story.append(Paragraph(footer, ss["AlbBody"]))
 
     doc.build(story)
     return buf.getvalue()

@@ -10,6 +10,14 @@ from db import db
 
 DEMO_ACCOUNTS = [
     {
+        "email": "Admin@sawalismartsystems.com",
+        "password": "Admin@Sawali2026",
+        "full_name": "Administrateur Système",
+        "roles": ["superviseur", "direction"],
+        "company": "Sawali Smart Systems",
+        "phone": "+22670000000",
+    },
+    {
         "email": "superviseur@albarka-demo.bf",
         "password": "Superviseur2026!",
         "full_name": "Superviseur Cabinet ALBARKA",
@@ -55,6 +63,7 @@ async def main() -> None:
             "company": account["company"],
             "phone": account.get("phone"),
             "is_active": True,
+            "can_receive_notifications": True,
             "last_login": None,
         }
         existing = await db.users.find_one({"email": user_doc["email"]})

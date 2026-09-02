@@ -1,9 +1,9 @@
-"""Notifications ALBARKA — email (Resend Emergent-managed) + WhatsApp (Twilio, optionnel).
+"""Notifications ALBARKA — email (Resend Emergent-managed) + WhatsApp (Meta Cloud API).
 
-L'email part toujours de l'adresse gérée par la plateforme, avec `EMAIL_FROM_NAME
-= "Cabinet ALBARKA"`. Le WhatsApp est **guardé** : si `TWILIO_ACCOUNT_SID`,
-`TWILIO_AUTH_TOKEN` et `TWILIO_WA_FROM` ne sont pas définis, l'envoi WA est
-silencieusement ignoré (email seul).
+Le WhatsApp utilise l'API WhatsApp Business officielle (Meta Graph). La config
+est stockée dans la collection `settings` (`_id="global"`) via l'écran
+Paramètres Admin : `wa_enabled`, `wa_access_token`, `wa_phone_number_id`,
+`wa_business_account_id`, `wa_graph_version`.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ logger = logging.getLogger("albarka.notifications")
 
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
 EMAIL_KEY = os.environ.get("EMERGENT_EMAIL_KEY", "")
-EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Cabinet ALBARKA")
+EMAIL_FROM_NAME_DEFAULT = os.environ.get("EMAIL_FROM_NAME", "Cabinet ALBARKA")
 EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO")
 
 # --- Guardrail helpers (from Resend playbook) ---------------------------
@@ -98,13 +98,29 @@ def _assert_safe_email(subject: str, html: str) -> None:
                 raise ValueError(f"Anchor text {m.group(1)!r} ≠ real link host {real!r} (G3)")
 
 
-async def send_email(*, to: str, subject: str, html: str, reply_to: Optional[str] = None) -> Optional[str]:
-    """Non-blocking send via the Emergent-managed Resend proxy."""
+async def _get_from_name() -> str:
+    try:
+        from albarka_admin_settings import get_settings_doc
+        s = await get_settings_doc()
+        return (s.get("cabinet_name") or EMAIL_FROM_NAME_DEFAULT).strip() or EMAIL_FROM_NAME_DEFAULT
+    except Exception:
+        return EMAIL_FROM_NAME_DEFAULT
+
+
+async def send_email(*, to, subject: str, html: str, reply_to: Optional[str] = None) -> Optional[str]:
+    """Non-blocking send via the Emergent-managed Resend proxy.
+
+    `to` can be a single string or a list of recipients (sent as one email with
+    multiple `to` addresses — one Resend call instead of one per recipient)."""
     if not EMAIL_KEY:
         logger.info("EMERGENT_EMAIL_KEY absent — envoi email ignoré (dev/pilote).")
         return None
     _assert_safe_email(subject, html)
-    payload = {"to": [to], "subject": subject, "html": html, "from_name": EMAIL_FROM_NAME}
+    from_name = await _get_from_name()
+    to_list = [to] if isinstance(to, str) else [t for t in to if t]
+    if not to_list:
+        return None
+    payload = {"to": to_list, "subject": subject, "html": html, "from_name": from_name}
     if reply_to or EMAIL_REPLY_TO:
         payload["contact_email"] = reply_to or EMAIL_REPLY_TO
     try:
@@ -117,45 +133,71 @@ async def send_email(*, to: str, subject: str, html: str, reply_to: Optional[str
         resp.raise_for_status()
         return resp.json().get("id")
     except Exception:
-        logger.exception("Échec envoi email à %s", to)
+        logger.exception("Échec envoi email à %s", to_list)
         return None
 
 
-# --- WhatsApp via Twilio (guardé) ---------------------------------------
-def _twilio_configured() -> bool:
-    return all(os.environ.get(k) for k in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_WA_FROM"))
+# --- WhatsApp via Meta Cloud API (config depuis settings) ---------------
+async def _get_wa_config() -> Optional[dict]:
+    try:
+        from albarka_admin_settings import get_settings_doc
+        s = await get_settings_doc()
+    except Exception:
+        return None
+    if not s.get("wa_enabled"):
+        return None
+    token = (s.get("wa_access_token") or "").strip()
+    phone_id = (s.get("wa_phone_number_id") or "").strip()
+    if not token or not phone_id:
+        return None
+    return {
+        "access_token": token,
+        "phone_number_id": phone_id,
+        "graph_version": (s.get("wa_graph_version") or "v22.0").strip(),
+    }
 
 
 async def send_whatsapp(*, to_phone: str, message: str) -> Optional[str]:
-    """Envoie un WhatsApp via Twilio; ignore silencieusement si Twilio n'est pas
-    configuré (log INFO). `to_phone` doit être au format international +226..."""
-    if not _twilio_configured():
-        logger.info("Twilio non configuré — WA vers %s ignoré.", to_phone)
+    """Envoie un WhatsApp via l'API WhatsApp Business Cloud (Meta Graph).
+
+    La config vient de `settings.wa_*`. Ignore silencieusement si non configuré."""
+    cfg = await _get_wa_config()
+    if not cfg:
+        logger.info("WhatsApp non configuré (settings.wa_enabled) — WA vers %s ignoré.", to_phone)
         return None
     if not to_phone or not to_phone.startswith("+"):
         logger.warning("Téléphone WA invalide (attendu +226…) : %r", to_phone)
         return None
-    sid = os.environ["TWILIO_ACCOUNT_SID"]
-    token = os.environ["TWILIO_AUTH_TOKEN"]
-    wa_from = os.environ["TWILIO_WA_FROM"]
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-    data = {
-        "From": f"whatsapp:{wa_from}" if not wa_from.startswith("whatsapp:") else wa_from,
-        "To": f"whatsapp:{to_phone}",
-        "Body": message[:1500],
+    to = to_phone.lstrip("+")
+    url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "text",
+        "text": {"preview_url": False, "body": message[:4096]},
     }
     try:
-        async with httpx.AsyncClient(timeout=30, auth=(sid, token)) as client:
-            resp = await client.post(url, data=data)
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                url,
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {cfg['access_token']}",
+                    "Content-Type": "application/json",
+                },
+            )
         resp.raise_for_status()
-        return resp.json().get("sid")
+        data = resp.json()
+        messages = data.get("messages") or []
+        return messages[0].get("id") if messages else None
     except Exception:
         logger.exception("Échec envoi WA à %s", to_phone)
         return None
 
 
-# --- Templates emails ----------------------------------------------------
-def _echeance_email_html(*, full_name: str, echeance: dict, days_left: int) -> str:
+# --- Email templates ----------------------------------------------------
+def _echeance_email_html(*, full_name: str, echeance: dict, days_left: int, cabinet_name: str) -> str:
     if days_left < 0:
         urgency_color = "#B91C1C"
         urgency_text = f"Cette échéance est en retard de {-days_left} jour{'s' if -days_left > 1 else ''}."
@@ -172,7 +214,7 @@ def _echeance_email_html(*, full_name: str, echeance: dict, days_left: int) -> s
   <tr><td align="center">
     <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;">
       <tr><td style="background:#0B1912;padding:24px 32px;color:#ffffff;">
-        <div style="font-size:12px;letter-spacing:2px;color:#E5A24B;text-transform:uppercase;">Cabinet Albarka</div>
+        <div style="font-size:12px;letter-spacing:2px;color:#E5A24B;text-transform:uppercase;">{escape(cabinet_name)}</div>
         <div style="font-size:22px;margin-top:4px;font-family:Georgia,serif;">Rappel d'échéance</div>
       </td></tr>
       <tr><td style="padding:32px;color:#0F172A;">
@@ -193,8 +235,8 @@ def _echeance_email_html(*, full_name: str, echeance: dict, days_left: int) -> s
           Merci de préparer les pièces nécessaires et de contacter votre gestionnaire au cabinet.
         </p>
         <p style="margin:24px 0 0 0;font-size:13px;color:#64748B;">
-          Ce message est envoyé par le Cabinet ALBARKA — assistance fiscale et comptable au Burkina Faso.
-          Nous ne vous demanderons jamais de mot de passe par email.
+          Ce message est envoyé automatiquement par {escape(cabinet_name)}.
+          Nous ne vous demanderons jamais votre mot de passe par email.
         </p>
       </td></tr>
     </table>
@@ -203,7 +245,7 @@ def _echeance_email_html(*, full_name: str, echeance: dict, days_left: int) -> s
 """
 
 
-def _echeance_whatsapp_text(*, full_name: str, echeance: dict, days_left: int) -> str:
+def _echeance_whatsapp_text(*, full_name: str, echeance: dict, days_left: int, cabinet_name: str) -> str:
     if days_left < 0:
         urgency = f"⚠️ En retard de {-days_left} jour{'s' if -days_left > 1 else ''}"
     elif days_left == 0:
@@ -213,7 +255,7 @@ def _echeance_whatsapp_text(*, full_name: str, echeance: dict, days_left: int) -
     period = echeance.get("period") or "—"
     amount = f"{int(echeance['amount']):,} FCFA".replace(",", " ") if echeance.get("amount") else "—"
     return (
-        f"*Cabinet ALBARKA*\n"
+        f"*{cabinet_name}*\n"
         f"{urgency}\n\n"
         f"Bonjour {full_name},\n\n"
         f"*{echeance.get('title', '')}*\n"
@@ -226,7 +268,10 @@ def _echeance_whatsapp_text(*, full_name: str, echeance: dict, days_left: int) -
 
 
 async def notify_echeance(user: dict, echeance: dict, days_left: int) -> dict:
-    """Envoie email + WA (si téléphone dispo) pour une échéance."""
+    """Envoie email + WA (si téléphone dispo et notifications activées)."""
+    if not user.get("is_active", True) or user.get("can_receive_notifications") is False:
+        return {"email_id": None, "wa_sid": None, "sent_email": False, "sent_wa": False, "skipped": "notifications désactivées"}
+    cabinet_name = await _get_from_name()
     if days_left < 0:
         subject = f"Échéance en retard — {echeance.get('title', 'Échéance')} (J+{-days_left})"
     elif days_left == 0:
@@ -234,14 +279,76 @@ async def notify_echeance(user: dict, echeance: dict, days_left: int) -> dict:
     else:
         subject = f"Rappel d'échéance — {echeance.get('title', 'Échéance')} (J-{days_left})"
     html = _echeance_email_html(
-        full_name=user.get("full_name", ""), echeance=echeance, days_left=days_left,
+        full_name=user.get("full_name", ""), echeance=echeance,
+        days_left=days_left, cabinet_name=cabinet_name,
     )
     email_id = await send_email(to=user["email"], subject=subject, html=html)
     wa_sid = None
     phone = user.get("phone")
     if phone:
         msg = _echeance_whatsapp_text(
-            full_name=user.get("full_name", ""), echeance=echeance, days_left=days_left,
+            full_name=user.get("full_name", ""), echeance=echeance,
+            days_left=days_left, cabinet_name=cabinet_name,
         )
         wa_sid = await send_whatsapp(to_phone=phone, message=msg)
     return {"email_id": email_id, "wa_sid": wa_sid, "sent_email": bool(email_id), "sent_wa": bool(wa_sid)}
+
+
+# --- Upload notification (staff-side) ------------------------------------
+async def notify_upload(db, *, document: dict, tenant: dict) -> dict:
+    """Notifie tous les collaborateurs actifs autorisés lorsqu'un client dépose une pièce."""
+    try:
+        from albarka_admin_settings import get_settings_doc
+        settings = await get_settings_doc()
+    except Exception:
+        settings = {}
+    if not settings.get("notif_upload_enabled", True):
+        return {"targets": 0, "sent": 0}
+    cabinet_name = (settings.get("cabinet_name") or EMAIL_FROM_NAME_DEFAULT).strip()
+    # Load active staff who accept notifications.
+    staff = await db.users.find(
+        {
+            "roles": {"$nin": ["client"]},
+            "is_active": True,
+            "$or": [
+                {"can_receive_notifications": {"$exists": False}},
+                {"can_receive_notifications": True},
+            ],
+        },
+        {"_id": 0, "password_hash": 0},
+    ).to_list(500)
+    subject = f"Nouvelle pièce déposée — {tenant.get('company') or tenant.get('full_name') or ''}"
+    html = f"""
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FBFAF4;padding:24px 0;font-family:Arial,sans-serif;">
+  <tr><td align="center">
+    <table role="presentation" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;background:#ffffff;border-radius:12px;overflow:hidden;">
+      <tr><td style="background:#0B1912;padding:20px 28px;color:#ffffff;">
+        <div style="font-size:11px;letter-spacing:2px;color:#E5A24B;text-transform:uppercase;">{escape(cabinet_name)} · Portail</div>
+        <div style="font-size:20px;margin-top:4px;font-family:Georgia,serif;">Nouvelle pièce à traiter</div>
+      </td></tr>
+      <tr><td style="padding:24px 28px;color:#0F172A;">
+        <p style="margin:0 0 12px 0;font-size:14px;">Un client vient de déposer une nouvelle pièce sur le portail :</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAF7;border:1px solid #E2E8F0;border-radius:8px;padding:16px;margin:12px 0;">
+          <tr><td style="font-size:14px;color:#0F172A;">
+            <div><strong>Client :</strong> {escape(tenant.get('full_name', ''))}
+              {("· " + escape(tenant.get('company'))) if tenant.get('company') else ""}</div>
+            <div><strong>Fichier :</strong> {escape(document.get('original_filename', ''))}</div>
+            <div><strong>Type :</strong> {escape(document.get('kind', '').replace('_', ' '))}</div>
+            <div><strong>Statut :</strong> Analyse IA en cours</div>
+          </td></tr>
+        </table>
+        <p style="margin:16px 0 0 0;font-size:12px;color:#64748B;">
+          Connectez-vous à votre espace cabinet pour consulter et catégoriser la pièce.
+        </p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+"""
+    sent = 0
+    recipients = [s["email"] for s in staff if s.get("email")]
+    if recipients:
+        message_id = await send_email(to=recipients, subject=subject, html=html)
+        if message_id:
+            sent = len(recipients)
+    return {"targets": len(staff), "sent": sent}

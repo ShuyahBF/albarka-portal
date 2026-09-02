@@ -15,6 +15,7 @@ import {
   Scale,
   Wallet,
   ClipboardList,
+  Settings,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,8 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "rh"] },
   { to: "/admin/rapports", label: "Rapports client", icon: ClipboardList,
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
+  { to: "/admin/settings", label: "Paramètres", icon: Settings,
+    roles: ["superviseur", "direction"] },
 ];
 
 function allowedFor(link, roles) {

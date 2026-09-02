@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from albarka_ai import analyze_document
 from albarka_auth import get_current_user
 from albarka_models import DOCUMENT_KINDS, is_client, tenant_id_of
+from albarka_notifications import notify_upload
 from albarka_storage import get_object, guess_content_type, presigned_url, save_and_log, storage_mode
 from db import db, serialize, serialize_many
 
@@ -74,6 +75,12 @@ async def upload_document(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.documents.insert_one(doc.copy())
+
+    # Notify staff (fire-and-forget) whenever a **client** deposits a piece.
+    if is_client(user):
+        tenant = await db.users.find_one({"id": resolved_tenant_id}, {"_id": 0, "password_hash": 0})
+        if tenant:
+            asyncio.create_task(notify_upload(db, document=doc, tenant=tenant))
 
     asyncio.create_task(_analyze_and_store(doc["id"], data, content_type, file.filename or "", resolved_tenant_id))
     return serialize(doc.copy())
