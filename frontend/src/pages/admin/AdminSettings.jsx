@@ -97,7 +97,7 @@ export default function AdminSettings() {
               <Input value={settings.cabinet_name || ""} onChange={(e) => setSettings({ ...settings, cabinet_name: e.target.value })} data-testid="cabinet-name-input" />
             </div>
             <div>
-              <Label>Email du cabinet</Label>
+              <Label>Email de contact</Label>
               <Input type="email" value={settings.cabinet_email || ""} onChange={(e) => setSettings({ ...settings, cabinet_email: e.target.value })} data-testid="cabinet-email-input" />
             </div>
             <div>
@@ -108,12 +108,48 @@ export default function AdminSettings() {
               <Label>Adresse</Label>
               <Textarea value={settings.cabinet_address || ""} onChange={(e) => setSettings({ ...settings, cabinet_address: e.target.value })} rows={2} data-testid="cabinet-address-input" />
             </div>
+
+            <div className="border-t pt-4 mt-4">
+              <div className="text-sm font-semibold mb-1">Domaine d'expédition email</div>
+              <div className="text-xs text-muted-foreground mb-3">
+                Une fois votre domaine vérifié chez Resend, indiquez ici l'adresse expéditrice
+                (ex&nbsp;: <span className="font-mono">noreply@albarka-bf.com</span>).
+                Sans ce champ, les emails partent depuis l'adresse générique de la plateforme.
+              </div>
+              <Label>Adresse d'expéditeur (from)</Label>
+              <Input
+                value={settings.email_from_address || ""}
+                onChange={(e) => setSettings({ ...settings, email_from_address: e.target.value })}
+                placeholder="noreply@votre-domaine.bf"
+                data-testid="email-from-input"
+              />
+              <div className="mt-2"><Label>Adresse de réponse (reply-to)</Label>
+                <Input
+                  value={settings.email_reply_to || ""}
+                  onChange={(e) => setSettings({ ...settings, email_reply_to: e.target.value })}
+                  placeholder="contact@votre-domaine.bf"
+                  data-testid="email-replyto-input"
+                />
+              </div>
+              <div className="mt-2 text-xs text-muted-foreground">
+                Étapes de vérification&nbsp;:
+                <ol className="list-decimal ml-4 mt-1 space-y-0.5">
+                  <li>Ouvrir <a href="https://resend.com/domains" className="underline" target="_blank" rel="noreferrer">resend.com/domains</a></li>
+                  <li>Ajouter votre domaine, copier les enregistrements DNS (SPF, DKIM, DMARC)</li>
+                  <li>Ajouter les enregistrements chez votre registrar (Cloudflare, OVH…)</li>
+                  <li>Une fois « Verified », renseigner l'adresse ci-dessus</li>
+                </ol>
+              </div>
+            </div>
+
             <Button
               onClick={() => save({
                 cabinet_name: settings.cabinet_name,
                 cabinet_email: settings.cabinet_email,
                 cabinet_phone: settings.cabinet_phone,
                 cabinet_address: settings.cabinet_address,
+                email_from_address: settings.email_from_address,
+                email_reply_to: settings.email_reply_to,
               })}
               disabled={saving}
               className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
@@ -210,6 +246,19 @@ export default function AdminSettings() {
                 data-testid="notif-upload-switch"
               />
             </div>
+            <div className="flex items-start justify-between pl-4 border-l-2 border-[#0F6B4A]/30">
+              <div>
+                <div className="font-medium">Alerter aussi par WhatsApp</div>
+                <div className="text-sm text-muted-foreground">
+                  Message WA envoyé à chaque collaborateur ayant un numéro renseigné.
+                </div>
+              </div>
+              <Switch
+                checked={!!settings.notif_upload_wa}
+                onCheckedChange={(v) => setSettings({ ...settings, notif_upload_wa: v })}
+                data-testid="notif-upload-wa-switch"
+              />
+            </div>
             <div className="flex items-start justify-between">
               <div>
                 <div className="font-semibold">Rappels d'échéances</div>
@@ -245,6 +294,7 @@ export default function AdminSettings() {
             <Button
               onClick={() => save({
                 notif_upload_enabled: settings.notif_upload_enabled,
+                notif_upload_wa: settings.notif_upload_wa,
                 notif_reminder_days: settings.notif_reminder_days,
                 notif_overdue: settings.notif_overdue,
               })}

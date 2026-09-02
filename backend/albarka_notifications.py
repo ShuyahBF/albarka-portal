@@ -98,33 +98,50 @@ def _assert_safe_email(subject: str, html: str) -> None:
                 raise ValueError(f"Anchor text {m.group(1)!r} ≠ real link host {real!r} (G3)")
 
 
-async def _get_from_name() -> str:
+async def _get_email_config() -> dict:
+    """Loads from_name / from_email / reply_to from settings, with env fallback."""
     try:
         from albarka_admin_settings import get_settings_doc
         s = await get_settings_doc()
-        return (s.get("cabinet_name") or EMAIL_FROM_NAME_DEFAULT).strip() or EMAIL_FROM_NAME_DEFAULT
     except Exception:
-        return EMAIL_FROM_NAME_DEFAULT
+        s = {}
+    return {
+        "from_name": (s.get("cabinet_name") or EMAIL_FROM_NAME_DEFAULT).strip() or EMAIL_FROM_NAME_DEFAULT,
+        "from_email": (s.get("email_from_address") or "").strip() or None,
+        "reply_to": (s.get("email_reply_to") or EMAIL_REPLY_TO or "").strip() or None,
+    }
 
 
-async def send_email(*, to, subject: str, html: str, reply_to: Optional[str] = None) -> Optional[str]:
+async def _get_from_name() -> str:
+    cfg = await _get_email_config()
+    return cfg["from_name"]
+
+
+async def send_email(*, to, subject: str, html: str, reply_to: Optional[str] = None,
+                    attachments: Optional[list] = None) -> Optional[str]:
     """Non-blocking send via the Emergent-managed Resend proxy.
 
-    `to` can be a single string or a list of recipients (sent as one email with
-    multiple `to` addresses — one Resend call instead of one per recipient)."""
+    `to` accepts a string or a list of recipients (single call with multi-to).
+    `attachments` optionnel : liste de {filename, content (base64), content_type}.
+    """
     if not EMAIL_KEY:
         logger.info("EMERGENT_EMAIL_KEY absent — envoi email ignoré (dev/pilote).")
         return None
     _assert_safe_email(subject, html)
-    from_name = await _get_from_name()
+    cfg = await _get_email_config()
     to_list = [to] if isinstance(to, str) else [t for t in to if t]
     if not to_list:
         return None
-    payload = {"to": to_list, "subject": subject, "html": html, "from_name": from_name}
-    if reply_to or EMAIL_REPLY_TO:
-        payload["contact_email"] = reply_to or EMAIL_REPLY_TO
+    payload = {"to": to_list, "subject": subject, "html": html, "from_name": cfg["from_name"]}
+    if cfg["from_email"]:
+        payload["from_email"] = cfg["from_email"]
+    effective_reply = reply_to or cfg["reply_to"]
+    if effective_reply:
+        payload["contact_email"] = effective_reply
+    if attachments:
+        payload["attachments"] = attachments
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=45) as client:
             resp = await client.post(
                 f"{EMAIL_BASE_URL}/api/v1/email/send",
                 headers={"X-Email-Key": EMAIL_KEY},
@@ -268,9 +285,15 @@ def _echeance_whatsapp_text(*, full_name: str, echeance: dict, days_left: int, c
 
 
 async def notify_echeance(user: dict, echeance: dict, days_left: int) -> dict:
-    """Envoie email + WA (si téléphone dispo et notifications activées)."""
-    if not user.get("is_active", True) or user.get("can_receive_notifications") is False:
-        return {"email_id": None, "wa_sid": None, "sent_email": False, "sent_wa": False, "skipped": "notifications désactivées"}
+    """Envoie email + WA (si téléphone dispo et notifications activées).
+
+    Destinataires =
+      - le compte client si `is_active` et `can_receive_notifications`,
+      - + tous les contacts client actifs autorisés (email + WA selon channels).
+    Renvoie {email_id, wa_sid, sent_email, sent_wa} agrégés.
+    """
+    from albarka_contacts import notifiable_contacts_for  # local import: circular safe
+
     cabinet_name = await _get_from_name()
     if days_left < 0:
         subject = f"Échéance en retard — {echeance.get('title', 'Échéance')} (J+{-days_left})"
@@ -278,20 +301,49 @@ async def notify_echeance(user: dict, echeance: dict, days_left: int) -> dict:
         subject = f"Échéance aujourd'hui — {echeance.get('title', 'Échéance')}"
     else:
         subject = f"Rappel d'échéance — {echeance.get('title', 'Échéance')} (J-{days_left})"
-    html = _echeance_email_html(
-        full_name=user.get("full_name", ""), echeance=echeance,
-        days_left=days_left, cabinet_name=cabinet_name,
-    )
-    email_id = await send_email(to=user["email"], subject=subject, html=html)
-    wa_sid = None
-    phone = user.get("phone")
-    if phone:
-        msg = _echeance_whatsapp_text(
+
+    # Email recipients: main user account (if opted-in) + email contacts of tenant
+    email_recipients: set = set()
+    if user.get("is_active", True) and user.get("can_receive_notifications") is not False and user.get("email"):
+        email_recipients.add(user["email"])
+    for c in await notifiable_contacts_for(user["id"], channel="email"):
+        if c.get("email"):
+            email_recipients.add(c["email"])
+
+    email_id = None
+    if email_recipients:
+        html = _echeance_email_html(
             full_name=user.get("full_name", ""), echeance=echeance,
             days_left=days_left, cabinet_name=cabinet_name,
         )
-        wa_sid = await send_whatsapp(to_phone=phone, message=msg)
-    return {"email_id": email_id, "wa_sid": wa_sid, "sent_email": bool(email_id), "sent_wa": bool(wa_sid)}
+        email_id = await send_email(to=list(email_recipients), subject=subject, html=html)
+
+    # WhatsApp: main user's phone + WA-opted contacts
+    wa_phones: set = set()
+    if user.get("is_active", True) and user.get("can_receive_notifications") is not False and (user.get("phone") or "").startswith("+"):
+        wa_phones.add(user["phone"])
+    for c in await notifiable_contacts_for(user["id"], channel="whatsapp"):
+        if (c.get("phone") or "").startswith("+"):
+            wa_phones.add(c["phone"])
+
+    wa_sent = 0
+    wa_last_id = None
+    if wa_phones:
+        wa_text = _echeance_whatsapp_text(
+            full_name=user.get("full_name", ""), echeance=echeance,
+            days_left=days_left, cabinet_name=cabinet_name,
+        )
+        for phone in wa_phones:
+            sid = await send_whatsapp(to_phone=phone, message=wa_text)
+            if sid:
+                wa_sent += 1
+                wa_last_id = sid
+
+    return {
+        "email_id": email_id, "wa_sid": wa_last_id,
+        "sent_email": bool(email_id), "sent_wa": bool(wa_sent),
+        "email_recipients": list(email_recipients), "wa_recipients": list(wa_phones),
+    }
 
 
 # --- Upload notification (staff-side) ------------------------------------
@@ -351,4 +403,22 @@ async def notify_upload(db, *, document: dict, tenant: dict) -> dict:
         message_id = await send_email(to=recipients, subject=subject, html=html)
         if message_id:
             sent = len(recipients)
-    return {"targets": len(staff), "sent": sent}
+
+    # WhatsApp fan-out to active staff with phone (opt-in via settings.notif_upload_wa)
+    wa_sent = 0
+    if settings.get("notif_upload_wa", True):
+        wa_text = (
+            f"*{cabinet_name}* — Portail\n"
+            f"Nouvelle pièce reçue.\n"
+            f"Client : {tenant.get('company') or tenant.get('full_name', '')}\n"
+            f"Fichier : {document.get('original_filename', '')}\n"
+            f"Type : {document.get('kind', '').replace('_', ' ')}\n"
+            f"Statut : analyse en cours."
+        )
+        for s in staff:
+            phone = (s.get("phone") or "").strip()
+            if phone.startswith("+"):
+                sid = await send_whatsapp(to_phone=phone, message=wa_text)
+                if sid:
+                    wa_sent += 1
+    return {"targets": len(staff), "sent": sent, "wa_sent": wa_sent}

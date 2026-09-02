@@ -9,6 +9,7 @@ import Documents from "@/pages/portal/Documents";
 import Missions from "@/pages/portal/Missions";
 import Echeances from "@/pages/portal/Echeances";
 import { ClientReportsPanel } from "@/pages/admin/AdminReports";
+import { ContactsPanel } from "@/pages/admin/AdminContacts";
 
 export default function AdminClientDetail() {
   const { id } = useParams();
@@ -46,12 +47,16 @@ export default function AdminClientDetail() {
       <Tabs defaultValue="reports">
         <TabsList data-testid="client-detail-tabs">
           <TabsTrigger value="reports" data-testid="tab-client-reports">Rapports</TabsTrigger>
+          <TabsTrigger value="contacts" data-testid="tab-client-contacts">Contacts</TabsTrigger>
           <TabsTrigger value="documents" data-testid="tab-client-documents">Pièces</TabsTrigger>
           <TabsTrigger value="missions" data-testid="tab-client-missions">Missions</TabsTrigger>
           <TabsTrigger value="echeances" data-testid="tab-client-echeances">Échéances</TabsTrigger>
         </TabsList>
         <TabsContent value="reports" className="pt-4">
           <ClientReportsPanel tenantId={client.id} clientEmail={client.email} />
+        </TabsContent>
+        <TabsContent value="contacts" className="pt-4">
+          <ContactsPanel scope="client" tenantId={client.id} />
         </TabsContent>
         <TabsContent value="documents" className="pt-4">
           <Documents tenantIdOverride={client.id} />

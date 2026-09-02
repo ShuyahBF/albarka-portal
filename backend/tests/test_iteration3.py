@@ -10,11 +10,12 @@ import requests
 from dotenv import dotenv_values
 from pymongo import MongoClient
 
-from conftest import API, make_session
+from conftest import API, make_session, run_async
 
 ADMIN_EMAIL = "Admin@sawalismartsystems.com"
 ADMIN_PASSWORD = "Admin@Sawali2026"
-NUMBER_RE = re.compile(r"^RAP-[A-Z]+-MENSUEL-\d{6}-\d{4}$")
+# Iteration 3+ : le slug client contient un discriminant SHA1[:4] (hex majuscule).
+NUMBER_RE = re.compile(r"^RAP-[A-Z0-9]+-MENSUEL-\d{6}-\d{4}$")
 
 _env = dotenv_values("/app/backend/.env")
 MONGO_URL = os.environ.get("MONGO_URL") or _env.get("MONGO_URL")
@@ -141,7 +142,8 @@ class TestAdminSettings:
         r = s.post(f"{API}/admin/settings/wa/test", json={"to": "+22670000000"}, timeout=60)
         assert r.status_code == 200, r.text[:300]
         data = r.json()
-        assert data == {"ok": False, "message_id": None}, data
+        assert data["ok"] is False and data["message_id"] is None, data
+        assert "diagnostic" in data
 
     def test_wa_test_rejects_bad_phone(self, admin):
         s, _ = admin
@@ -264,8 +266,14 @@ def c_id(fixture):
 
 
 class TestReportListDownloadIsolation:
-    def test_list_sorted_desc_and_filters(self, superviseur, client1):
+    def test_list_sorted_desc_and_filters(self, superviseur, client1, created_report_ids):
+        sv, _ = superviseur
         s, c1 = client1
+        # S'assure qu'au moins un rapport existe (les autres modules nettoient les leurs).
+        gen = sv.post(f"{API}/reports/client/{c1['id']}/generate",
+                      json={"kind": "ponctuel", "period_month": "2031-11"}, timeout=120)
+        assert gen.status_code == 200, gen.text[:300]
+        created_report_ids.append(gen.json()["id"])
         r = s.get(f"{API}/reports/client/{c1['id']}/list", timeout=60)
         assert r.status_code == 200, r.text[:300]
         items = r.json()
@@ -290,9 +298,16 @@ class TestReportListDownloadIsolation:
         r = s.get(f"{API}/reports/client/{c2['id']}/list", timeout=60)
         assert r.status_code == 403, r.text[:300]
 
-    def test_download_pdf(self, client1):
+    def test_download_pdf(self, superviseur, client1, created_report_ids):
+        # Génère son propre rapport : la liste peut contenir des rapports créés
+        # (et supprimés) en parallèle par d'autres modules de test.
+        sv, _ = superviseur
         s, c1 = client1
-        items = s.get(f"{API}/reports/client/{c1['id']}/list", timeout=60).json()
+        gen = sv.post(f"{API}/reports/client/{c1['id']}/generate",
+                      json={"kind": "trimestriel", "period_month": "2031-09"}, timeout=120)
+        assert gen.status_code == 200, gen.text[:300]
+        created_report_ids.append(gen.json()["id"])
+        items = [gen.json()]
         rid = items[0]["id"]
         r = s.get(f"{API}/reports/{rid}/download", timeout=90)
         assert r.status_code == 200, r.text[:300]
@@ -345,11 +360,20 @@ class TestReportSendSignDelete:
         rid = gen.json()["id"]
         created_report_ids.append(rid)
 
-        r = s.post(f"{API}/reports/{rid}/send", json={"to": "delivered@resend.dev"}, timeout=120)
+        # Le proxy Resend partagé limite le débit (429 -> 502 côté API) : on retente.
+        r = None
+        for attempt in range(3):
+            r = s.post(f"{API}/reports/{rid}/send", json={"to": "delivered@resend.dev"}, timeout=120)
+            if r.status_code != 502:
+                break
+            time.sleep(4 * (attempt + 1))
+        if r.status_code == 502:
+            pytest.skip("proxy email externe indisponible / rate-limited (429)")
         assert r.status_code == 200, f"send failed: {r.status_code} {r.text[:400]}"
         data = r.json()
         assert data["ok"] is True
-        assert data["to"] == "delivered@resend.dev"
+        # Iteration 4 : `to` est désormais une liste de destinataires.
+        assert data["to"] == ["delivered@resend.dev"]
         assert data.get("message_id"), data
 
         doc = mongo.client_reports.find_one({"id": rid}, {"_id": 0})
@@ -478,32 +502,29 @@ def _an():
 
 class TestNotificationGates:
     def test_notify_echeance_skips_inactive_and_unauthorized(self):
-        import asyncio
         an = _an()
         ech = {"id": "x", "title": "TEST", "type": "tva", "due_date": "2031-01-31",
                "period": "2031-01", "amount": 1000}
-        r1 = asyncio.run(an.notify_echeance(
+        r1 = run_async(lambda _db: an.notify_echeance(
             {"email": "a@b.co", "full_name": "A", "is_active": False}, ech, 3))
         assert r1["skipped"] and r1["sent_email"] is False and r1["sent_wa"] is False
-        r2 = asyncio.run(an.notify_echeance(
+        r2 = run_async(lambda _db: an.notify_echeance(
             {"email": "a@b.co", "full_name": "A", "is_active": True,
              "can_receive_notifications": False}, ech, 3))
         assert r2["skipped"] and r2["sent_email"] is False
 
     def test_send_whatsapp_returns_none_when_disabled(self, mongo):
-        import asyncio
         an = _an()
         mongo.settings.update_one({"_id": "global"}, {"$set": {"wa_enabled": False}})
-        assert asyncio.run(an.send_whatsapp(to_phone="+22670000000", message="TEST")) is None
+        assert run_async(lambda _db: an.send_whatsapp(to_phone="+22670000000", message="TEST")) is None
 
     def test_send_whatsapp_returns_none_when_enabled_but_unconfigured(self, mongo):
-        import asyncio
         an = _an()
         mongo.settings.update_one({"_id": "global"},
                                   {"$set": {"wa_enabled": True, "wa_access_token": "",
                                             "wa_phone_number_id": ""}})
         try:
-            assert asyncio.run(an.send_whatsapp(to_phone="+22670000000", message="TEST")) is None
+            assert run_async(lambda _db: an.send_whatsapp(to_phone="+22670000000", message="TEST")) is None
         finally:
             mongo.settings.update_one({"_id": "global"}, {"$set": {"wa_enabled": False}})
 

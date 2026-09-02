@@ -28,6 +28,7 @@ import AdminStaff from "@/pages/admin/AdminStaff";
 import AdminClientDetail from "@/pages/admin/AdminClientDetail";
 import AdminReports from "@/pages/admin/AdminReports";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import AdminContacts from "@/pages/admin/AdminContacts";
 import { AdminDashboard, AdminDocuments, AdminMissions, AdminEcheances } from "@/pages/admin/AdminShared";
 
 function RootRedirect() {
@@ -64,6 +65,7 @@ function App() {
             <Route index element={<AdminDashboard />} />
             <Route path="clients" element={<AdminClients />} />
             <Route path="clients/:id" element={<AdminClientDetail />} />
+            <Route path="contacts" element={<AdminContacts />} />
             <Route path="staff" element={<AdminStaff />} />
             <Route path="documents" element={<AdminDocuments />} />
             <Route path="missions" element={<AdminMissions />} />

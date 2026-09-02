@@ -13,10 +13,13 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+import re
 from albarka_auth import get_current_user, require_roles
 from db import db
 
 logger = logging.getLogger("albarka.admin_settings")
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -31,6 +34,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "cabinet_email": "contact@albarka-bf.com",
     "cabinet_phone": "",
     "cabinet_address": "Ouagadougou, Burkina Faso",
+    # Email — expéditeur & domaine
+    "email_from_address": "",   # ex noreply@albarka-bf.com — nécessite domaine vérifié Resend
+    "email_reply_to": "",
     # WhatsApp Business Cloud API (Meta Graph)
     "wa_enabled": False,
     "wa_access_token": "",
@@ -38,11 +44,12 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "wa_business_account_id": "",
     "wa_graph_version": "v22.0",
     # Notifications
-    "notif_reminder_days": [7, 1],  # J-7 et J-1
-    "notif_overdue": True,          # rappel si en retard
-    "notif_upload_enabled": True,    # notifier collaborateurs à chaque dépôt
+    "notif_reminder_days": [7, 1],
+    "notif_overdue": True,
+    "notif_upload_enabled": True,
+    "notif_upload_wa": True,   # notifier aussi les collaborateurs par WA
     # Report numbering
-    "report_prefix": "RAP",         # ex RAP-{CLIENT}-{TYPE}-{YYYYMM}-0001
+    "report_prefix": "RAP",
 }
 
 
@@ -86,6 +93,9 @@ class SettingsUpdate(BaseModel):
     cabinet_email: Optional[str] = None
     cabinet_phone: Optional[str] = None
     cabinet_address: Optional[str] = None
+    # Email
+    email_from_address: Optional[str] = None
+    email_reply_to: Optional[str] = None
     # WA
     wa_enabled: Optional[bool] = None
     wa_access_token: Optional[str] = None
@@ -96,6 +106,7 @@ class SettingsUpdate(BaseModel):
     notif_reminder_days: Optional[list[int]] = None
     notif_overdue: Optional[bool] = None
     notif_upload_enabled: Optional[bool] = None
+    notif_upload_wa: Optional[bool] = None
     # Reports
     report_prefix: Optional[str] = Field(None, max_length=10)
 
@@ -112,9 +123,16 @@ async def update_settings(payload: SettingsUpdate, user: dict = Depends(require_
     for k in SENSITIVE_FIELDS:
         if changes.get(k) == "********":
             changes.pop(k, None)
+    # Validate email address fields; empty string clears the setting.
+    for k in ("email_from_address", "email_reply_to"):
+        if k in changes:
+            val = (changes[k] or "").strip()
+            if val and not _EMAIL_RE.match(val):
+                raise HTTPException(status_code=400, detail=f"{k} : adresse email invalide")
+            changes[k] = val
     if not changes:
         return _mask(await _load_settings())
-    await _load_settings()  # ensure doc exists
+    await _load_settings()
     changes["updated_at"] = datetime.now(timezone.utc).isoformat()
     changes["updated_by"] = user["id"]
     await db.settings.update_one({"_id": "global"}, {"$set": changes})

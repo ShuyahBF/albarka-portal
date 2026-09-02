@@ -1,9 +1,15 @@
 """Shared fixtures for ALBARKA backend tests."""
+import asyncio
+import contextlib
+import importlib
 import os
+import sys
 
 import pytest
 import requests
 from dotenv import dotenv_values
+
+sys.path.insert(0, "/app/backend")
 
 frontend_env = dotenv_values("/app/frontend/.env")
 _base = os.environ.get("REACT_APP_BACKEND_URL") or frontend_env.get("REACT_APP_BACKEND_URL")
@@ -69,3 +75,45 @@ def client1():
 @pytest.fixture(scope="session")
 def client2():
     return make_session(*CREDENTIALS["client2"])
+
+
+# --- Direct async helpers -------------------------------------------------
+# Motor binds its client to the first running event loop; calling asyncio.run()
+# several times in the same worker leaves the bound loop closed. `run_async`
+# gives each call a dedicated loop + a fresh Motor client patched into the
+# backend modules that hold a module-level `db` reference.
+_DB_MODULES = ("db", "albarka_contacts", "albarka_admin_settings")
+
+
+@contextlib.contextmanager
+def fresh_async_env():
+    from motor.motor_asyncio import AsyncIOMotorClient
+    backend_env = dotenv_values("/app/backend/.env")
+    mongo_url = os.environ.get("MONGO_URL") or backend_env["MONGO_URL"]
+    db_name = os.environ.get("DB_NAME") or backend_env["DB_NAME"]
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    mclient = AsyncIOMotorClient(mongo_url, io_loop=loop)
+    fdb = mclient[db_name]
+
+    saved = {}
+    for name in _DB_MODULES:
+        mod = importlib.import_module(name)
+        if hasattr(mod, "db"):
+            saved[name] = mod.db
+            mod.db = fdb
+    try:
+        yield loop, fdb
+    finally:
+        for name, original in saved.items():
+            importlib.import_module(name).db = original
+        mclient.close()
+        loop.close()
+        asyncio.set_event_loop(None)
+
+
+def run_async(coro_factory):
+    """`coro_factory(db)` -> coroutine, executed in an isolated loop."""
+    with fresh_async_env() as (loop, fdb):
+        return loop.run_until_complete(coro_factory(fdb))

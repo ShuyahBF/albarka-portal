@@ -17,6 +17,7 @@ load_dotenv(Path(__file__).parent / ".env")
 from albarka_auth import router as auth_router  # noqa: E402
 from albarka_admin_settings import router as admin_settings_router  # noqa: E402
 from albarka_clients import router as clients_router  # noqa: E402
+from albarka_contacts import router as contacts_router  # noqa: E402
 from albarka_dashboard import router as dashboard_router  # noqa: E402
 from albarka_documents import router as documents_router  # noqa: E402
 from albarka_echeances import router as echeances_router  # noqa: E402
@@ -35,6 +36,7 @@ api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
 api_router.include_router(admin_settings_router)
 api_router.include_router(clients_router)
+api_router.include_router(contacts_router)
 api_router.include_router(dashboard_router)
 api_router.include_router(documents_router)
 api_router.include_router(echeances_router)
@@ -71,6 +73,8 @@ async def _ensure_indexes():
         await _db.client_reports.create_index([("tenant_id", 1), ("generated_at", -1)])
         await _db.client_reports.create_index("number", unique=True)
         await _db.report_series.create_index("key", unique=True)
+        # Contacts (iteration 4)
+        await _db.contacts.create_index([("scope", 1), ("tenant_id", 1), ("is_primary", -1)])
     except Exception:
         logger.exception("Échec création index Mongo (non bloquant)")
 

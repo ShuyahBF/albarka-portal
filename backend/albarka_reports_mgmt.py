@@ -173,7 +173,8 @@ async def download_report(report_id: str, user: dict = Depends(get_current_user)
 
 
 class SendReportPayload(BaseModel):
-    to: Optional[str] = None  # override recipient; default = client email
+    to: Optional[str] = None  # override recipient
+    to_contacts: Optional[list[str]] = None  # contact ids to route to
     subject: Optional[str] = None
     message: Optional[str] = None
 
@@ -182,7 +183,14 @@ class SendReportPayload(BaseModel):
 async def send_report_email(
     report_id: str, payload: SendReportPayload, user: dict = Depends(require_staff()),
 ):
-    """Envoie le rapport PDF au client par email (avec pièce jointe base64)."""
+    """Envoie le rapport PDF au client par email (via `send_email` avec guardrails).
+
+    Routing:
+      - `to` fourni  → destinataire unique
+      - `to_contacts` fourni → destinataires = contacts avec `can_receive_notifications`
+      - Sinon → email du compte client
+    """
+    import base64
     r = await _fetch_report(report_id, user)
     client = await db.users.find_one({"id": r["tenant_id"]}, {"_id": 0, "password_hash": 0})
     if not client:
@@ -190,77 +198,65 @@ async def send_report_email(
     if client.get("is_active") is False:
         raise HTTPException(status_code=400, detail="Compte client inactif")
 
-    to = (payload.to or client.get("email") or "").strip()
-    if not to:
-        raise HTTPException(status_code=400, detail="Aucun email de destination")
+    recipients: list[str] = []
+    if payload.to:
+        recipients = [payload.to.strip()]
+    elif payload.to_contacts:
+        contacts = await db.contacts.find(
+            {"id": {"$in": payload.to_contacts}, "tenant_id": r["tenant_id"], "is_active": True},
+            {"_id": 0},
+        ).to_list(200)
+        recipients = [
+            c["email"] for c in contacts
+            if c.get("email") and c.get("can_receive_notifications", True)
+            and "email" in (c.get("channels") or ["email"])
+        ]
+    else:
+        if client.get("email"):
+            recipients = [client["email"]]
+    if not recipients:
+        raise HTTPException(status_code=400, detail="Aucun destinataire éligible")
 
     settings = await get_settings_doc()
     cabinet_name = (settings.get("cabinet_name") or "Cabinet ALBARKA").strip()
     subject = payload.subject or f"{r['kind_label']} — {r['number']}"
-    body_text = payload.message or (
-        f"Bonjour {client.get('full_name', '')},\n\n"
-        f"Veuillez trouver ci-joint votre {r['kind_label'].lower()} référencé {r['number']} "
-        f"pour la période {r['month_key']}.\n\nCordialement,\n{cabinet_name}"
-    )
-    body_html = f"""
+    msg_body = payload.message or ""
+    from html import escape as _esc
+    client_label = _esc(client.get('company') or client.get('full_name', ''))
+    html = f"""
 <div style="font-family:Arial,sans-serif;color:#0F172A;padding:16px;">
-  <p>Bonjour {escape(client.get('full_name', ''))},</p>
-  <p>Veuillez trouver ci-joint votre <strong>{escape(r['kind_label'].lower())}</strong>
-     référencé <strong>{escape(r['number'])}</strong> pour la période
-     <strong>{escape(r['month_key'])}</strong>.</p>
-  <p>Ce document est archivé dans votre espace client sur le portail
-     {escape(cabinet_name)}.</p>
-  <p style="margin-top:20px;">Cordialement,<br/>{escape(cabinet_name)}</p>
+  <p>Bonjour,</p>
+  <p>Veuillez trouver ci-joint le <strong>{_esc(r['kind_label'].lower())}</strong>
+     référencé <strong>{_esc(r['number'])}</strong> pour la période
+     <strong>{_esc(r['month_key'])}</strong> — client
+     <strong>{client_label}</strong>.</p>
+  {"<p>" + _esc(msg_body).replace(chr(10), '<br/>') + "</p>" if msg_body else ""}
+  <p style="margin-top:20px;">Cordialement,<br/>{_esc(cabinet_name)}</p>
 </div>
 """
-
-    # Send via Emergent Resend proxy with attachment.
-    import base64
-    import os
-    import httpx
-    email_key = os.environ.get("EMERGENT_EMAIL_KEY", "")
-    if not email_key:
-        raise HTTPException(status_code=500, detail="EMERGENT_EMAIL_KEY absent")
-
     pdf_bytes, _ = await get_object(r["storage_path"])
-    attachment_payload = {
+    attachment = {
         "filename": f"{r['number']}.pdf",
         "content": base64.b64encode(pdf_bytes).decode("ascii"),
         "content_type": "application/pdf",
     }
-    payload_json = {
-        "to": [to],
-        "subject": subject,
-        "html": body_html,
-        "text": body_text,
-        "from_name": cabinet_name,
-        "attachments": [attachment_payload],
-    }
-    try:
-        async with httpx.AsyncClient(timeout=45) as http:
-            resp = await http.post(
-                "https://integrations.emergentagent.com/api/v1/email/send",
-                headers={"X-Email-Key": email_key},
-                json=payload_json,
-            )
-        resp.raise_for_status()
-        message_id = resp.json().get("id")
-    except httpx.HTTPStatusError as exc:
-        detail = f"{exc.response.status_code} — {exc.response.text[:300]}"
-        raise HTTPException(status_code=502, detail=f"Proxy email : {detail}")
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Erreur d'envoi : {exc}")
+    message_id = await send_email(
+        to=recipients, subject=subject, html=html,
+        attachments=[attachment],
+    )
+    if not message_id:
+        raise HTTPException(status_code=502, detail="Échec envoi email (proxy indisponible ou rejeté)")
 
     await db.client_reports.update_one(
         {"id": report_id},
         {"$set": {
             "email_sent_at": datetime.now(timezone.utc).isoformat(),
-            "email_sent_to": to,
+            "email_sent_to": ", ".join(recipients),
             "email_message_id": message_id,
             "email_sent_by": user["id"],
         }},
     )
-    return {"ok": True, "message_id": message_id, "to": to}
+    return {"ok": True, "message_id": message_id, "to": recipients}
 
 
 class SignReportPayload(BaseModel):
