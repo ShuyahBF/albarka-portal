@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
@@ -39,6 +39,17 @@ function RootRedirect() {
 }
 
 function App() {
+  useEffect(() => {
+    const APP_TITLE = "ALBARKA Consulting BF";
+    document.title = APP_TITLE;
+    // Re-assert the title if any external script rewrites it (Emergent injects at runtime).
+    const observer = new MutationObserver(() => {
+      if (document.title !== APP_TITLE) document.title = APP_TITLE;
+    });
+    const titleEl = document.querySelector("title");
+    if (titleEl) observer.observe(titleEl, { childList: true });
+    return () => observer.disconnect();
+  }, []);
   return (
     <AuthProvider>
       <BrowserRouter>
