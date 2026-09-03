@@ -426,3 +426,93 @@ class TestWhatsAppAuditLog:
             r = s.get(f"{API}/reports/whatsapp/log", params=params)
             assert r.status_code == 200
             assert isinstance(r.json(), list)
+
+
+# ---------- Iteration 8: report preview, dispatches widget, scheduled WA ----------
+class TestReportPreview:
+    def test_preview_returns_png(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        r = s.post(f"{API}/reports/client/{c1['id']}/preview", json={"kind": "mensuel"})
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"] == "image/png"
+        assert len(r.content) > 5000  # rendered a page, not empty
+        assert r.content.startswith(b"\x89PNG")
+
+    def test_preview_with_template(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        t = s.post(f"{API}/report-templates", json={
+            "name": "PreviewTpl", "intro_paragraph": "INTRO_ONLY", "include_kpis": False,
+        }).json()
+        r = s.post(f"{API}/reports/client/{c1['id']}/preview",
+                   json={"kind": "mensuel", "template_id": t["id"]})
+        assert r.status_code == 200
+        s.delete(f"{API}/report-templates/{t['id']}")
+
+    def test_preview_client_forbidden(self, client1):
+        s, _ = client1
+        r = s.post(f"{API}/reports/client/whatever/preview", json={"kind": "mensuel"})
+        assert r.status_code == 403
+
+
+class TestDispatchesWidget:
+    def test_returns_month_keys(self, superviseur):
+        s, _ = superviseur
+        r = s.get(f"{API}/dashboard/dispatches")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        for key in ("month", "wa_delivered", "wa_failed", "emails_sent",
+                    "signatures", "reports_generated"):
+            assert key in body
+        assert isinstance(body["reports_generated"], int)
+
+    def test_client_scoped(self, client1):
+        s, _ = client1
+        r = s.get(f"{API}/dashboard/dispatches")
+        assert r.status_code == 200
+        assert r.json()["reports_generated"] >= 0
+
+
+class TestScheduledWa:
+    def test_schedule_and_cancel(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        from datetime import datetime, timezone, timedelta
+        rep = s.post(f"{API}/reports/client/{c1['id']}/generate",
+                     json={"kind": "audit"}).json()
+        future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        r = s.post(f"{API}/reports/{rep['id']}/send-whatsapp", json={
+            "to": "+22670000001", "message": "planned", "scheduled_at": future,
+        })
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["scheduled"] is True
+        sid = body["id"]
+        # Listed as pending
+        listing = s.get(f"{API}/reports/whatsapp/scheduled", params={"status": "pending"}).json()
+        assert any(x["id"] == sid for x in listing)
+        # Cancel
+        r = s.delete(f"{API}/reports/whatsapp/scheduled/{sid}")
+        assert r.status_code == 200
+        # Not cancellable twice
+        r = s.delete(f"{API}/reports/whatsapp/scheduled/{sid}")
+        assert r.status_code == 400
+        s.delete(f"{API}/reports/{rep['id']}")
+
+    def test_reject_past_date(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        rep = s.post(f"{API}/reports/client/{c1['id']}/generate",
+                     json={"kind": "audit"}).json()
+        r = s.post(f"{API}/reports/{rep['id']}/send-whatsapp", json={
+            "to": "+22670000001", "scheduled_at": "2020-01-01T00:00:00Z",
+        })
+        assert r.status_code == 400
+        assert "futur" in r.json()["detail"].lower()
+        s.delete(f"{API}/reports/{rep['id']}")
+
+    def test_client_forbidden(self, client1):
+        s, _ = client1
+        r = s.get(f"{API}/reports/whatsapp/scheduled")
+        assert r.status_code == 403

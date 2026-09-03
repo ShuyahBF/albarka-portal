@@ -60,3 +60,36 @@ async def dashboard_activity(limit: int = 15, user: dict = Depends(get_current_u
         "missions": serialize_many(missions),
         "echeances": serialize_many(echeances),
     }
+
+
+@router.get("/dispatches")
+async def dashboard_dispatches(user: dict = Depends(get_current_user)):
+    """Envois du mois courant : WA délivrés, WA échoués, emails, signatures, rapports.
+
+    Filtre par tenant pour les utilisateurs client, agrège tout pour les staff.
+    """
+    from datetime import datetime, timezone
+    scope = {}
+    if is_client(user):
+        scope["tenant_id"] = tenant_id_of(user)
+    now = datetime.now(timezone.utc)
+    month_prefix = now.strftime("%Y-%m")
+
+    def _month_filter(field: str):
+        # ISO strings are lexicographically sortable — a prefix match is enough.
+        return {field: {"$regex": f"^{month_prefix}"}}
+
+    wa_ok = await db.wa_send_log.count_documents({**scope, **_month_filter("sent_at"), "success": True})
+    wa_ko = await db.wa_send_log.count_documents({**scope, **_month_filter("sent_at"), "success": False})
+    signatures = await db.signature_log.count_documents({**scope, **_month_filter("signed_at")})
+    emails_sent = await db.client_reports.count_documents({**scope, **_month_filter("email_sent_at")})
+    reports_generated = await db.client_reports.count_documents({**scope, **_month_filter("generated_at")})
+    return {
+        "month": month_prefix,
+        "wa_delivered": wa_ok,
+        "wa_failed": wa_ko,
+        "emails_sent": emails_sent,
+        "signatures": signatures,
+        "reports_generated": reports_generated,
+    }
+

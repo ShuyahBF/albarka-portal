@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ReportTemplatesPanel from "@/pages/admin/ReportTemplatesPanel";
 import SignatureLogPanel from "@/pages/admin/SignatureLogPanel";
 import WhatsAppLogPanel from "@/pages/admin/WhatsAppLogPanel";
+import ScheduledWaPanel from "@/pages/admin/ScheduledWaPanel";
 
 const REPORT_KINDS = [
   { value: "mensuel", label: "Rapport mensuel" },
@@ -49,10 +50,12 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
   const [templateId, setTemplateId] = useState("");
   const [templates, setTemplates] = useState([]);
   const [groups, setGroups] = useState([]);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [filterMonth, setFilterMonth] = useState("all");
   const [filterKind, setFilterKind] = useState("all");
   const [sendForm, setSendForm] = useState({ to: "", subject: "", message: "", to_groups: [] });
-  const [waForm, setWaForm] = useState({ to: "", message: "", to_groups: [], all_whatsapp_contacts: false });
+  const [waForm, setWaForm] = useState({ to: "", message: "", to_groups: [], all_whatsapp_contacts: false, schedule_enabled: false, scheduled_at: "" });
   const [signForm, setSignForm] = useState({ signature_name: "", signature_provider: "", signature_reference: "" });
 
   useEffect(() => {
@@ -96,11 +99,36 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
       if (templateId) payload.template_id = templateId;
       const { data } = await apiClient.post(`/reports/client/${tenantId}/generate`, payload);
       toast.success(`Rapport ${data.number} généré`);
+      setPreviewUrl((u) => { if (u) URL.revokeObjectURL(u); return null; });
       setGenOpen(false);
       await load();
     } catch (err) {
       toast.error(extractError(err));
     }
+  };
+
+  const generatePreview = async () => {
+    if (!kind || !month) return;
+    setPreviewLoading(true);
+    try {
+      const token = localStorage.getItem("albarka_token");
+      const payload = { kind, period_month: month };
+      if (templateId) payload.template_id = templateId;
+      const res = await fetch(`${API}/reports/client/${tenantId}/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Erreur");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      setPreviewUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return url; });
+    } catch (err) {
+      toast.error(err.message);
+    } finally { setPreviewLoading(false); }
   };
 
   const download = async (r) => {
@@ -159,7 +187,10 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
 
   const openWa = (r) => {
     setActive(r);
-    setWaForm({ to: "", message: `${r.kind_label} — ${r.number}\nRéférence : ${r.month_key}`, to_groups: [], all_whatsapp_contacts: false });
+    setWaForm({
+      to: "", message: `${r.kind_label} — ${r.number}\nRéférence : ${r.month_key}`,
+      to_groups: [], all_whatsapp_contacts: false, schedule_enabled: false, scheduled_at: "",
+    });
     setWaOpen(true);
   };
 
@@ -168,15 +199,28 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
       toast.error("Renseignez un numéro, un groupe ou cochez « Tous les contacts WhatsApp »");
       return;
     }
+    if (waForm.schedule_enabled && !waForm.scheduled_at) {
+      toast.error("Renseignez la date/heure de programmation");
+      return;
+    }
     try {
       const payload = { message: waForm.message };
       if (waForm.all_whatsapp_contacts) payload.all_whatsapp_contacts = true;
       if (waForm.to_groups.length > 0) payload.to_groups = waForm.to_groups;
       if (waForm.to) payload.to = waForm.to;
+      if (waForm.schedule_enabled) {
+        // Local datetime-local input → ISO UTC
+        const local = new Date(waForm.scheduled_at);
+        payload.scheduled_at = local.toISOString();
+      }
       const { data } = await apiClient.post(`/reports/${active.id}/send-whatsapp`, payload);
-      const okCount = (data.sent || []).length;
-      const koCount = (data.failed || []).length;
-      toast.success(`WhatsApp : ${okCount} délivré${okCount > 1 ? "s" : ""}${koCount ? ` · ${koCount} échec${koCount > 1 ? "s" : ""}` : ""}`);
+      if (data.scheduled) {
+        toast.success(`WhatsApp programmé pour le ${new Date(data.scheduled_at).toLocaleString("fr-FR")}`);
+      } else {
+        const okCount = (data.sent || []).length;
+        const koCount = (data.failed || []).length;
+        toast.success(`WhatsApp : ${okCount} délivré${okCount > 1 ? "s" : ""}${koCount ? ` · ${koCount} échec${koCount > 1 ? "s" : ""}` : ""}`);
+      }
       setWaOpen(false);
       await load();
     } catch (err) {
@@ -318,39 +362,65 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
       </div>
 
       {/* Generate dialog */}
-      <Dialog open={genOpen} onOpenChange={setGenOpen}>
-        <DialogContent data-testid="generate-report-dialog">
+      <Dialog open={genOpen} onOpenChange={(v) => {
+        setGenOpen(v);
+        if (!v) setPreviewUrl((u) => { if (u) URL.revokeObjectURL(u); return null; });
+      }}>
+        <DialogContent className="max-w-4xl" data-testid="generate-report-dialog">
           <DialogHeader><DialogTitle>Générer un rapport</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Type de rapport</Label>
-              <Select value={kind} onValueChange={setKind}>
-                <SelectTrigger data-testid="gen-kind-select"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {REPORT_KINDS.map((k) => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Mois (YYYY-MM)</Label>
-              <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="gen-month-input" />
-            </div>
-            <div>
-              <Label>Modèle de rapport (optionnel)</Label>
-              <Select value={templateId || "__default__"} onValueChange={(v) => setTemplateId(v === "__default__" ? "" : v)}>
-                <SelectTrigger data-testid="gen-template-select"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__default__">Modèle par défaut</SelectItem>
-                  {templates.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}{t.is_default ? " ★" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="text-xs text-muted-foreground mt-1">
-                Contrôle les sections, l'intro et la conclusion imprimées.
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <div>
+                <Label>Type de rapport</Label>
+                <Select value={kind} onValueChange={setKind}>
+                  <SelectTrigger data-testid="gen-kind-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {REPORT_KINDS.map((k) => <SelectItem key={k.value} value={k.value}>{k.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
+              <div>
+                <Label>Mois (YYYY-MM)</Label>
+                <Input type="month" value={month} onChange={(e) => setMonth(e.target.value)} data-testid="gen-month-input" />
+              </div>
+              <div>
+                <Label>Modèle de rapport (optionnel)</Label>
+                <Select value={templateId || "__default__"} onValueChange={(v) => setTemplateId(v === "__default__" ? "" : v)}>
+                  <SelectTrigger data-testid="gen-template-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__">Modèle par défaut</SelectItem>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}{t.is_default ? " ★" : ""}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="text-xs text-muted-foreground mt-1">Contrôle les sections, l'intro et la conclusion.</div>
+              </div>
+              <Button
+                onClick={generatePreview}
+                variant="outline"
+                disabled={previewLoading}
+                className="w-full"
+                data-testid="gen-preview-btn"
+              >
+                {previewLoading ? "Génération de l'aperçu…" : "🔍 Aperçu de la première page"}
+              </Button>
+            </div>
+            <div className="border rounded-md bg-slate-50 flex items-center justify-center min-h-[320px] overflow-hidden">
+              {previewLoading ? (
+                <div className="text-sm text-muted-foreground">Rendu en cours…</div>
+              ) : previewUrl ? (
+                <img
+                  src={previewUrl}
+                  alt="Aperçu du rapport"
+                  className="max-w-full max-h-[420px] object-contain shadow-lg"
+                  data-testid="report-preview-image"
+                />
+              ) : (
+                <div className="text-xs text-muted-foreground text-center px-4">
+                  L'aperçu montre exactement la 1re page du PDF qui sera générée (avec le modèle, le branding et le filigrane appliqués).
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -442,11 +512,39 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
               </div>
             )}
             <div><Label>Message (accompagne la pièce jointe)</Label><Textarea rows={3} value={waForm.message} onChange={(e) => setWaForm({ ...waForm, message: e.target.value })} data-testid="wa-message-input" /></div>
+            <div className="border-t pt-3">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <Checkbox
+                  checked={waForm.schedule_enabled}
+                  onCheckedChange={(v) => setWaForm({ ...waForm, schedule_enabled: !!v })}
+                  data-testid="wa-schedule-checkbox"
+                />
+                <CalIcon className="w-4 h-4 text-[#0F6B4A]" />
+                <span className="font-semibold">Programmer l'envoi plus tard</span>
+              </label>
+              {waForm.schedule_enabled && (
+                <div className="mt-2 space-y-1">
+                  <Label className="text-xs">Date et heure (fuseau local, UTC en base)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={waForm.scheduled_at}
+                    onChange={(e) => setWaForm({ ...waForm, scheduled_at: e.target.value })}
+                    min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)}
+                    data-testid="wa-scheduled-at-input"
+                  />
+                  <div className="text-[10px] text-muted-foreground">
+                    Le worker cron dispatche les envois toutes les 5 minutes. Marge de délai typique : 0–5 min.
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setWaOpen(false)}>Annuler</Button>
             <Button onClick={doWa} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="wa-submit-btn">
-              <MessageCircle className="w-4 h-4 mr-2" />Envoyer WA
+              {waForm.schedule_enabled
+                ? <><CalIcon className="w-4 h-4 mr-2" />Programmer</>
+                : <><MessageCircle className="w-4 h-4 mr-2" />Envoyer WA</>}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -603,7 +701,8 @@ export default function AdminReports() {
           <SignatureLogPanel />
         </TabsContent>
 
-        <TabsContent value="walog" className="pt-4">
+        <TabsContent value="walog" className="pt-4 space-y-6">
+          <ScheduledWaPanel />
           <WhatsAppLogPanel />
         </TabsContent>
       </Tabs>

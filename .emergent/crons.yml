@@ -6,3 +6,9 @@ crons:
     method: POST
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     enabled: true
+  - name: albarka-scheduled-wa
+    description: "Dispatch des envois WhatsApp planifiés — toutes les 5 minutes"
+    cron: "*/5 * * * *"
+    endpoint: "{{BASE_URL}}/api/reports/cron/dispatch-scheduled-wa"
+    method: POST
+    enabled: true

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from albarka_admin_settings import get_settings_doc
@@ -84,6 +84,50 @@ async def _load_report_data(tenant_id: str):
         {"document_id": {"$in": [d["id"] for d in documents]}}, {"_id": 0},
     ).to_list(500)
     return client, missions, echeances, documents, {s["document_id"]: s for s in syntheses}
+
+
+@router.post("/client/{tenant_id}/preview")
+async def preview_report(
+    tenant_id: str, payload: GenerateReportPayload,
+    user: dict = Depends(require_staff()),
+):
+    """Génère un rapport PDF SANS le persister et renvoie la 1re page en PNG.
+
+    Utile pour visualiser l'effet d'un modèle avant génération réelle.
+    """
+    from fastapi.responses import Response
+    try:
+        kind = payload.resolved_kind()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    now = datetime.now(timezone.utc)
+    month_key = payload.period_month or now.strftime("%Y-%m")
+    if not re.match(r"^\d{4}-\d{2}$", month_key):
+        raise HTTPException(status_code=400, detail="period_month attendu au format YYYY-MM")
+    client, missions, echeances, documents, syntheses = await _load_report_data(tenant_id)
+    settings = await get_settings_doc()
+    prefix = (settings.get("report_prefix") or "RAP").strip() or "RAP"
+    number = f"{prefix}-PREVIEW-{kind.upper()}-{month_key.replace('-', '')}-XXXX"
+    pdf_bytes = build_client_report_pdf(
+        client=client, missions=missions, echeances=echeances,
+        documents=documents, syntheses_by_doc=syntheses,
+        header_number=number, report_kind_label=REPORT_TYPES[kind], month_key=month_key,
+        template=await get_template(payload.template_id),
+        branding=await _load_branding(),
+    )
+    # Render page 0 as PNG (~150 dpi keeps the preview crisp yet under ~200KB)
+    import io as _io
+    import fitz  # PyMuPDF
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        pix = doc[0].get_pixmap(dpi=140)
+        png_bytes = pix.tobytes("png")
+    finally:
+        doc.close()
+    return Response(
+        content=png_bytes, media_type="image/png",
+        headers={"X-Report-Preview": "1", "Cache-Control": "no-store"},
+    )
 
 
 @router.post("/client/{tenant_id}/generate")
@@ -192,6 +236,7 @@ class SendReportWhatsAppPayload(BaseModel):
     to_groups: Optional[list[str]] = None
     all_whatsapp_contacts: bool = False
     message: Optional[str] = None
+    scheduled_at: Optional[str] = None  # ISO 8601 UTC (`YYYY-MM-DDTHH:MM:SSZ`)
 
 
 def _make_share_token(report_id: str, ttl_seconds: int = 604800) -> str:
@@ -326,22 +371,70 @@ async def send_report_whatsapp(
 ):
     """Envoie le rapport PDF par WhatsApp.
 
-    Stratégie : tente d'abord d'uploader le PDF via Meta Media API et l'envoyer
-    comme document. En cas d'échec de l'upload, retombe sur un message texte
-    contenant un lien signé de téléchargement (valide 7 jours).
+    Si `scheduled_at` est fourni (ISO UTC futur), la demande est enregistrée dans
+    `scheduled_wa_sends` — le job cron `/cron/dispatch-scheduled-wa` la traitera.
+    Sinon, envoie immédiatement.
+
+    Stratégie d'envoi immédiat : upload PDF via Meta Media API + envoi comme
+    document. Fallback → texte + lien signé 7 jours en cas d'échec.
     """
     r = await _fetch_report(report_id, user)
-    client = await db.users.find_one({"id": r["tenant_id"]}, {"_id": 0, "password_hash": 0})
+
+    # -------- Schedule for later --------
+    if payload.scheduled_at:
+        try:
+            when = _parse_scheduled_at(payload.scheduled_at)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        entry = {
+            "id": secrets.token_urlsafe(12),
+            "report_id": report_id,
+            "report_number": r["number"],
+            "tenant_id": r["tenant_id"],
+            "scheduled_at": when.isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": user["id"],
+            "created_by_name": user.get("full_name") or user.get("email"),
+            "status": "pending",
+            "payload": payload.model_dump(exclude={"scheduled_at"}),
+        }
+        await db.scheduled_wa_sends.insert_one(dict(entry))
+        return {"ok": True, "scheduled": True, "scheduled_at": when.isoformat(), "id": entry["id"]}
+
+    # -------- Immediate send --------
+    result = await _perform_wa_send(report=r, payload=payload, user=user)
+    return result
+
+
+def _parse_scheduled_at(raw: str) -> datetime:
+    """Accept ISO 8601 strings (with or without `Z`) and reject past values."""
+    s = raw.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        raise ValueError("Format attendu ISO 8601 UTC (ex. 2026-02-15T09:30:00Z)")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if dt <= now + timedelta(seconds=30):
+        raise ValueError("La date planifiée doit être dans le futur (> 30s)")
+    if dt > now + timedelta(days=365):
+        raise ValueError("Planification maximum : 12 mois à l'avance")
+    return dt
+
+
+async def _perform_wa_send(*, report: dict, payload: SendReportWhatsAppPayload, user: dict):
+    """Core send logic — extracted so the cron worker can reuse it."""
+    client = await db.users.find_one({"id": report["tenant_id"]}, {"_id": 0, "password_hash": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
 
-    # ---- Collect target phone numbers ----
     phones: set[str] = set()
     if payload.to:
         phones.add(payload.to.strip())
     if payload.to_contacts:
         contacts = await db.contacts.find(
-            {"id": {"$in": payload.to_contacts}, "tenant_id": r["tenant_id"], "is_active": True},
+            {"id": {"$in": payload.to_contacts}, "tenant_id": report["tenant_id"], "is_active": True},
             {"_id": 0},
         ).to_list(200)
         for c in contacts:
@@ -350,7 +443,7 @@ async def send_report_whatsapp(
                 phones.add(c["phone"])
     if payload.to_groups:
         groups = await db.contact_groups.find(
-            {"id": {"$in": payload.to_groups}, "tenant_id": r["tenant_id"]},
+            {"id": {"$in": payload.to_groups}, "tenant_id": report["tenant_id"]},
             {"_id": 0, "id": 1, "contact_ids": 1},
         ).to_list(50)
         member_ids: set[str] = set()
@@ -359,17 +452,15 @@ async def send_report_whatsapp(
                 member_ids.add(cid)
         if member_ids:
             contacts = await db.contacts.find(
-                {"id": {"$in": list(member_ids)}, "is_active": True},
-                {"_id": 0},
+                {"id": {"$in": list(member_ids)}, "is_active": True}, {"_id": 0},
             ).to_list(500)
             for c in contacts:
                 if c.get("phone") and c.get("can_receive_notifications", True) \
                         and "whatsapp" in (c.get("channels") or ["email"]):
                     phones.add(c["phone"])
     if payload.all_whatsapp_contacts:
-        # Broadcast: every active contact of this tenant that opted in for WA.
         all_contacts = await db.contacts.find(
-            {"tenant_id": r["tenant_id"], "is_active": True},
+            {"tenant_id": report["tenant_id"], "is_active": True},
             {"_id": 0, "phone": 1, "can_receive_notifications": 1, "channels": 1},
         ).to_list(1000)
         for c in all_contacts:
@@ -382,26 +473,22 @@ async def send_report_whatsapp(
     if not phones:
         raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…)")
 
-    # ---- Verify WA is configured ----
     settings = await get_settings_doc()
     if not settings.get("wa_enabled"):
         raise HTTPException(status_code=400, detail="WhatsApp désactivé dans les paramètres")
 
-    # ---- Try uploading the PDF once and reuse the media_id across recipients ----
     from albarka_notifications import (
         _wa_upload_media, send_whatsapp, send_whatsapp_document,
     )
-    pdf_bytes, _ = await get_object(r["storage_path"])
-    filename = f"{r['number']}.pdf"
+    pdf_bytes, _ = await get_object(report["storage_path"])
+    filename = f"{report['number']}.pdf"
     cabinet_name = (settings.get("cabinet_name") or "Cabinet ALBARKA").strip()
     caption_msg = (payload.message or "").strip() or (
-        f"{r['kind_label']} — {r['number']}\nRéférence : {r['month_key']}\n\nCordialement, {cabinet_name}"
+        f"{report['kind_label']} — {report['number']}\nRéférence : {report['month_key']}\n\nCordialement, {cabinet_name}"
     )
 
     media_id = await _wa_upload_media(pdf_bytes=pdf_bytes, filename=filename)
-
-    # Prepare fallback share link (used if media_id fails, or as text-only channel)
-    share_token = _make_share_token(r["id"])
+    share_token = _make_share_token(report["id"])
     base_url = (os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
     share_url = f"{base_url}/api/reports/download/shared/{share_token}"
 
@@ -413,50 +500,34 @@ async def send_report_whatsapp(
             message_id = await send_whatsapp_document(
                 to_phone=phone, media_id=media_id, filename=filename, caption=caption_msg,
             )
-            if message_id:
-                strategy = "document"
+            if message_id: strategy = "document"
         if not message_id:
-            fallback_msg = (
-                f"{caption_msg}\n\nTéléchargement (lien sécurisé, 7 jours) :\n{share_url}"
-            )
+            fallback_msg = f"{caption_msg}\n\nTéléchargement (lien sécurisé, 7 jours) :\n{share_url}"
             message_id = await send_whatsapp(to_phone=phone, message=fallback_msg)
-            if message_id:
-                strategy = "link"
+            if message_id: strategy = "link"
         delivery.append({"phone": phone, "message_id": message_id, "strategy": strategy})
 
     delivered = [d for d in delivery if d["message_id"]]
     if not delivered:
         raise HTTPException(status_code=502, detail="Aucun message WhatsApp délivré — vérifier la config Meta")
 
-    # -------- Persist audit log entries --------
     now_iso = datetime.now(timezone.utc).isoformat()
     log_docs = [
         {
-            "id": secrets.token_urlsafe(12),
-            "report_id": report_id,
-            "report_number": r["number"],
-            "tenant_id": r["tenant_id"],
-            "phone": d["phone"],
-            "strategy": d["strategy"] or "unknown",
-            "message_id": d["message_id"],
-            "sent_at": now_iso,
-            "sent_by": user["id"],
-            "sent_by_name": user.get("full_name") or user.get("email"),
+            "id": secrets.token_urlsafe(12), "report_id": report["id"],
+            "report_number": report["number"], "tenant_id": report["tenant_id"],
+            "phone": d["phone"], "strategy": d["strategy"] or "unknown",
+            "message_id": d["message_id"], "sent_at": now_iso,
+            "sent_by": user["id"], "sent_by_name": user.get("full_name") or user.get("email"),
             "success": True,
         }
         for d in delivered
-    ]
-    log_docs += [
+    ] + [
         {
-            "id": secrets.token_urlsafe(12),
-            "report_id": report_id,
-            "report_number": r["number"],
-            "tenant_id": r["tenant_id"],
-            "phone": d["phone"],
-            "strategy": None,
-            "message_id": None,
-            "sent_at": now_iso,
-            "sent_by": user["id"],
+            "id": secrets.token_urlsafe(12), "report_id": report["id"],
+            "report_number": report["number"], "tenant_id": report["tenant_id"],
+            "phone": d["phone"], "strategy": None, "message_id": None,
+            "sent_at": now_iso, "sent_by": user["id"],
             "sent_by_name": user.get("full_name") or user.get("email"),
             "success": False,
         }
@@ -464,9 +535,8 @@ async def send_report_whatsapp(
     ]
     if log_docs:
         await db.wa_send_log.insert_many([dict(x) for x in log_docs])
-
     await db.client_reports.update_one(
-        {"id": report_id},
+        {"id": report["id"]},
         {"$set": {
             "wa_sent_at": now_iso,
             "wa_sent_to": ", ".join([d["phone"] for d in delivered]),
@@ -478,6 +548,114 @@ async def send_report_whatsapp(
         "sent": delivered,
         "failed": [d for d in delivery if not d["message_id"]],
     }
+
+
+@router.get("/whatsapp/scheduled")
+async def list_scheduled_wa(
+    status: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    user: dict = Depends(require_staff()),
+):
+    q = {}
+    if status: q["status"] = status
+    if tenant_id: q["tenant_id"] = tenant_id
+    items = await db.scheduled_wa_sends.find(q, {"_id": 0}).sort("scheduled_at", 1).to_list(500)
+    return serialize_many(items)
+
+
+@router.delete("/whatsapp/scheduled/{scheduled_id}")
+async def cancel_scheduled_wa(scheduled_id: str, user: dict = Depends(require_staff())):
+    entry = await db.scheduled_wa_sends.find_one({"id": scheduled_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Programmation introuvable")
+    if entry["status"] != "pending":
+        raise HTTPException(status_code=400, detail=f"Impossible d'annuler un envoi {entry['status']}")
+    await db.scheduled_wa_sends.update_one(
+        {"id": scheduled_id},
+        {"$set": {
+            "status": "cancelled",
+            "cancelled_at": datetime.now(timezone.utc).isoformat(),
+            "cancelled_by": user["id"],
+        }},
+    )
+    return {"ok": True, "id": scheduled_id}
+
+
+@router.post("/cron/dispatch-scheduled-wa")
+async def cron_dispatch_scheduled_wa(
+    authorization: Optional[str] = Header(None),
+    x_webhook_id: Optional[str] = Header(None),
+):
+    """Cron worker: exécute les envois WhatsApp planifiés dont l'heure est arrivée."""
+    from albarka_reports_router import _verify_cron_auth
+    _verify_cron_auth(authorization)
+    if x_webhook_id:
+        already = await db.cron_runs.find_one({"run_id": x_webhook_id})
+        if already:
+            return {"ok": True, "duplicate": True}
+        await db.cron_runs.insert_one({
+            "run_id": x_webhook_id,
+            "job": "dispatch-scheduled-wa",
+            "received_at": datetime.now(timezone.utc).isoformat(),
+        })
+    now = datetime.now(timezone.utc).isoformat()
+    pending = await db.scheduled_wa_sends.find(
+        {"status": "pending", "scheduled_at": {"$lte": now}}, {"_id": 0},
+    ).to_list(100)
+    results = []
+    for entry in pending:
+        report = await db.client_reports.find_one({"id": entry["report_id"]}, {"_id": 0})
+        if not report:
+            await db.scheduled_wa_sends.update_one(
+                {"id": entry["id"]},
+                {"$set": {"status": "failed", "executed_at": now, "error": "Rapport introuvable"}},
+            )
+            results.append({"id": entry["id"], "status": "failed", "error": "report-missing"})
+            continue
+        creator = await db.users.find_one({"id": entry["created_by"]}, {"_id": 0, "password_hash": 0})
+        if not creator:
+            creator = {"id": entry["created_by"], "email": "cron@albarka", "full_name": "Cron worker"}
+        payload = SendReportWhatsAppPayload(**(entry.get("payload") or {}))
+        try:
+            outcome = await _perform_wa_send(report=report, payload=payload, user=creator)
+            await db.scheduled_wa_sends.update_one(
+                {"id": entry["id"]},
+                {"$set": {
+                    "status": "sent",
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                    "result": {
+                        "delivered": len(outcome.get("sent") or []),
+                        "failed": len(outcome.get("failed") or []),
+                    },
+                }},
+            )
+            results.append({"id": entry["id"], "status": "sent",
+                            "delivered": len(outcome.get("sent") or [])})
+        except HTTPException as exc:
+            await db.scheduled_wa_sends.update_one(
+                {"id": entry["id"]},
+                {"$set": {
+                    "status": "failed",
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                    "error": f"{exc.status_code}: {exc.detail}",
+                }},
+            )
+            results.append({"id": entry["id"], "status": "failed", "error": str(exc.detail)})
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Cron WA dispatch error on %s", entry["id"])
+            await db.scheduled_wa_sends.update_one(
+                {"id": entry["id"]},
+                {"$set": {
+                    "status": "failed",
+                    "executed_at": datetime.now(timezone.utc).isoformat(),
+                    "error": str(exc)[:400],
+                }},
+            )
+            results.append({"id": entry["id"], "status": "failed", "error": "internal"})
+    return {"ok": True, "processed": len(results), "results": results}
+
+
+# =====================================================================
 
 
 @router.get("/whatsapp/log")

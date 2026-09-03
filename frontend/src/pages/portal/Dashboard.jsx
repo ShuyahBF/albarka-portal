@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { FileText, Briefcase, CalendarClock, AlertTriangle, Users, UserCog } from "lucide-react";
+import { FileText, Briefcase, CalendarClock, AlertTriangle, Users, UserCog, MessageCircle, Send, ShieldCheck, FileCheck } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -18,6 +18,26 @@ function KPI({ icon: Icon, label, value, tone = "emerald", testid }) {
       </div>
       <div className="mt-4 font-display text-3xl font-semibold text-foreground">{value ?? "–"}</div>
       <div className="text-sm text-muted-foreground mt-1">{label}</div>
+    </div>
+  );
+}
+
+function MiniKPI({ icon: Icon, label, value, tone = "emerald", testid }) {
+  const tones = {
+    emerald: "bg-[#0F6B4A]/10 text-[#0F6B4A]",
+    amber: "bg-[#E5A24B]/15 text-[#8A5A16]",
+    danger: "bg-red-100 text-red-700",
+    slate: "bg-slate-100 text-slate-700",
+  };
+  return (
+    <div className="border rounded-lg p-3 flex items-center gap-3 bg-slate-50/50" data-testid={testid}>
+      <div className={`w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0 ${tones[tone]}`}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="min-w-0">
+        <div className="font-display text-xl leading-none">{value ?? 0}</div>
+        <div className="text-[11px] text-muted-foreground mt-1 leading-tight">{label}</div>
+      </div>
     </div>
   );
 }
@@ -47,6 +67,7 @@ function BadgeStatus({ value }) {
 export function DashboardShared({ admin = false }) {
   const [summary, setSummary] = useState(null);
   const [activity, setActivity] = useState(null);
+  const [dispatches, setDispatches] = useState(null);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
 
@@ -54,13 +75,15 @@ export function DashboardShared({ admin = false }) {
     let mounted = true;
     (async () => {
       try {
-        const [s, a] = await Promise.all([
+        const [s, a, d] = await Promise.all([
           apiClient.get("/dashboard/summary"),
           apiClient.get("/dashboard/activity"),
+          apiClient.get("/dashboard/dispatches"),
         ]);
         if (!mounted) return;
         setSummary(s.data);
         setActivity(a.data);
+        setDispatches(d.data);
       } catch (err) {
         toast.error(extractError(err));
       } finally {
@@ -97,6 +120,24 @@ export function DashboardShared({ admin = false }) {
             <KPI icon={UserCog} label="Collaborateurs" value={summary?.staff_total} tone="slate" testid="kpi-staff" />
           </>
         )}
+      </div>
+
+      {/* Envois du mois */}
+      <div className="albarka-card p-5" data-testid="dispatches-widget">
+        <div className="flex items-baseline justify-between mb-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-1">Activité</div>
+            <div className="font-display text-xl">Envois du mois {dispatches?.month ? `— ${dispatches.month}` : ""}</div>
+          </div>
+          <div className="text-xs text-muted-foreground">Compteurs mensuels, réinitialisés le 1er de chaque mois</div>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <MiniKPI icon={FileCheck} label="Rapports générés" value={dispatches?.reports_generated} tone="emerald" testid="dispatch-reports" />
+          <MiniKPI icon={Send} label="Emails envoyés" value={dispatches?.emails_sent} tone="slate" testid="dispatch-emails" />
+          <MiniKPI icon={MessageCircle} label="WhatsApp délivrés" value={dispatches?.wa_delivered} tone="emerald" testid="dispatch-wa-ok" />
+          <MiniKPI icon={AlertTriangle} label="WhatsApp échoués" value={dispatches?.wa_failed} tone="danger" testid="dispatch-wa-ko" />
+          <MiniKPI icon={ShieldCheck} label="Signatures" value={dispatches?.signatures} tone="amber" testid="dispatch-signatures" />
+        </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
