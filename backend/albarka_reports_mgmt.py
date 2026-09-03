@@ -190,6 +190,7 @@ class SendReportWhatsAppPayload(BaseModel):
     to: Optional[str] = None
     to_contacts: Optional[list[str]] = None
     to_groups: Optional[list[str]] = None
+    all_whatsapp_contacts: bool = False
     message: Optional[str] = None
 
 
@@ -365,6 +366,16 @@ async def send_report_whatsapp(
                 if c.get("phone") and c.get("can_receive_notifications", True) \
                         and "whatsapp" in (c.get("channels") or ["email"]):
                     phones.add(c["phone"])
+    if payload.all_whatsapp_contacts:
+        # Broadcast: every active contact of this tenant that opted in for WA.
+        all_contacts = await db.contacts.find(
+            {"tenant_id": r["tenant_id"], "is_active": True},
+            {"_id": 0, "phone": 1, "can_receive_notifications": 1, "channels": 1},
+        ).to_list(1000)
+        for c in all_contacts:
+            if c.get("phone") and c.get("can_receive_notifications", True) \
+                    and "whatsapp" in (c.get("channels") or ["email"]):
+                phones.add(c["phone"])
     if not phones and client.get("phone"):
         phones.add(client["phone"])
     phones = {p for p in phones if p and p.startswith("+")}
@@ -417,10 +428,47 @@ async def send_report_whatsapp(
     if not delivered:
         raise HTTPException(status_code=502, detail="Aucun message WhatsApp délivré — vérifier la config Meta")
 
+    # -------- Persist audit log entries --------
+    now_iso = datetime.now(timezone.utc).isoformat()
+    log_docs = [
+        {
+            "id": secrets.token_urlsafe(12),
+            "report_id": report_id,
+            "report_number": r["number"],
+            "tenant_id": r["tenant_id"],
+            "phone": d["phone"],
+            "strategy": d["strategy"] or "unknown",
+            "message_id": d["message_id"],
+            "sent_at": now_iso,
+            "sent_by": user["id"],
+            "sent_by_name": user.get("full_name") or user.get("email"),
+            "success": True,
+        }
+        for d in delivered
+    ]
+    log_docs += [
+        {
+            "id": secrets.token_urlsafe(12),
+            "report_id": report_id,
+            "report_number": r["number"],
+            "tenant_id": r["tenant_id"],
+            "phone": d["phone"],
+            "strategy": None,
+            "message_id": None,
+            "sent_at": now_iso,
+            "sent_by": user["id"],
+            "sent_by_name": user.get("full_name") or user.get("email"),
+            "success": False,
+        }
+        for d in delivery if not d["message_id"]
+    ]
+    if log_docs:
+        await db.wa_send_log.insert_many([dict(x) for x in log_docs])
+
     await db.client_reports.update_one(
         {"id": report_id},
         {"$set": {
-            "wa_sent_at": datetime.now(timezone.utc).isoformat(),
+            "wa_sent_at": now_iso,
             "wa_sent_to": ", ".join([d["phone"] for d in delivered]),
             "wa_sent_by": user["id"],
         }},
@@ -430,6 +478,23 @@ async def send_report_whatsapp(
         "sent": delivered,
         "failed": [d for d in delivery if not d["message_id"]],
     }
+
+
+@router.get("/whatsapp/log")
+async def whatsapp_audit_log(
+    tenant_id: Optional[str] = None,
+    report_id: Optional[str] = None,
+    success: Optional[bool] = None,
+    limit: int = 200,
+    user: dict = Depends(require_staff()),
+):
+    """Journal d'audit des envois WhatsApp — filtres client/rapport/statut."""
+    q = {}
+    if tenant_id: q["tenant_id"] = tenant_id
+    if report_id: q["report_id"] = report_id
+    if success is not None: q["success"] = success
+    items = await db.wa_send_log.find(q, {"_id": 0}).sort("sent_at", -1).to_list(min(max(limit, 1), 500))
+    return serialize_many(items)
 
 
 class SignReportPayload(BaseModel):

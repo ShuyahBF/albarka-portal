@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0F6B4A"/>
+      <stop offset="1" stop-color="#0A4E36"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- Stylised "A" letterform for ALBARKA -->
+  <path d="M18 48 L32 14 L46 48" fill="none" stroke="#F4E9D3" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="24" y1="34" x2="40" y2="34" stroke="#E5A24B" stroke-width="4.5" stroke-linecap="round"/>
+  <!-- Baraka dot (blessing) -->
+  <circle cx="32" cy="7" r="2.6" fill="#E5A24B"/>
+</svg>

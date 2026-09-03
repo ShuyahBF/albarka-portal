@@ -376,3 +376,53 @@ class TestBrandingPreview:
         s.delete(f"{API}/admin/branding/watermark")
         r = s.get(f"{API}/admin/branding/watermark/preview")
         assert r.status_code == 404
+
+
+class TestWhatsAppBroadcast:
+    """New: broadcast to all whatsapp-enabled contacts of a tenant."""
+    def test_all_whatsapp_contacts_recipient_scope(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        # Create 2 contacts on client1: one with WA + phone, one without
+        c_wa = s.post(f"{API}/contacts", json={
+            "scope": "client", "tenant_id": c1["id"],
+            "full_name": "WA Contact", "phone": "+22670009901",
+            "function": "dg", "channels": ["email", "whatsapp"],
+        }).json()
+        c_no = s.post(f"{API}/contacts", json={
+            "scope": "client", "tenant_id": c1["id"],
+            "full_name": "Email Only", "email": "emailonly@sawadogo.bf",
+            "function": "daf", "channels": ["email"],
+        }).json()
+        rep = s.post(f"{API}/reports/client/{c1['id']}/generate",
+                     json={"kind": "ponctuel"}).json()
+        r = s.post(f"{API}/reports/{rep['id']}/send-whatsapp", json={
+            "all_whatsapp_contacts": True, "message": "Bcast",
+        })
+        # WA not configured in test env → 400 desactivé OR 502 no delivery
+        assert r.status_code in (400, 502), r.text
+        # Cleanup
+        s.delete(f"{API}/reports/{rep['id']}")
+        s.delete(f"{API}/contacts/{c_wa['id']}")
+        s.delete(f"{API}/contacts/{c_no['id']}")
+
+
+class TestWhatsAppAuditLog:
+    def test_log_admin_only(self, superviseur, client1):
+        s, _ = superviseur
+        assert s.get(f"{API}/reports/whatsapp/log").status_code == 200
+        cs, _ = client1
+        assert cs.get(f"{API}/reports/whatsapp/log").status_code == 403
+
+    def test_log_filters(self, superviseur):
+        s, _ = superviseur
+        # Just make sure filters accept the query params without 500
+        for params in [
+            {},
+            {"success": "true"},
+            {"success": "false"},
+            {"tenant_id": "nope"},
+        ]:
+            r = s.get(f"{API}/reports/whatsapp/log", params=params)
+            assert r.status_code == 200
+            assert isinstance(r.json(), list)

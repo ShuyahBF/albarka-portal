@@ -19,6 +19,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ReportTemplatesPanel from "@/pages/admin/ReportTemplatesPanel";
 import SignatureLogPanel from "@/pages/admin/SignatureLogPanel";
+import WhatsAppLogPanel from "@/pages/admin/WhatsAppLogPanel";
 
 const REPORT_KINDS = [
   { value: "mensuel", label: "Rapport mensuel" },
@@ -51,7 +52,7 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
   const [filterMonth, setFilterMonth] = useState("all");
   const [filterKind, setFilterKind] = useState("all");
   const [sendForm, setSendForm] = useState({ to: "", subject: "", message: "", to_groups: [] });
-  const [waForm, setWaForm] = useState({ to: "", message: "", to_groups: [] });
+  const [waForm, setWaForm] = useState({ to: "", message: "", to_groups: [], all_whatsapp_contacts: false });
   const [signForm, setSignForm] = useState({ signature_name: "", signature_provider: "", signature_reference: "" });
 
   useEffect(() => {
@@ -158,22 +159,24 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
 
   const openWa = (r) => {
     setActive(r);
-    setWaForm({ to: "", message: `${r.kind_label} — ${r.number}\nRéférence : ${r.month_key}`, to_groups: [] });
+    setWaForm({ to: "", message: `${r.kind_label} — ${r.number}\nRéférence : ${r.month_key}`, to_groups: [], all_whatsapp_contacts: false });
     setWaOpen(true);
   };
 
   const doWa = async () => {
-    if (!waForm.to && waForm.to_groups.length === 0) {
-      toast.error("Renseignez un numéro ou sélectionnez au moins un groupe");
+    if (!waForm.to && waForm.to_groups.length === 0 && !waForm.all_whatsapp_contacts) {
+      toast.error("Renseignez un numéro, un groupe ou cochez « Tous les contacts WhatsApp »");
       return;
     }
     try {
       const payload = { message: waForm.message };
+      if (waForm.all_whatsapp_contacts) payload.all_whatsapp_contacts = true;
       if (waForm.to_groups.length > 0) payload.to_groups = waForm.to_groups;
       if (waForm.to) payload.to = waForm.to;
       const { data } = await apiClient.post(`/reports/${active.id}/send-whatsapp`, payload);
       const okCount = (data.sent || []).length;
-      toast.success(`WhatsApp envoyé à ${okCount} destinataire${okCount > 1 ? "s" : ""}`);
+      const koCount = (data.failed || []).length;
+      toast.success(`WhatsApp : ${okCount} délivré${okCount > 1 ? "s" : ""}${koCount ? ` · ${koCount} échec${koCount > 1 ? "s" : ""}` : ""}`);
       setWaOpen(false);
       await load();
     } catch (err) {
@@ -402,11 +405,26 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
               Nous tentons d'abord d'envoyer le PDF en pièce jointe (Meta Media API).
               Si l'upload échoue, un message texte contenant un lien signé (7 jours) est envoyé à la place.
             </div>
+            <label className="flex items-start gap-2 text-sm cursor-pointer p-3 border-2 border-emerald-500/30 bg-emerald-50/50 rounded-md hover:bg-emerald-50">
+              <Checkbox
+                checked={waForm.all_whatsapp_contacts}
+                onCheckedChange={(v) => setWaForm({ ...waForm, all_whatsapp_contacts: !!v, to: v ? "" : waForm.to, to_groups: v ? [] : waForm.to_groups })}
+                data-testid="wa-broadcast-checkbox"
+                className="mt-0.5"
+              />
+              <div>
+                <div className="font-semibold text-emerald-800">Envoyer à tous les contacts WhatsApp de ce client</div>
+                <div className="text-xs text-muted-foreground">
+                  Diffuse le rapport à tous les contacts actifs de ce client qui ont un téléphone et
+                  le canal WhatsApp activé — pratique pour un envoi de masse en un clic.
+                </div>
+              </div>
+            </label>
             <div>
               <Label>Numéro WhatsApp direct (+226…)</Label>
-              <Input value={waForm.to} onChange={(e) => setWaForm({ ...waForm, to: e.target.value })} placeholder="+22670…" disabled={waForm.to_groups.length > 0} data-testid="wa-to-input" />
+              <Input value={waForm.to} onChange={(e) => setWaForm({ ...waForm, to: e.target.value })} placeholder="+22670…" disabled={waForm.to_groups.length > 0 || waForm.all_whatsapp_contacts} data-testid="wa-to-input" />
             </div>
-            {groups.length > 0 && (
+            {groups.length > 0 && !waForm.all_whatsapp_contacts && (
               <div>
                 <Label className="flex items-center gap-1"><Users2 className="w-4 h-4" /> Ou envoyer à des groupes ({waForm.to_groups.length} sélectionnés)</Label>
                 <div className="mt-2 space-y-1 max-h-32 overflow-y-auto border rounded-md p-2">
@@ -517,6 +535,9 @@ export default function AdminReports() {
           <TabsTrigger value="log" data-testid="tab-signlog">
             <ShieldCheck className="w-4 h-4 mr-2" />Journal signatures
           </TabsTrigger>
+          <TabsTrigger value="walog" data-testid="tab-walog">
+            <MessageCircle className="w-4 h-4 mr-2" />Journal WhatsApp
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="reports" className="pt-4">
@@ -580,6 +601,10 @@ export default function AdminReports() {
 
         <TabsContent value="log" className="pt-4">
           <SignatureLogPanel />
+        </TabsContent>
+
+        <TabsContent value="walog" className="pt-4">
+          <WhatsAppLogPanel />
         </TabsContent>
       </Tabs>
     </div>
