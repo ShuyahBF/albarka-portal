@@ -44,6 +44,20 @@ async def get_branding(user: dict = Depends(require_roles(_ADMIN_ROLES))):
     return settings.get("branding") or {}
 
 
+@router.get("/{kind}/preview")
+async def preview_branding(kind: str, user: dict = Depends(require_roles(_ADMIN_ROLES))):
+    """Return the raw image bytes for authenticated preview."""
+    from fastapi.responses import Response
+    if kind not in BRANDING_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind attendu : {sorted(BRANDING_KINDS)}")
+    settings = await db.settings.find_one({"_id": "global"}, {"_id": 0, "branding": 1}) or {}
+    entry = (settings.get("branding") or {}).get(kind)
+    if not entry or not entry.get("path"):
+        raise HTTPException(status_code=404, detail="Aucune image chargée pour ce type")
+    data, ct = await get_object(entry["path"])
+    return Response(content=data, media_type=ct or entry.get("content_type") or "image/png")
+
+
 @router.post("/{kind}")
 async def upload_branding(
     kind: str,

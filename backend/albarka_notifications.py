@@ -213,6 +213,64 @@ async def send_whatsapp(*, to_phone: str, message: str) -> Optional[str]:
         return None
 
 
+async def _wa_upload_media(*, pdf_bytes: bytes, filename: str) -> Optional[str]:
+    """Upload a PDF to Meta Media API, returns media_id or None."""
+    cfg = await _get_wa_config()
+    if not cfg:
+        return None
+    url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/media"
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {cfg['access_token']}"},
+                data={"messaging_product": "whatsapp", "type": "application/pdf"},
+                files={"file": (filename, pdf_bytes, "application/pdf")},
+            )
+        resp.raise_for_status()
+        return resp.json().get("id")
+    except Exception:
+        logger.exception("Upload media WA échoué (%s)", filename)
+        return None
+
+
+async def send_whatsapp_document(
+    *, to_phone: str, media_id: str, filename: str, caption: str = "",
+) -> Optional[str]:
+    """Send a previously uploaded PDF as a WhatsApp document."""
+    cfg = await _get_wa_config()
+    if not cfg:
+        return None
+    if not to_phone or not to_phone.startswith("+"):
+        return None
+    to = to_phone.lstrip("+")
+    url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/messages"
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": to,
+        "type": "document",
+        "document": {
+            "id": media_id,
+            "filename": filename,
+            "caption": caption[:1024],
+        },
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                url, json=payload,
+                headers={"Authorization": f"Bearer {cfg['access_token']}", "Content-Type": "application/json"},
+            )
+        resp.raise_for_status()
+        messages = resp.json().get("messages") or []
+        return messages[0].get("id") if messages else None
+    except Exception:
+        logger.exception("Envoi document WA échoué vers %s", to_phone)
+        return None
+
+
+
 # --- Email templates ----------------------------------------------------
 def _echeance_email_html(*, full_name: str, echeance: dict, days_left: int, cabinet_name: str) -> str:
     if days_left < 0:

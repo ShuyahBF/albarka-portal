@@ -9,7 +9,7 @@ import logging
 import os
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Optional
 
@@ -186,6 +186,47 @@ class SendReportPayload(BaseModel):
     message: Optional[str] = None
 
 
+class SendReportWhatsAppPayload(BaseModel):
+    to: Optional[str] = None
+    to_contacts: Optional[list[str]] = None
+    to_groups: Optional[list[str]] = None
+    message: Optional[str] = None
+
+
+def _make_share_token(report_id: str, ttl_seconds: int = 604800) -> str:
+    """Sign a short-lived JWT to download a report without authentication."""
+    from jose import jwt as _jwt
+    payload = {
+        "sub": f"report:{report_id}",
+        "exp": datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds),
+    }
+    return _jwt.encode(payload, os.environ["JWT_SECRET_KEY"], algorithm="HS256")
+
+
+@router.get("/download/shared/{token}")
+async def download_report_shared(token: str):
+    """Public authenticated-by-token download (used in WhatsApp fallback links)."""
+    from fastapi.responses import Response
+    from jose import JWTError, jwt as _jwt
+    try:
+        payload = _jwt.decode(token, os.environ["JWT_SECRET_KEY"], algorithms=["HS256"])
+        subj = payload.get("sub") or ""
+        if not subj.startswith("report:"):
+            raise ValueError("bad-subject")
+        report_id = subj.split(":", 1)[1]
+    except (JWTError, ValueError):
+        raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+    r = await db.client_reports.find_one({"id": report_id}, {"_id": 0})
+    if not r:
+        raise HTTPException(status_code=404, detail="Rapport introuvable")
+    data, _ = await get_object(r["storage_path"])
+    filename = f"{r['number']}.pdf"
+    return Response(
+        content=data, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/{report_id}/send")
 async def send_report_email(
     report_id: str, payload: SendReportPayload, user: dict = Depends(require_staff()),
@@ -277,6 +318,120 @@ async def send_report_email(
     return {"ok": True, "message_id": message_id, "to": recipients}
 
 
+@router.post("/{report_id}/send-whatsapp")
+async def send_report_whatsapp(
+    report_id: str, payload: SendReportWhatsAppPayload,
+    user: dict = Depends(require_staff()),
+):
+    """Envoie le rapport PDF par WhatsApp.
+
+    Stratégie : tente d'abord d'uploader le PDF via Meta Media API et l'envoyer
+    comme document. En cas d'échec de l'upload, retombe sur un message texte
+    contenant un lien signé de téléchargement (valide 7 jours).
+    """
+    r = await _fetch_report(report_id, user)
+    client = await db.users.find_one({"id": r["tenant_id"]}, {"_id": 0, "password_hash": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+
+    # ---- Collect target phone numbers ----
+    phones: set[str] = set()
+    if payload.to:
+        phones.add(payload.to.strip())
+    if payload.to_contacts:
+        contacts = await db.contacts.find(
+            {"id": {"$in": payload.to_contacts}, "tenant_id": r["tenant_id"], "is_active": True},
+            {"_id": 0},
+        ).to_list(200)
+        for c in contacts:
+            if c.get("phone") and c.get("can_receive_notifications", True) \
+                    and "whatsapp" in (c.get("channels") or ["email"]):
+                phones.add(c["phone"])
+    if payload.to_groups:
+        groups = await db.contact_groups.find(
+            {"id": {"$in": payload.to_groups}, "tenant_id": r["tenant_id"]},
+            {"_id": 0, "id": 1, "contact_ids": 1},
+        ).to_list(50)
+        member_ids: set[str] = set()
+        for g in groups:
+            for cid in (g.get("contact_ids") or []):
+                member_ids.add(cid)
+        if member_ids:
+            contacts = await db.contacts.find(
+                {"id": {"$in": list(member_ids)}, "is_active": True},
+                {"_id": 0},
+            ).to_list(500)
+            for c in contacts:
+                if c.get("phone") and c.get("can_receive_notifications", True) \
+                        and "whatsapp" in (c.get("channels") or ["email"]):
+                    phones.add(c["phone"])
+    if not phones and client.get("phone"):
+        phones.add(client["phone"])
+    phones = {p for p in phones if p and p.startswith("+")}
+    if not phones:
+        raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…)")
+
+    # ---- Verify WA is configured ----
+    settings = await get_settings_doc()
+    if not settings.get("wa_enabled"):
+        raise HTTPException(status_code=400, detail="WhatsApp désactivé dans les paramètres")
+
+    # ---- Try uploading the PDF once and reuse the media_id across recipients ----
+    from albarka_notifications import (
+        _wa_upload_media, send_whatsapp, send_whatsapp_document,
+    )
+    pdf_bytes, _ = await get_object(r["storage_path"])
+    filename = f"{r['number']}.pdf"
+    cabinet_name = (settings.get("cabinet_name") or "Cabinet ALBARKA").strip()
+    caption_msg = (payload.message or "").strip() or (
+        f"{r['kind_label']} — {r['number']}\nRéférence : {r['month_key']}\n\nCordialement, {cabinet_name}"
+    )
+
+    media_id = await _wa_upload_media(pdf_bytes=pdf_bytes, filename=filename)
+
+    # Prepare fallback share link (used if media_id fails, or as text-only channel)
+    share_token = _make_share_token(r["id"])
+    base_url = (os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
+    share_url = f"{base_url}/api/reports/download/shared/{share_token}"
+
+    delivery = []
+    for phone in sorted(phones):
+        message_id = None
+        strategy = None
+        if media_id:
+            message_id = await send_whatsapp_document(
+                to_phone=phone, media_id=media_id, filename=filename, caption=caption_msg,
+            )
+            if message_id:
+                strategy = "document"
+        if not message_id:
+            fallback_msg = (
+                f"{caption_msg}\n\nTéléchargement (lien sécurisé, 7 jours) :\n{share_url}"
+            )
+            message_id = await send_whatsapp(to_phone=phone, message=fallback_msg)
+            if message_id:
+                strategy = "link"
+        delivery.append({"phone": phone, "message_id": message_id, "strategy": strategy})
+
+    delivered = [d for d in delivery if d["message_id"]]
+    if not delivered:
+        raise HTTPException(status_code=502, detail="Aucun message WhatsApp délivré — vérifier la config Meta")
+
+    await db.client_reports.update_one(
+        {"id": report_id},
+        {"$set": {
+            "wa_sent_at": datetime.now(timezone.utc).isoformat(),
+            "wa_sent_to": ", ".join([d["phone"] for d in delivered]),
+            "wa_sent_by": user["id"],
+        }},
+    )
+    return {
+        "ok": True,
+        "sent": delivered,
+        "failed": [d for d in delivery if not d["message_id"]],
+    }
+
+
 class SignReportPayload(BaseModel):
     signature_name: str = Field(..., min_length=2, max_length=200)
     signature_provider: Optional[str] = Field(None, max_length=100)
@@ -310,6 +465,21 @@ async def sign_report(
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"Chargement certificat impossible : {exc}")
         pdf_bytes, _ = await get_object(r["storage_path"])
+        # Load DG signature image (optional) for visible stamp
+        branding = await _load_branding()
+        dg_image_bytes = None
+        if branding.get("dg_signature") and (branding.get("toggles") or {}).get("apply_dg_signature", True):
+            dg_image_bytes = branding["dg_signature"]["bytes"]
+        signed_at_iso = datetime.now(timezone.utc).isoformat()
+        visible_stamp = {
+            "cabinet_name": (settings.get("cabinet_name") or "Cabinet ALBARKA"),
+            "signature_number": r["number"],
+            "signer_name": payload.signature_name,
+            "cert_common_name": cert.get("common_name") or "",
+            "cert_serial": cert.get("serial_number") or "",
+            "signed_at": signed_at_iso.replace("T", " ")[:19] + " UTC",
+            "dg_image_bytes": dg_image_bytes,
+        }
         try:
             import asyncio as _aio
             signed_bytes = await _aio.to_thread(
@@ -318,6 +488,7 @@ async def sign_report(
                 signature_name=payload.signature_name,
                 reason=f"Sceau du cabinet — {r['number']}",
                 location=settings.get("cabinet_address") or "",
+                visible_stamp=visible_stamp,
             )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"Signature PDF échouée : {exc}")
@@ -354,8 +525,41 @@ async def sign_report(
             **signature_meta,
         }},
     )
+    # -------- Append audit log entry --------
+    signed_at_log = datetime.now(timezone.utc).isoformat()
+    log_entry = {
+        "id": secrets.token_urlsafe(12),
+        "report_id": report_id,
+        "report_number": r["number"],
+        "tenant_id": r["tenant_id"],
+        "signed_at": signed_at_log,
+        "signed_by": user["id"],
+        "signed_by_name": user.get("full_name") or user.get("email"),
+        "signature_name": payload.signature_name,
+        "signature_provider": signature_meta.get("signature_provider"),
+        "certificate_id": signature_meta.get("certificate_id"),
+        "certificate_serial": signature_meta.get("certificate_serial"),
+    }
+    await db.signature_log.insert_one(log_entry.copy())
     updated = await db.client_reports.find_one({"id": report_id}, {"_id": 0})
     return serialize(updated)
+
+
+@router.get("/signatures/log")
+async def signatures_audit_log(
+    tenant_id: Optional[str] = None,
+    certificate_id: Optional[str] = None,
+    signed_by: Optional[str] = None,
+    limit: int = 200,
+    user: dict = Depends(require_staff()),
+):
+    """Journal d'audit des signatures — filtres client/certificat/agent."""
+    q = {}
+    if tenant_id: q["tenant_id"] = tenant_id
+    if certificate_id: q["certificate_id"] = certificate_id
+    if signed_by: q["signed_by"] = signed_by
+    items = await db.signature_log.find(q, {"_id": 0}).sort("signed_at", -1).to_list(min(max(limit, 1), 500))
+    return serialize_many(items)
 
 
 @router.delete("/{report_id}")

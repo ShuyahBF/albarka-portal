@@ -5,6 +5,7 @@ import { apiClient, extractError, API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import BrandingThumbnail from "@/pages/admin/BrandingThumbnail";
 
 const KINDS = [
   { key: "logo", label: "Logo du cabinet", hint: "Affiché en tête de la couverture du rapport (proportionnel, ~3,5 cm).", toggle: "apply_logo" },
@@ -103,9 +104,11 @@ export default function BrandingPanel() {
             </div>
             {entry ? (
               <div className="flex items-center gap-3 pt-2 border-t">
-                <div className="w-16 h-16 rounded-md bg-slate-100 flex items-center justify-center text-slate-400 flex-shrink-0">
-                  <ImageIcon className="w-6 h-6" />
-                </div>
+                <BrandingThumbnail
+                  kind={k.key}
+                  refreshKey={entry.uploaded_at}
+                  className="w-24 h-24 flex-shrink-0"
+                />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm truncate">{entry.original_filename || entry.path}</div>
                   <div className="text-xs text-muted-foreground">

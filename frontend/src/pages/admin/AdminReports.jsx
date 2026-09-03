@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FileDown, Send, PenTool, Trash2, Plus, Search, Calendar as CalIcon, FileText as FileTextIcon, Users2 } from "lucide-react";
+import { FileDown, Send, PenTool, Trash2, Plus, Search, Calendar as CalIcon, FileText as FileTextIcon, Users2, MessageCircle, ShieldCheck } from "lucide-react";
 import { apiClient, extractError, API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ReportTemplatesPanel from "@/pages/admin/ReportTemplatesPanel";
+import SignatureLogPanel from "@/pages/admin/SignatureLogPanel";
 
 const REPORT_KINDS = [
   { value: "mensuel", label: "Rapport mensuel" },
@@ -39,6 +40,7 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
   const [loading, setLoading] = useState(true);
   const [genOpen, setGenOpen] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
+  const [waOpen, setWaOpen] = useState(false);
   const [signOpen, setSignOpen] = useState(false);
   const [active, setActive] = useState(null);
   const [kind, setKind] = useState("mensuel");
@@ -49,6 +51,7 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
   const [filterMonth, setFilterMonth] = useState("all");
   const [filterKind, setFilterKind] = useState("all");
   const [sendForm, setSendForm] = useState({ to: "", subject: "", message: "", to_groups: [] });
+  const [waForm, setWaForm] = useState({ to: "", message: "", to_groups: [] });
   const [signForm, setSignForm] = useState({ signature_name: "", signature_provider: "", signature_reference: "" });
 
   useEffect(() => {
@@ -153,6 +156,38 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
     }));
   };
 
+  const openWa = (r) => {
+    setActive(r);
+    setWaForm({ to: "", message: `${r.kind_label} — ${r.number}\nRéférence : ${r.month_key}`, to_groups: [] });
+    setWaOpen(true);
+  };
+
+  const doWa = async () => {
+    if (!waForm.to && waForm.to_groups.length === 0) {
+      toast.error("Renseignez un numéro ou sélectionnez au moins un groupe");
+      return;
+    }
+    try {
+      const payload = { message: waForm.message };
+      if (waForm.to_groups.length > 0) payload.to_groups = waForm.to_groups;
+      if (waForm.to) payload.to = waForm.to;
+      const { data } = await apiClient.post(`/reports/${active.id}/send-whatsapp`, payload);
+      const okCount = (data.sent || []).length;
+      toast.success(`WhatsApp envoyé à ${okCount} destinataire${okCount > 1 ? "s" : ""}`);
+      setWaOpen(false);
+      await load();
+    } catch (err) {
+      toast.error(extractError(err));
+    }
+  };
+
+  const toggleWaGroup = (id) => {
+    setWaForm((f) => ({
+      ...f,
+      to_groups: f.to_groups.includes(id) ? f.to_groups.filter((x) => x !== id) : [...f.to_groups, id],
+    }));
+  };
+
   const openSign = (r) => {
     setActive(r);
     setSignForm({ signature_name: "", signature_provider: "cabinet_seal", signature_reference: "" });
@@ -244,11 +279,12 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
                 <TableCell>
                   <div className="flex flex-col gap-1">
                     {r.signed
-                      ? <span className="albarka-chip bg-emerald-100 text-emerald-800">Signé</span>
+                      ? <span className="albarka-chip bg-emerald-100 text-emerald-800" title={r.signed_by ? `Signé par ${r.signed_by}` : ""}>Signé</span>
                       : <span className="albarka-chip bg-slate-100 text-slate-600">Non signé</span>}
                     {r.email_sent_at
-                      ? <span className="text-[10px] text-muted-foreground">✉︎ envoyé le {r.email_sent_at?.slice(0, 10)}</span>
+                      ? <span className="text-[10px] text-muted-foreground">✉︎ email {r.email_sent_at?.slice(0, 10)}</span>
                       : <span className="text-[10px] text-muted-foreground">Non envoyé</span>}
+                    {r.wa_sent_at && <span className="text-[10px] text-[#0F6B4A]">✆ WA {r.wa_sent_at?.slice(0, 10)}</span>}
                   </div>
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
@@ -257,6 +293,9 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
                   </Button>
                   <Button variant="ghost" size="sm" onClick={() => openSend(r)} title="Envoyer par email" data-testid={`report-send-${r.id}`}>
                     <Send className="w-4 h-4 text-[#0F6B4A]" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => openWa(r)} title="Envoyer par WhatsApp" data-testid={`report-wa-${r.id}`}>
+                    <MessageCircle className="w-4 h-4 text-emerald-600" />
                   </Button>
                   {!r.signed && (
                     <Button variant="ghost" size="sm" onClick={() => openSign(r)} title="Signer" data-testid={`report-sign-${r.id}`}>
@@ -354,6 +393,47 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
         </DialogContent>
       </Dialog>
 
+      {/* WhatsApp dialog */}
+      <Dialog open={waOpen} onOpenChange={setWaOpen}>
+        <DialogContent data-testid="wa-report-dialog">
+          <DialogHeader><DialogTitle>Envoyer le rapport par WhatsApp</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="text-xs text-muted-foreground border-l-2 border-emerald-500/50 pl-2">
+              Nous tentons d'abord d'envoyer le PDF en pièce jointe (Meta Media API).
+              Si l'upload échoue, un message texte contenant un lien signé (7 jours) est envoyé à la place.
+            </div>
+            <div>
+              <Label>Numéro WhatsApp direct (+226…)</Label>
+              <Input value={waForm.to} onChange={(e) => setWaForm({ ...waForm, to: e.target.value })} placeholder="+22670…" disabled={waForm.to_groups.length > 0} data-testid="wa-to-input" />
+            </div>
+            {groups.length > 0 && (
+              <div>
+                <Label className="flex items-center gap-1"><Users2 className="w-4 h-4" /> Ou envoyer à des groupes ({waForm.to_groups.length} sélectionnés)</Label>
+                <div className="mt-2 space-y-1 max-h-32 overflow-y-auto border rounded-md p-2">
+                  {groups.map((g) => (
+                    <label key={g.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                      <Checkbox checked={waForm.to_groups.includes(g.id)} onCheckedChange={() => toggleWaGroup(g.id)} data-testid={`wa-group-${g.id}`} />
+                      <span className="font-medium">{g.name}</span>
+                      <span className="text-xs text-muted-foreground">({(g.contact_ids || []).length} membres)</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-1">
+                  Seuls les contacts avec téléphone et canal WhatsApp coché seront destinataires.
+                </div>
+              </div>
+            )}
+            <div><Label>Message (accompagne la pièce jointe)</Label><Textarea rows={3} value={waForm.message} onChange={(e) => setWaForm({ ...waForm, message: e.target.value })} data-testid="wa-message-input" /></div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setWaOpen(false)}>Annuler</Button>
+            <Button onClick={doWa} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="wa-submit-btn">
+              <MessageCircle className="w-4 h-4 mr-2" />Envoyer WA
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Sign dialog */}
       <Dialog open={signOpen} onOpenChange={setSignOpen}>
         <DialogContent data-testid="sign-report-dialog">
@@ -434,6 +514,9 @@ export default function AdminReports() {
           <TabsTrigger value="templates" data-testid="tab-templates">
             <FileTextIcon className="w-4 h-4 mr-2" />Modèles
           </TabsTrigger>
+          <TabsTrigger value="log" data-testid="tab-signlog">
+            <ShieldCheck className="w-4 h-4 mr-2" />Journal signatures
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="reports" className="pt-4">
@@ -493,6 +576,10 @@ export default function AdminReports() {
 
         <TabsContent value="templates" className="pt-4">
           <ReportTemplatesPanel />
+        </TabsContent>
+
+        <TabsContent value="log" className="pt-4">
+          <SignatureLogPanel />
         </TabsContent>
       </Tabs>
     </div>

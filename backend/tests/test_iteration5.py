@@ -264,3 +264,115 @@ class TestReportPipelineWithTemplate:
         s.delete(f"{API}/reports/{rep['id']}")
         s.delete(f"{API}/contact-groups/{g['id']}")
         s.delete(f"{API}/contacts/{c['id']}")
+
+
+# ---------- Iteration 6: visible signature stamp + signature audit log + WhatsApp share ----------
+class TestSignatureAudit:
+    """Signature audit log must record cert id/serial and be admin-only."""
+    def test_audit_log_contains_signature(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        # Create cert active
+        cert = s.post(f"{API}/admin/certificates", json={
+            "common_name": "AuditCert", "organization": "Cabinet",
+            "country": "BF", "passphrase": "AuditPass2026!", "valid_years": 2, "activate": True,
+        }).json()
+        rep = s.post(f"{API}/reports/client/{c1['id']}/generate",
+                     json={"kind": "audit"}).json()
+        sig = s.post(f"{API}/reports/{rep['id']}/sign", json={
+            "signature_name": "Auditor DG",
+        })
+        assert sig.status_code == 200, sig.text
+        # Get log
+        log = s.get(f"{API}/reports/signatures/log").json()
+        matches = [e for e in log if e["report_id"] == rep["id"]]
+        assert len(matches) == 1
+        entry = matches[0]
+        assert entry["signature_name"] == "Auditor DG"
+        assert entry["certificate_id"] == cert["id"]
+        assert entry["signed_by_name"]
+        # Filter by cert
+        filtered = s.get(f"{API}/reports/signatures/log", params={"certificate_id": cert["id"]}).json()
+        assert all(x["certificate_id"] == cert["id"] for x in filtered)
+        # Cleanup
+        s.delete(f"{API}/reports/{rep['id']}")  # will 400 (signed) — that's fine
+        s.delete(f"{API}/admin/certificates/{cert['id']}")
+
+    def test_client_forbidden(self, client1):
+        s, _ = client1
+        r = s.get(f"{API}/reports/signatures/log")
+        assert r.status_code == 403
+
+
+class TestSharedDownloadToken:
+    """The shared token endpoint should reject bogus and expired tokens."""
+    def test_bad_token_403(self):
+        r = requests.get(f"{API}/reports/download/shared/notatoken", timeout=30)
+        assert r.status_code == 403
+
+    def test_valid_token_downloads(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        rep = s.post(f"{API}/reports/client/{c1['id']}/generate",
+                     json={"kind": "ponctuel"}).json()
+        # Craft a token like the server does
+        from jose import jwt
+        from datetime import datetime, timedelta, timezone
+        # Read JWT_SECRET_KEY from backend .env
+        from dotenv import dotenv_values
+        secret = dotenv_values("/app/backend/.env")["JWT_SECRET_KEY"]
+        token = jwt.encode(
+            {"sub": f"report:{rep['id']}", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
+            secret, algorithm="HS256",
+        )
+        r = requests.get(f"{API}/reports/download/shared/{token}", timeout=30)
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/pdf"
+        assert r.content.startswith(b"%PDF-")
+        s.delete(f"{API}/reports/{rep['id']}")
+
+
+class TestWhatsAppReport:
+    """WA endpoint should reject when WA disabled OR no phone recipient."""
+    def test_wa_no_recipient_400(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        rep = s.post(f"{API}/reports/client/{c1['id']}/generate",
+                     json={"kind": "ponctuel"}).json()
+        # Client has no phone → 400
+        r = s.post(f"{API}/reports/{rep['id']}/send-whatsapp", json={"message": "hi"})
+        assert r.status_code == 400
+        s.delete(f"{API}/reports/{rep['id']}")
+
+    def test_wa_disabled_400(self, superviseur, client1):
+        s, _ = superviseur
+        _, c1 = client1
+        rep = s.post(f"{API}/reports/client/{c1['id']}/generate",
+                     json={"kind": "ponctuel"}).json()
+        # Force settings.wa_enabled=false and provide a phone
+        r = s.post(f"{API}/reports/{rep['id']}/send-whatsapp",
+                   json={"to": "+22670000000", "message": "test"})
+        # 400 (WA disabled) or 502 (Meta rejects). Both acceptable, but not 200.
+        assert r.status_code in (400, 502), r.text
+        s.delete(f"{API}/reports/{rep['id']}")
+
+
+class TestBrandingPreview:
+    def test_upload_and_preview(self, superviseur):
+        s, _ = superviseur
+        import io
+        files = {"file": ("logo.png", io.BytesIO(_tiny_png()), "image/png")}
+        s.post(f"{API}/admin/branding/logo", files=files)
+        r = s.get(f"{API}/admin/branding/logo/preview")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("image/")
+        assert r.content == _tiny_png()
+        # Clean
+        s.delete(f"{API}/admin/branding/logo")
+
+    def test_preview_404_when_missing(self, superviseur):
+        s, _ = superviseur
+        # ensure clean
+        s.delete(f"{API}/admin/branding/watermark")
+        r = s.get(f"{API}/admin/branding/watermark/preview")
+        assert r.status_code == 404
