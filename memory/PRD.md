@@ -12,8 +12,22 @@ Application ALBARKA — portail de gestion des activités d'un cabinet comptable
 - **Cron** quotidien 07:00 UTC.
 - **Signature électronique** : pyHanko PAdES-B + tampon visuel via PyMuPDF + certificats auto-signés RSA 3072.
 
-## Livrés iteration 9 (Feb 2026) — Réconciliation MongoDB + Phase A + Phase B + Phase C + Phase D
-### Phase 0 — Skipped par l'utilisateur (Git realignment sera fait plus tard)
+## Livrés iteration 9 (Feb 2026) — Réconciliation MongoDB + Phase A + Phase B + Phase C + Phase D + Corrections priorité 1
+
+### Corrections priorité 1 (Iteration 10) — 04/09/2026
+- [x] **P1** Chat en bulle flottante globale (`components/ChatBubble.jsx`) — visible sur admin + client sur toutes les pages, badge non-lu, polling 30s. Ancienne page `/admin/chat` supprimée.
+- [x] **P2** Auto-archives : fonction `_auto_archive` idempotente appelée depuis les endpoints `documents.upload`, `sign_report`, `invoices.create`, `payslips.create`. Champ `source.auto:true` distingue capture auto vs manuelle. Filtre `?only_manual=true` et `?source_kind=X` sur GET /archives.
+- [x] **P3** Rôle `communication` ajouté à `ALBARKA_ROLES`. Endpoints `/messaging/broadcast(s)` restreints à `[superviseur,direction,administrateur,communication]`. Sidebar retire `secretariat` du menu Messagerie.
+- [x] **P4** Export PDF Journal signatures + WhatsApp : `GET /reports/journal/export-pdf?start=&end=` — PDF tabulaire agrégeant `signature_log` + `wa_send_log`. Bouton `[data-testid=journal-export-pdf-btn]` dans WhatsAppLogPanel. L'ancien `generate-quarterly` (rapport client) reste actif en parallèle.
+- [x] **P5** Bulletin PDF : `GET /hr/payslips/{id}.pdf` — ReportLab tabulaire (brut, primes, retenues, net). Bouton download `[data-testid^=payslip-pdf-]` dans AdminHR.
+- [x] **P6** Types documents caisse : champ `document_type` ∈ {facture, recu, proforma} avec compteurs indépendants (`FAC-`, `REC-`, `PRO-`). Reçu → paid immédiat, Proforma → status `proforma` (non-payable). Sélecteur UI + colonne Type francisée. Colonne Statut i18n (Impayé/Partiel/Payé/Proforma).
+- [x] **P7** Contrats : champs `numero_contrat` (auto-généré `CTR-YYYY-NNNN` si absent) + `date_dernier_paiement`. Statuts renommés FR : `en_cours` / `suspendu` / `termine` / `annule`. Migration idempotente au startup (3 contrats convertis + 3 numéros générés). Rétro-compat legacy `active`→`en_cours`, etc. 3 contrats orphelins de tests précédents supprimés.
+- [x] **P8** Colonne "Rôle" affichée sur AdminPlatformLogs (`actor_roles` déjà persisté).
+- [x] **P9** Auto-WA J+N post-signature : `datetime.now() + timedelta(days=days)` = 24h pile. Testing agent confirme la précision (± 5min tolérance).
+- [x] **P10** AdminStaff cloisonné selon rôle du visiteur : (a) rôle `administrateur` masqué du form pour non-admins, (b) comptes administrateurs invisibles pour non-admins, (c) bouton Modifier masqué pour tous sauf superviseur/direction/administrateur. Backend : `POST /clients/staff` et `PATCH /clients/{id}` refusent (403) l'attribution/retrait du rôle `administrateur` par un non-admin.
+- **Tests** : 16/16 pytest `test_iteration10_fixes.py` + tous les tests Playwright verts. Rapport `/app/test_reports/iteration_10.json`.
+
+### Réconciliation MongoDB (initiale de l'itération)
 
 ### Phase B (P1) — 04/09/2026
 - [x] **Feature 14 — Contrats clients + gate login** : Nouveau CRUD `/api/client-contracts` (Contract{tenant_id, title, dates, amount, status}), page admin `/admin/contrats` avec EntitySelect + éditeur. `verify-otp` refuse (403) les clients sans contrat actif avec message clair. Les 2 clients demo ont été seedés avec un contrat actif 2026.

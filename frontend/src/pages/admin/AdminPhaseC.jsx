@@ -215,15 +215,23 @@ export function AdminPlatformLogs() {
       </div>
       <div className="albarka-card overflow-hidden">
         <Table>
-          <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Action</TableHead><TableHead>Entité</TableHead><TableHead>Auteur</TableHead><TableHead>Métadonnées</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Action</TableHead><TableHead>Entité</TableHead><TableHead>Auteur</TableHead><TableHead>Rôle</TableHead><TableHead>Métadonnées</TableHead></TableRow></TableHeader>
           <TableBody>
-            {items.length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Aucun événement.</TableCell></TableRow>}
+            {items.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Aucun événement.</TableCell></TableRow>}
             {items.map((l) => (
               <TableRow key={l.id}>
                 <TableCell className="text-xs">{l.created_at?.slice(0, 19).replace("T", " ")}</TableCell>
                 <TableCell><span className="albarka-chip bg-[#0F6B4A]/10 text-[#0F6B4A] font-mono text-[10px]">{l.action}</span></TableCell>
                 <TableCell className="text-xs font-mono">{l.entity_type} {l.entity_id?.slice(0, 8)}…</TableCell>
                 <TableCell className="text-sm">{l.actor_name}</TableCell>
+                <TableCell className="text-xs">
+                  <div className="flex flex-wrap gap-1">
+                    {(l.actor_roles || []).map((r) => (
+                      <span key={r} className="albarka-chip bg-slate-100 text-slate-700 text-[10px]">{r}</span>
+                    ))}
+                    {(!l.actor_roles || l.actor_roles.length === 0) && <span className="text-muted-foreground">—</span>}
+                  </div>
+                </TableCell>
                 <TableCell className="text-xs font-mono truncate max-w-xs">{JSON.stringify(l.meta || {}).slice(0, 120)}</TableCell>
               </TableRow>
             ))}

@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import ChatBubble from "@/components/ChatBubble";
 
 // Client sidebar (unchanged for pure clients).
 const CLIENT_LINKS = [
@@ -35,7 +36,6 @@ const CLIENT_LINKS = [
   { to: "/portal/documents", label: "Mes pièces", icon: FileText },
   { to: "/portal/missions", label: "Mes missions", icon: Briefcase },
   { to: "/portal/echeances", label: "Échéances", icon: CalendarClock },
-  { to: "/portal/chat", label: "Messagerie", icon: MessageSquare },
   { to: "/portal/historique", label: "Historique", icon: History },
 ];
 
@@ -67,10 +67,8 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "administrateur", "comptable", "secretariat"] },
   { to: "/admin/comptabilite", label: "Comptabilité OHADA", icon: BookOpen,
     roles: ["superviseur", "direction", "administrateur", "comptable", "aide_comptable", "fiscaliste"] },
-  { to: "/admin/chat", label: "Chat interne", icon: MessageSquare,
-    roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   { to: "/admin/messagerie", label: "Messagerie", icon: Send,
-    roles: ["superviseur", "direction", "administrateur", "secretariat"] },
+    roles: ["superviseur", "direction", "administrateur", "communication"] },
   { to: "/admin/archives", label: "Archives", icon: Archive,
     roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable"] },
   { to: "/admin/logs", label: "Journal plateforme", icon: ScrollText,
@@ -217,6 +215,8 @@ export default function PortalLayout({ admin = false }) {
           <Outlet />
         </main>
       </div>
+      {/* Point 1 — Chat bubble flottant global (admin + client) */}
+      <ChatBubble />
     </div>
   );
 }

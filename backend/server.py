@@ -114,6 +114,18 @@ app.include_router(api_router)
 
 
 @app.on_event("startup")
+async def _migrate_on_startup():
+    """Migrations idempotentes exécutées au démarrage du backend."""
+    try:
+        from albarka_contracts import migrate_contract_statuses_and_numbers
+        stats = await migrate_contract_statuses_and_numbers()
+        if stats.get("status_migrated") or stats.get("number_generated"):
+            logger.info("Migration contrats : %s", stats)
+    except Exception:  # noqa: BLE001
+        logger.exception("Migration contrats — échec (ignoré)")
+
+
+@app.on_event("startup")
 async def _ensure_indexes():
     """Create unique indexes for race-safe dedup / idempotency."""
     from db import db as _db

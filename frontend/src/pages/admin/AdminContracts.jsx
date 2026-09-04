@@ -18,22 +18,23 @@ import {
 import EntitySelect from "@/components/EntitySelect";
 
 const STATUSES = [
-  { value: "active", label: "Actif" },
-  { value: "suspended", label: "Suspendu" },
-  { value: "terminated", label: "Résilié" },
-  { value: "expired", label: "Expiré" },
+  { value: "en_cours", label: "En cours" },
+  { value: "suspendu", label: "Suspendu" },
+  { value: "termine", label: "Terminé" },
+  { value: "annule", label: "Annulé" },
 ];
 
 const STATUS_TONE = {
-  active: "bg-emerald-100 text-emerald-800",
-  suspended: "bg-amber-100 text-amber-800",
-  terminated: "bg-red-100 text-red-700",
-  expired: "bg-slate-100 text-slate-500",
+  en_cours: "bg-emerald-100 text-emerald-800",
+  suspendu: "bg-amber-100 text-amber-800",
+  termine: "bg-slate-100 text-slate-500",
+  annule: "bg-red-100 text-red-700",
 };
 
 const emptyForm = () => ({
-  tenant_id: "", title: "", start_date: "", end_date: "",
-  amount: "", currency: "XOF", status: "active", notes: "",
+  tenant_id: "", numero_contrat: "", title: "", start_date: "", end_date: "",
+  amount: "", currency: "XOF", status: "en_cours",
+  date_dernier_paiement: "", notes: "",
 });
 
 export default function AdminContracts() {
@@ -68,12 +69,14 @@ export default function AdminContracts() {
     setEditing(c);
     setForm({
       tenant_id: c.tenant_id,
+      numero_contrat: c.numero_contrat || "",
       title: c.title || "",
       start_date: c.start_date || "",
       end_date: c.end_date || "",
       amount: c.amount || "",
       currency: c.currency || "XOF",
-      status: c.status || "active",
+      status: c.status || "en_cours",
+      date_dernier_paiement: c.date_dernier_paiement || "",
       notes: c.notes || "",
     });
     setOpen(true);
@@ -150,21 +153,23 @@ export default function AdminContracts() {
                 </div>
               )}
               <div><Label>Titre</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="contract-title-input" /></div>
+              <div><Label>Numéro de contrat <span className="text-[10px] text-muted-foreground">(auto-généré si vide)</span></Label><Input value={form.numero_contrat} onChange={(e) => setForm({ ...form, numero_contrat: e.target.value })} placeholder="CTR-2026-0001" data-testid="contract-numero-input" /></div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Début</Label><Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} data-testid="contract-start-input" /></div>
                 <div><Label>Fin (optionnel)</Label><Input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} data-testid="contract-end-input" /></div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Montant</Label><Input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} data-testid="contract-amount-input" /></div>
-                <div>
-                  <Label>Statut</Label>
-                  <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
-                    <SelectTrigger data-testid="contract-status-select"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {STATUSES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div><Label>Dernier paiement</Label><Input type="date" value={form.date_dernier_paiement} onChange={(e) => setForm({ ...form, date_dernier_paiement: e.target.value })} data-testid="contract-dernier-paiement-input" /></div>
+              </div>
+              <div>
+                <Label>Statut</Label>
+                <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })}>
+                  <SelectTrigger data-testid="contract-status-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STATUSES.map((s) => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
               <div><Label>Notes</Label><Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="contract-notes-input" /></div>
             </div>
@@ -182,24 +187,28 @@ export default function AdminContracts() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Titre</TableHead>
+              <TableHead>N° / Titre</TableHead>
               <TableHead>Client</TableHead>
               <TableHead>Début</TableHead>
               <TableHead>Fin</TableHead>
               <TableHead>Montant</TableHead>
+              <TableHead>Dernier paiement</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && items.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Aucun contrat.</TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+            {!loading && items.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Aucun contrat.</TableCell></TableRow>}
             {items.map((c) => (
               <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">
                   <div className="flex items-center gap-2">
                     <FileSignature className="w-4 h-4 text-[#0F6B4A]" />
-                    {c.title}
+                    <div>
+                      <div className="font-mono text-xs text-muted-foreground">{c.numero_contrat || "—"}</div>
+                      <div className="text-sm">{c.title}</div>
+                    </div>
                   </div>
                 </TableCell>
                 <TableCell className="text-xs">
@@ -209,6 +218,7 @@ export default function AdminContracts() {
                 <TableCell className="text-sm">{c.start_date}</TableCell>
                 <TableCell className="text-sm">{c.end_date || "—"}</TableCell>
                 <TableCell className="text-sm font-mono">{c.amount ? `${Number(c.amount).toLocaleString()} ${c.currency || "XOF"}` : "—"}</TableCell>
+                <TableCell className="text-sm">{c.date_dernier_paiement || "—"}</TableCell>
                 <TableCell>
                   <span className={`albarka-chip ${STATUS_TONE[c.status] || "bg-slate-100 text-slate-700"}`}>
                     {STATUSES.find((s) => s.value === c.status)?.label || c.status}

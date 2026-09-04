@@ -676,6 +676,109 @@ async def whatsapp_audit_log(
 
 
 # ===================================================================
+# Point 4 — Export PDF Journal signatures + WhatsApp (archivage papier
+# interne du cabinet, pas destiné au client final).
+# ===================================================================
+@router.get("/journal/export-pdf")
+async def export_journal_pdf(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    user: dict = Depends(require_staff()),
+):
+    """Retourne un PDF tabulaire agrégeant signature_log + wa_send_log sur
+    la période [start, end] (dates ISO YYYY-MM-DD). Sans borne, prend
+    les 500 derniers événements de chaque source.
+    """
+    from fastapi.responses import Response
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import (
+        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
+    )
+    import io as _io
+
+    def _range_q(field: str) -> dict:
+        q: dict = {}
+        if start or end:
+            rng: dict = {}
+            if start: rng["$gte"] = start
+            if end:   rng["$lte"] = end + "T23:59:59Z"
+            q[field] = rng
+        return q
+
+    sig_docs = await db.signature_log.find(
+        _range_q("signed_at"), {"_id": 0},
+    ).sort("signed_at", -1).to_list(500)
+    wa_docs = await db.wa_send_log.find(
+        _range_q("sent_at"), {"_id": 0},
+    ).sort("sent_at", -1).to_list(500)
+
+    rows_sig = [[
+        (d.get("signed_at") or "")[:19].replace("T", " "),
+        d.get("report_number") or "",
+        d.get("tenant_id", "")[:10] + "…",
+        "SIGNATURE",
+        "signé",
+        d.get("signed_by_name") or d.get("signed_by") or "—",
+    ] for d in sig_docs]
+    rows_wa = [[
+        (d.get("sent_at") or "")[:19].replace("T", " "),
+        d.get("report_number") or "",
+        (d.get("tenant_id") or "")[:10] + "…",
+        f"WHATSAPP {d.get('strategy','').upper() or ''}".strip(),
+        "OK" if d.get("success") else "ECHEC",
+        d.get("sent_by_name") or d.get("sent_by") or "—",
+    ] for d in wa_docs]
+    all_rows = sorted(rows_sig + rows_wa, key=lambda r: r[0], reverse=True)
+    header = ["Date", "Rapport", "Client", "Action", "Statut", "Agent"]
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), topMargin=30, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    end_label = end or "aujourd'hui"
+    period_txt = f"{start or 'origine'} → {end_label}"
+    story = [
+        Paragraph("<b>Journal signatures &amp; WhatsApp</b>", styles["Title"]),
+        Paragraph(
+            f"Période : {period_txt} · "
+            f"{len(rows_sig)} signatures + {len(rows_wa)} envois WhatsApp",
+            styles["BodyText"],
+        ),
+        Spacer(1, 10),
+    ]
+    if not all_rows:
+        story.append(Paragraph("<i>Aucun événement sur la période.</i>", styles["BodyText"]))
+    else:
+        t = Table([header] + all_rows, repeatRows=1,
+                  colWidths=[110, 120, 90, 120, 60, 150])
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F6B4A")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1),
+             [colors.whitesmoke, colors.white]),
+        ]))
+        story.append(t)
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(
+        f"<font size=7 color='#888'>Extrait le {datetime.now(timezone.utc).strftime('%d/%m/%Y à %H:%M UTC')} — {(user.get('full_name') or user.get('email'))}</font>",
+        styles["BodyText"],
+    ))
+    doc.build(story)
+    pdf = buf.getvalue()
+    fname = f"journal_signatures_wa_{start or 'debut'}_{end or 'fin'}.pdf"
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+# ===================================================================
 # Feature 1 (Phase B) — WhatsApp retry
 # ===================================================================
 @router.post("/whatsapp/retry/{log_id}")
@@ -964,12 +1067,14 @@ async def sign_report(
     await db.signature_log.insert_one(log_entry.copy())
 
     # Feature 3 (Phase B) — Auto WhatsApp send J+N after signing
+    # `auto_wa_after_sign_days` est un nombre de jours entiers (24h chacun).
     if settings.get("auto_wa_after_sign_enabled"):
         try:
             days = int(settings.get("auto_wa_after_sign_days") or 1)
         except (TypeError, ValueError):
             days = 1
         if days > 0:
+            # timedelta(days=1) == 24h pile — c'est bien "le lendemain de la signature".
             scheduled_at = datetime.now(timezone.utc) + timedelta(days=days)
             auto_entry = {
                 "id": secrets.token_urlsafe(12),
@@ -992,6 +1097,20 @@ async def sign_report(
             )
 
     updated = await db.client_reports.find_one({"id": report_id}, {"_id": 0})
+    # Point 2 — auto-archive du rapport signé.
+    try:
+        from albarka_phase_c import _auto_archive as _phase_c_archive
+        await _phase_c_archive(
+            title=f"Rapport signé {updated.get('number')} — {updated.get('kind_label') or updated.get('kind')}",
+            category="rapports_signes",
+            tags=[updated.get("kind"), updated.get("month_key") or "", "signe"],
+            source={"kind": "signed_report", "id": report_id,
+                    "tenant_id": updated["tenant_id"],
+                    "storage_path": updated.get("storage_path_signed") or updated.get("storage_path")},
+            user=user,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # best-effort
     return serialize(updated)
 
 

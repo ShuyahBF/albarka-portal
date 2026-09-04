@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { MessageCircle, Search, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import { MessageCircle, Search, CheckCircle2, XCircle, RefreshCw, FileText } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,6 +56,24 @@ export default function WhatsAppLogPanel() {
           </div>
         </div>
         <div className="flex gap-2 items-end">
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={async () => {
+              try {
+                const res = await apiClient.get("/reports/journal/export-pdf", { responseType: "blob" });
+                const url = URL.createObjectURL(res.data);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `journal_signatures_wa_${new Date().toISOString().slice(0, 10)}.pdf`;
+                document.body.appendChild(a); a.click(); a.remove();
+                URL.revokeObjectURL(url);
+              } catch (err) { toast.error(extractError(err)); }
+            }}
+            data-testid="journal-export-pdf-btn"
+          >
+            <FileText className="w-4 h-4 mr-2" />Exporter journal PDF
+          </Button>
           <div>
             <Label className="text-xs">Rechercher</Label>
             <div className="relative">

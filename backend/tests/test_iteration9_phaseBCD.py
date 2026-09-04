@@ -53,13 +53,13 @@ class TestContractsAndLoginGate:
             cr = s.post(f"{API}/client-contracts", json={
                 "tenant_id": client_id, "title": "TEST_Contrat annuel",
                 "start_date": start, "end_date": end,
-                "amount": 1200000, "status": "active",
+                "amount": 1200000, "status": "en_cours",
             }, timeout=60)
             assert cr.status_code == 200, cr.text[:300]
             contract = cr.json()
             contract_id = contract["id"]
             assert contract["tenant_id"] == client_id
-            assert contract["status"] == "active"
+            assert contract["status"] == "en_cours"
             assert contract["currency"] == "XOF"
             assert "_id" not in contract
 
@@ -85,9 +85,9 @@ class TestContractsAndLoginGate:
 
             # 5. PATCH -> suspended blocks login again
             pr = s.patch(f"{API}/client-contracts/{contract_id}",
-                         json={"status": "suspended"}, timeout=60)
+                         json={"status": "suspendu"}, timeout=60)
             assert pr.status_code == 200, pr.text[:300]
-            assert pr.json()["status"] == "suspended"
+            assert pr.json()["status"] == "suspendu"
 
             lr3 = requests.post(f"{API}/auth/login",
                                 json={"email": email, "password": password}, timeout=60)

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Users, FileText } from "lucide-react";
-import { apiClient, extractError } from "@/lib/api";
+import { Plus, Users, FileText, Download } from "lucide-react";
+import { apiClient, extractError, API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -156,15 +156,35 @@ export default function AdminHR() {
           </div>
           <div className="albarka-card overflow-hidden">
             <Table>
-              <TableHeader><TableRow><TableHead>Employé</TableHead><TableHead>Période</TableHead><TableHead>Brut</TableHead><TableHead>Net</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Employé</TableHead><TableHead>Période</TableHead><TableHead>Brut</TableHead><TableHead>Net</TableHead><TableHead className="text-right">PDF</TableHead></TableRow></TableHeader>
               <TableBody>
-                {payslips.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Aucun bulletin.</TableCell></TableRow>}
+                {payslips.length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Aucun bulletin.</TableCell></TableRow>}
                 {payslips.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.employee_name}</TableCell>
                     <TableCell>{p.period_month}</TableCell>
                     <TableCell>{Number(p.gross_salary).toLocaleString()}</TableCell>
                     <TableCell className="font-semibold">{Number(p.net_salary).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={async () => {
+                          try {
+                            const res = await apiClient.get(`/hr/payslips/${p.id}.pdf`, { responseType: "blob" });
+                            const url = URL.createObjectURL(res.data);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = `bulletin_${p.period_month}_${p.employee_name}.pdf`;
+                            document.body.appendChild(a); a.click(); a.remove();
+                            URL.revokeObjectURL(url);
+                          } catch (err) { toast.error(extractError(err)); }
+                        }}
+                        data-testid={`payslip-pdf-${p.id}`}
+                      >
+                        <Download className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>

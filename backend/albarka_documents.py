@@ -76,6 +76,21 @@ async def upload_document(
     }
     await db.documents.insert_one(doc.copy())
 
+    # Point 2 — capture automatique dans la bibliothèque d'archives.
+    try:
+        from albarka_phase_c import _auto_archive
+        await _auto_archive(
+            title=f"Pièce {kind} — {file.filename or doc['id']}",
+            category="pieces_client",
+            tags=[kind, resolved_tenant_id],
+            source={"kind": "document", "id": doc["id"],
+                    "tenant_id": resolved_tenant_id,
+                    "storage_path": stored["path"]},
+            user=user,
+        )
+    except Exception:  # noqa: BLE001
+        pass  # best-effort
+
     # Notify staff (fire-and-forget) whenever a **client** deposits a piece.
     if is_client(user):
         tenant = await db.users.find_one({"id": resolved_tenant_id}, {"_id": 0, "password_hash": 0})

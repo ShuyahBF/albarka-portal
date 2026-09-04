@@ -17,6 +17,7 @@ ALBARKA_ROLES = [
     "comptable",
     "aide_comptable",
     "rh",
+    "communication",
     "client",
 ]
 STAFF_ROLES = [r for r in ALBARKA_ROLES if r != "client"]

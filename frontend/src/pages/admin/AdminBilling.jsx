@@ -18,7 +18,7 @@ export default function AdminBilling() {
   const [openInv, setOpenInv] = useState(false);
   const [openPay, setOpenPay] = useState(false);
   const [payTarget, setPayTarget] = useState(null);
-  const [invForm, setInvForm] = useState({ tenant_id: "", title: "", label: "", quantity: 1, unit_price: "", tax_rate: 18 });
+  const [invForm, setInvForm] = useState({ tenant_id: "", title: "", label: "", quantity: 1, unit_price: "", tax_rate: 18, document_type: "facture" });
   const [payForm, setPayForm] = useState({ amount: "", method: "cash", reference: "" });
 
   const load = async () => {
@@ -40,11 +40,12 @@ export default function AdminBilling() {
     try {
       await apiClient.post("/billing/invoices", {
         tenant_id: invForm.tenant_id, title: invForm.title,
+        document_type: invForm.document_type,
         items: [{ label: invForm.label, quantity: Number(invForm.quantity), unit_price: Number(invForm.unit_price), tax_rate: Number(invForm.tax_rate) }],
       });
-      toast.success("Facture créée");
+      toast.success(`${invForm.document_type === "recu" ? "Reçu" : invForm.document_type === "proforma" ? "Proforma" : "Facture"} créé(e)`);
       setOpenInv(false);
-      setInvForm({ tenant_id: "", title: "", label: "", quantity: 1, unit_price: "", tax_rate: 18 });
+      setInvForm({ tenant_id: "", title: "", label: "", quantity: 1, unit_price: "", tax_rate: 18, document_type: "facture" });
       await load();
     } catch (err) { toast.error(extractError(err)); }
   };
@@ -93,8 +94,19 @@ export default function AdminBilling() {
                 <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-invoice-btn"><Plus className="w-4 h-4 mr-2" />Nouvelle facture</Button>
               </DialogTrigger>
               <DialogContent data-testid="invoice-dialog">
-                <DialogHeader><DialogTitle>Nouvelle facture</DialogTitle></DialogHeader>
+                <DialogHeader><DialogTitle>Nouveau document caisse</DialogTitle></DialogHeader>
                 <div className="space-y-3">
+                  <div>
+                    <Label>Type de document</Label>
+                    <Select value={invForm.document_type} onValueChange={(v) => setInvForm({ ...invForm, document_type: v })}>
+                      <SelectTrigger data-testid="invoice-doctype-select"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="facture">Facture</SelectItem>
+                        <SelectItem value="recu">Reçu de caisse</SelectItem>
+                        <SelectItem value="proforma">Proforma</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div><Label>Client</Label><EntitySelect value={invForm.tenant_id} onChange={(v) => setInvForm({ ...invForm, tenant_id: v })} testId="invoice-tenant-input" /></div>
                   <div><Label>Titre</Label><Input value={invForm.title} onChange={(e) => setInvForm({ ...invForm, title: e.target.value })} data-testid="invoice-title-input" /></div>
                   <div><Label>Description ligne</Label><Input value={invForm.label} onChange={(e) => setInvForm({ ...invForm, label: e.target.value })} data-testid="invoice-label-input" /></div>
@@ -113,18 +125,29 @@ export default function AdminBilling() {
           </div>
           <div className="albarka-card overflow-hidden">
             <Table>
-              <TableHeader><TableRow><TableHead>Numéro</TableHead><TableHead>Titre</TableHead><TableHead>Total</TableHead><TableHead>Payé</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Numéro</TableHead><TableHead>Type</TableHead><TableHead>Titre</TableHead><TableHead>Total</TableHead><TableHead>Payé</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
               <TableBody>
-                {invoices.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Aucune facture.</TableCell></TableRow>}
+                {invoices.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucun document caisse.</TableCell></TableRow>}
                 {invoices.map((i) => (
                   <TableRow key={i.id}>
                     <TableCell className="font-mono text-xs">{i.number}</TableCell>
+                    <TableCell>
+                      <span className={`albarka-chip text-[10px] ${
+                        i.document_type === "recu" ? "bg-emerald-100 text-emerald-800"
+                        : i.document_type === "proforma" ? "bg-blue-100 text-blue-800"
+                        : "bg-slate-100 text-slate-700"
+                      }`}>
+                        {i.document_type === "recu" ? "Reçu" : i.document_type === "proforma" ? "Proforma" : "Facture"}
+                      </span>
+                    </TableCell>
                     <TableCell>{i.title}</TableCell>
                     <TableCell>{Number(i.total).toLocaleString()} {i.currency}</TableCell>
                     <TableCell>{Number(i.paid_amount || 0).toLocaleString()}</TableCell>
-                    <TableCell><span className={`albarka-chip ${i.status === "paid" ? "bg-emerald-100 text-emerald-800" : i.status === "partial" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"}`}>{i.status}</span></TableCell>
+                    <TableCell><span className={`albarka-chip ${i.status === "paid" ? "bg-emerald-100 text-emerald-800" : i.status === "partial" ? "bg-amber-100 text-amber-800" : i.status === "proforma" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-700"}`}>
+                      {i.status === "paid" ? "Payé" : i.status === "partial" ? "Partiel" : i.status === "proforma" ? "Proforma" : i.status === "unpaid" ? "Impayé" : i.status}
+                    </span></TableCell>
                     <TableCell className="text-right">
-                      {i.status !== "paid" && (
+                      {i.status !== "paid" && i.status !== "proforma" && (
                         <Button size="sm" variant="outline" onClick={() => { setPayTarget(i); setOpenPay(true); }} data-testid={`pay-invoice-${i.id}`}>Encaisser</Button>
                       )}
                     </TableCell>

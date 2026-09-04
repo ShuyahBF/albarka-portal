@@ -128,6 +128,17 @@ class InvoiceCreate(BaseModel):
     currency: str = "XOF"
     due_date: Optional[str] = None
     notes: Optional[str] = None
+    document_type: str = Field(
+        "facture",
+        description="facture | reçu | proforma — chaque type a sa propre numérotation",
+    )
+
+    @field_validator("document_type")
+    @classmethod
+    def _valid_doc_type(cls, v):
+        if v not in ("facture", "recu", "proforma"):
+            raise ValueError("document_type doit être facture | recu | proforma")
+        return v
 
 
 class PaymentCreate(BaseModel):
@@ -144,15 +155,20 @@ def _invoice_totals(items: list[dict]) -> dict:
     return {"subtotal": round(subtotal, 2), "tax": round(tax, 2), "total": round(subtotal + tax, 2)}
 
 
+_DOC_PREFIX = {"facture": "FAC", "recu": "REC", "proforma": "PRO"}
+
+
 @billing_router.get("/invoices")
 async def list_invoices(
     tenant_id: Optional[str] = None,
     status: Optional[str] = None,
+    document_type: Optional[str] = None,
     user: dict = Depends(require_staff()),
 ):
     q = {}
     if tenant_id: q["tenant_id"] = tenant_id
     if status: q["status"] = status
+    if document_type: q["document_type"] = document_type
     items = await db.invoices.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return serialize_many(items)
 
@@ -161,35 +177,56 @@ async def list_invoices(
 async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_staff())):
     items = [i.model_dump() for i in payload.items]
     totals = _invoice_totals(items)
-    # Numéro : FAC-YYYYMM-NNNN (compteur mensuel global)
+    # Numéro : {FAC|REC|PRO}-YYYYMM-NNNN (compteur mensuel PAR type)
     month_key = datetime.now(timezone.utc).strftime("%Y%m")
-    key = f"invoice:{month_key}"
+    prefix = _DOC_PREFIX[payload.document_type]
+    key = f"{payload.document_type}:{month_key}"
     res = await db.report_series.find_one_and_update(
         {"key": key},
-        {"$inc": {"seq": 1}, "$setOnInsert": {"kind": "invoice", "month_key": month_key}},
+        {"$inc": {"seq": 1}, "$setOnInsert": {"kind": payload.document_type, "month_key": month_key}},
         upsert=True, return_document=True,
     )
     seq = int(res.get("seq") or 1)
-    number = f"FAC-{month_key}-{seq:04d}"
+    number = f"{prefix}-{month_key}-{seq:04d}"
+    # Un reçu est réputé déjà payé au moment de l'émission ; un proforma
+    # n'est pas payable (indicatif). Une facture reste "unpaid" par défaut.
+    if payload.document_type == "recu":
+        status = "paid"
+        paid_amount = totals["total"]
+    elif payload.document_type == "proforma":
+        status = "proforma"
+        paid_amount = 0.0
+    else:
+        status = "unpaid"
+        paid_amount = 0.0
     doc = {
         "id": secrets.token_urlsafe(12),
         "number": number,
+        "document_type": payload.document_type,
         "tenant_id": payload.tenant_id,
         "title": payload.title,
         "items": items,
         "currency": payload.currency,
         "due_date": payload.due_date,
         "notes": payload.notes,
-        "status": "unpaid",
-        "paid_amount": 0.0,
+        "status": status,
+        "paid_amount": paid_amount,
         **totals,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": user["id"],
     }
     await db.invoices.insert_one(doc.copy())
-    await _log_platform_event(user=user, action="invoice.create",
+    await _log_platform_event(user=user, action=f"{payload.document_type}.create",
                               entity_type="invoice", entity_id=doc["id"],
                               meta={"total": doc["total"], "number": number})
+    # Point 2 — auto-archive
+    await _auto_archive(
+        title=f"{payload.document_type.title()} {number} — {payload.title}",
+        category="caisse",
+        tags=[payload.document_type, month_key],
+        source={"kind": "invoice", "id": doc["id"], "number": number, "tenant_id": doc["tenant_id"]},
+        user=user,
+    )
     return serialize(doc)
 
 
@@ -346,7 +383,87 @@ async def create_payslip(payload: PayslipCreate, user: dict = Depends(require_ro
     await _log_platform_event(user=user, action="payslip.create",
                               entity_type="payslip", entity_id=doc["id"],
                               meta={"period": doc["period_month"], "net": doc["net_salary"]})
+    # Point 2 — auto-archive
+    await _auto_archive(
+        title=f"Bulletin de paie — {doc['employee_name']} — {doc['period_month']}",
+        category="paie",
+        tags=[doc["period_month"], "bulletin"],
+        source={"kind": "payslip", "id": doc["id"],
+                "employee_id": doc["employee_id"], "tenant_id": doc["tenant_id"]},
+        user=user,
+    )
     return serialize(doc)
+
+
+@hr_router.get("/payslips/{payslip_id}.pdf")
+async def download_payslip_pdf(payslip_id: str, user: dict = Depends(require_roles(_HR_ROLES))):
+    """Génère et renvoie le bulletin en PDF (ReportLab, mise en page simple)."""
+    from fastapi.responses import Response
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import (
+        SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
+    )
+    import io as _io
+
+    ps = await db.payslips.find_one({"id": payslip_id}, {"_id": 0})
+    if not ps:
+        raise HTTPException(status_code=404, detail="Bulletin introuvable")
+    emp = await db.employees.find_one({"id": ps["employee_id"]}, {"_id": 0}) or {}
+    client = await db.users.find_one({"id": ps.get("tenant_id")}, {"_id": 0}) or {}
+
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
+    styles = getSampleStyleSheet()
+    story = [
+        Paragraph("<b>Bulletin de paie</b>", styles["Title"]),
+        Spacer(1, 10),
+        Paragraph(
+            f"<b>Employeur :</b> {client.get('company') or client.get('full_name') or '—'}<br/>"
+            f"<b>Employé :</b> {emp.get('full_name') or ps.get('employee_name')}"
+            f" · <b>Fonction :</b> {emp.get('role') or '—'}<br/>"
+            f"<b>Période :</b> {ps['period_month']}",
+            styles["BodyText"],
+        ),
+        Spacer(1, 12),
+    ]
+    table_data = [
+        ["Rubrique", "Montant (XOF)"],
+        ["Salaire brut", f"{ps['gross_salary']:,.0f}"],
+        ["Primes", f"+ {ps['bonuses']:,.0f}"],
+        ["Retenues", f"- {ps['deductions']:,.0f}"],
+        ["Salaire net", f"{ps['net_salary']:,.0f}"],
+    ]
+    t = Table(table_data, colWidths=[300, 150])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F6B4A")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E5A24B")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.grey),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("PADDING", (0, 0), (-1, -1), 6),
+    ]))
+    story.append(t)
+    if ps.get("notes"):
+        story.append(Spacer(1, 12))
+        story.append(Paragraph(f"<i>Notes :</i> {ps['notes']}", styles["BodyText"]))
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(
+        f"<font size=8 color='#888'>Émis le {datetime.now(timezone.utc).strftime('%d/%m/%Y à %H:%M UTC')} par le portail ALBARKA.</font>",
+        styles["BodyText"],
+    ))
+    doc.build(story)
+    pdf = buf.getvalue()
+    filename = f"bulletin_{ps['period_month']}_{(emp.get('full_name') or 'employe').replace(' ', '_')}.pdf"
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ==========================================================================
@@ -401,6 +518,40 @@ async def list_platform_logs(
 archives_router = APIRouter(prefix="/archives", tags=["Archives"])
 
 
+async def _auto_archive(
+    *, title: str, category: str, tags: list[str],
+    source: dict, user: dict, description: Optional[str] = None,
+) -> None:
+    """Point 2 — capte automatiquement un événement métier dans `archives`.
+
+    Idempotent au niveau `source.kind + source.id` : une deuxième insertion
+    pour le même événement est un no-op. Best-effort : n'échoue jamais
+    l'appelant (documents, rapports, factures, bulletins).
+    """
+    try:
+        source = {**source, "auto": True}
+        existing = await db.archives.find_one(
+            {"source.kind": source.get("kind"), "source.id": source.get("id")},
+            {"_id": 0, "id": 1},
+        )
+        if existing:
+            return
+        await db.archives.insert_one({
+            "id": secrets.token_urlsafe(12),
+            "title": title[:200],
+            "category": category,
+            "description": description,
+            "tags": tags,
+            "source": source,
+            "auto": True,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": user["id"] if user else None,
+            "created_by_name": (user.get("full_name") or user.get("email")) if user else "system",
+        })
+    except Exception:  # noqa: BLE001
+        logger.exception("Échec auto-archive kind=%s id=%s", source.get("kind"), source.get("id"))
+
+
 class ArchiveItemCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     category: str = Field("autre", max_length=60)
@@ -415,11 +566,16 @@ async def list_archives(
     category: Optional[str] = None,
     tag: Optional[str] = None,
     q: Optional[str] = None,
+    source_kind: Optional[str] = None,
+    only_manual: Optional[bool] = None,
     user: dict = Depends(require_staff()),
 ):
     query: dict = {}
     if category: query["category"] = category
     if tag: query["tags"] = tag
+    if source_kind: query["source.kind"] = source_kind
+    if only_manual:
+        query["auto"] = {"$ne": True}
     if q:
         query["$or"] = [
             {"title": {"$regex": q, "$options": "i"}},
@@ -480,7 +636,7 @@ class BroadcastCreate(BaseModel):
 @messaging_router.post("/broadcast")
 async def send_broadcast(
     payload: BroadcastCreate,
-    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "secretariat"])),
+    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "communication"])),
 ):
     """Diffuse un message à un scope large. Écrit l'intention dans
     `broadcasts` + tente un envoi immédiat. Chaque destinataire est logué
@@ -578,7 +734,7 @@ async def send_broadcast(
 
 @messaging_router.get("/broadcasts")
 async def list_broadcasts(
-    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "secretariat"])),
+    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "communication"])),
 ):
     items = await db.broadcasts.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return serialize_many(items)

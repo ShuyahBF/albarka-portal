@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
 import { Plus, Pencil } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
@@ -12,6 +12,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { useAuth } from "@/contexts/AuthContext";
 
 const STAFF_ROLES = [
   { value: "superviseur", label: "Superviseur" },
@@ -22,6 +23,7 @@ const STAFF_ROLES = [
   { value: "comptable", label: "Comptable" },
   { value: "aide_comptable", label: "Aide-comptable" },
   { value: "rh", label: "RH" },
+  { value: "communication", label: "Communication" },
 ];
 
 const emptyForm = () => ({
@@ -30,11 +32,28 @@ const emptyForm = () => ({
 });
 
 export default function AdminStaff() {
+  const { user: me } = useAuth();
+  const myRoles = me?.roles || [];
+  // Point 10 — filtrage selon le rôle du visiteur.
+  const isAdmin = myRoles.includes("administrateur");
+  const canEdit = isAdmin || myRoles.includes("superviseur") || myRoles.includes("direction");
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null); // null = create mode
   const [form, setForm] = useState(emptyForm());
+
+  // Rôles proposés dans le formulaire : masque "administrateur" pour les non-admins.
+  const visibleRoles = useMemo(
+    () => (isAdmin ? STAFF_ROLES : STAFF_ROLES.filter((r) => r.value !== "administrateur")),
+    [isAdmin],
+  );
+  // Table filtrée : masque les comptes administrateurs pour les non-admins.
+  const visibleItems = useMemo(
+    () => (isAdmin ? items : items.filter((s) => !(s.roles || []).includes("administrateur"))),
+    [items, isAdmin],
+  );
 
   const load = async () => {
     setLoading(true);
@@ -122,11 +141,13 @@ export default function AdminStaff() {
           <p className="text-muted-foreground mt-1">Équipe du cabinet et leurs rôles.</p>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
-          <DialogTrigger asChild>
-            <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-staff-btn" onClick={openNew}>
-              <Plus className="w-4 h-4 mr-2" />Nouveau collaborateur
-            </Button>
-          </DialogTrigger>
+          {canEdit && (
+            <DialogTrigger asChild>
+              <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-staff-btn" onClick={openNew}>
+                <Plus className="w-4 h-4 mr-2" />Nouveau collaborateur
+              </Button>
+            </DialogTrigger>
+          )}
           <DialogContent data-testid="staff-dialog">
             <DialogHeader>
               <DialogTitle>{editing ? "Modifier un collaborateur" : "Nouveau collaborateur"}</DialogTitle>
@@ -150,7 +171,7 @@ export default function AdminStaff() {
               <div>
                 <Label>Rôles</Label>
                 <div className="grid grid-cols-2 gap-2 mt-2">
-                  {STAFF_ROLES.map((r) => (
+                  {visibleRoles.map((r) => (
                     <label key={r.value} className="flex items-center gap-2 text-sm cursor-pointer">
                       <Checkbox
                         checked={form.roles.includes(r.value)}
@@ -205,8 +226,8 @@ export default function AdminStaff() {
           </TableHeader>
           <TableBody>
             {loading && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && items.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Aucun collaborateur.</TableCell></TableRow>}
-            {items.map((s) => (
+            {!loading && visibleItems.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Aucun collaborateur.</TableCell></TableRow>}
+            {visibleItems.map((s) => (
               <TableRow key={s.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">{s.full_name}</TableCell>
                 <TableCell className="text-sm">{s.email}</TableCell>
@@ -224,15 +245,17 @@ export default function AdminStaff() {
                     : <span className="albarka-chip bg-emerald-100 text-emerald-800">Actif</span>}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => openEdit(s)}
-                    title="Modifier"
-                    data-testid={`edit-staff-${s.id}`}
-                  >
-                    <Pencil className="w-4 h-4" />
-                  </Button>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => openEdit(s)}
+                      title="Modifier"
+                      data-testid={`edit-staff-${s.id}`}
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

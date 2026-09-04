@@ -111,8 +111,19 @@ async def create_client(payload: ClientCreate, user: dict = Depends(require_staf
     return _public(user_doc)
 
 
+def _is_admin(u: dict) -> bool:
+    """Retourne True si l'utilisateur porte le rôle privilégié `administrateur`."""
+    return "administrateur" in (u.get("roles") or [])
+
+
 @router.post("/staff")
 async def create_staff(payload: StaffCreate, user: dict = Depends(require_staff())):
+    # Point 10 — seul un `administrateur` peut créer un compte administrateur.
+    if "administrateur" in payload.roles and not _is_admin(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Seul un compte Administrateur peut créer un autre Administrateur",
+        )
     existing = await db.users.find_one({"email": payload.email.lower()})
     if existing:
         raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà")
@@ -146,6 +157,17 @@ async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(
     update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if not update:
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+    # Point 10 — seul un `administrateur` peut attribuer/retirer le rôle `administrateur`.
+    if "roles" in update:
+        target = await db.users.find_one({"id": user_id}, {"_id": 0, "roles": 1})
+        current_roles = set(target.get("roles") or []) if target else set()
+        new_roles = set(update["roles"])
+        touches_admin = ("administrateur" in current_roles) != ("administrateur" in new_roles)
+        if touches_admin and not _is_admin(user):
+            raise HTTPException(
+                status_code=403,
+                detail="Seul un compte Administrateur peut attribuer ou retirer le rôle Administrateur",
+            )
     res = await db.users.update_one({"id": user_id}, {"$set": update})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")

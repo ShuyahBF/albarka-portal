@@ -14,7 +14,7 @@ def _grant_active_contract(staff_session, tenant_id):
         "title": "TEST_Contrat RBAC",
         "start_date": (date.today() - timedelta(days=1)).isoformat(),
         "end_date": (date.today() + timedelta(days=90)).isoformat(),
-        "status": "active",
+        "status": "en_cours",
     }, timeout=60)
     assert r.status_code == 200, r.text[:200]
     return r.json()["id"]

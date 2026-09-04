@@ -32,7 +32,6 @@ import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminContracts from "@/pages/admin/AdminContracts";
 import AdminBilling from "@/pages/admin/AdminBilling";
 import AdminHR from "@/pages/admin/AdminHR";
-import AdminChat from "@/pages/admin/AdminChat";
 import AdminAccounting from "@/pages/admin/AdminAccounting";
 import AdminBulkReports from "@/pages/admin/AdminBulkReports";
 import { AdminArchives, AdminMessaging, AdminPlatformLogs } from "@/pages/admin/AdminPhaseC";
@@ -75,7 +74,6 @@ function App() {
             <Route path="documents" element={<Documents />} />
             <Route path="missions" element={<ClientMissions />} />
             <Route path="echeances" element={<ClientEcheances />} />
-            <Route path="chat" element={<AdminChat />} />
             <Route path="historique" element={<Historique />} />
           </Route>
 
@@ -92,7 +90,6 @@ function App() {
             <Route path="rapports" element={<AdminReports />} />
             <Route path="rapports/bulk" element={<AdminBulkReports />} />
             <Route path="contrats" element={<AdminContracts />} />
-            <Route path="chat" element={<AdminChat />} />
             <Route path="caisse" element={<AdminBilling />} />
             <Route path="paie" element={<AdminHR />} />
             <Route path="archives" element={<AdminArchives />} />
