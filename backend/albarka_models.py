@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 ALBARKA_ROLES = [
     "superviseur",
     "direction",
+    "administrateur",
     "secretariat",
     "fiscaliste",
     "comptable",

@@ -49,10 +49,15 @@ export function AuthProvider({ children }) {
   const isStaff = user && !(user.roles?.length === 1 && user.roles[0] === "client");
   const isClient = user && user.roles?.includes("client");
   const isSupervisor = user && user.roles?.includes("superviseur");
+  const isAdmin =
+    user &&
+    (user.roles?.includes("superviseur") ||
+      user.roles?.includes("direction") ||
+      user.roles?.includes("administrateur"));
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, loginStart, loginVerify, logout, refresh: fetchMe, isStaff, isClient, isSupervisor }}
+      value={{ user, loading, loginStart, loginVerify, logout, refresh: fetchMe, isStaff, isClient, isSupervisor, isAdmin }}
     >
       {children}
     </AuthContext.Provider>

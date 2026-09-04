@@ -284,7 +284,7 @@ from db import db, serialize, serialize_many
 
 router = APIRouter(prefix="/admin/certificates", tags=["Signature électronique"])
 
-_ADMIN_ROLES = ["superviseur", "direction"]
+_ADMIN_ROLES = ["superviseur", "direction", "administrateur"]
 
 
 class CertificateCreate(BaseModel):

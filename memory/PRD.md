@@ -12,7 +12,18 @@ Application ALBARKA — portail de gestion des activités d'un cabinet comptable
 - **Cron** quotidien 07:00 UTC.
 - **Signature électronique** : pyHanko PAdES-B + tampon visuel via PyMuPDF + certificats auto-signés RSA 3072.
 
-## Livrés iteration 9 (Feb 2026) — Réconciliation MongoDB
+## Livrés iteration 9 (Feb 2026) — Réconciliation MongoDB + Phase A
+### Phase 0 — Skipped par l'utilisateur (Git realignment sera fait plus tard)
+
+### Phase A (P0) — 04/09/2026
+- [x] **Feature 5 — Rôle `administrateur`** : ajouté à `ALBARKA_ROLES`. `/admin/settings`, `/admin/branding`, `/admin/certificates` acceptent désormais `superviseur | direction | administrateur`. Un utilisateur avec ce rôle seul voit le lien "Paramètres" dans la sidebar staff.
+- [x] **Feature 13 — Dernière connexion** : `[data-testid=sidebar-last-login]` en bas de la sidebar (`Dernière connexion : JJ/MM/AAAA HH:MM`), s'appuie sur `user.last_login` déjà persisté par `verify-otp`.
+- [x] **Feature 6 — Édition Staff/Client inline** : dialogues "Modifier un collaborateur" / "Modifier le client" via `PATCH /api/clients/{id}`. Email `readOnly` (non modifiable). Pas de champ password en édition. Bouton crayon `[data-testid=edit-staff-{id}]` / `[data-testid=edit-client-{id}]`.
+- [x] **Feature 7 — Composant `EntitySelect`** (`/app/frontend/src/components/EntitySelect.jsx`) : combobox shadcn (Popover + Command) chargeant `GET /clients`, filtrable. Utilisé dans `portal/Documents.jsx`, `portal/Missions.jsx`, `portal/Echeances.jsx` (mode staff) — remplace les inputs raw `tenant_id`. Contacts/Groupes/Rapports utilisent déjà un `<Select>` client (pas de changement).
+- [x] **Sécurité** : validateur `UserUpdate.roles` (`albarka_clients.py`) — interdit `client` cumulé avec un rôle cabinet, interdit `roles: []`, interdit rôles inconnus. Corrige la faille RBAC HIGH remontée par le testing agent (élévation de privilège via PATCH).
+- [x] **Tests** : 242 tests régression pytest passants + 13 nouveaux tests Phase A (`/app/backend/tests/test_iteration9_phaseA.py`) + 11 scénarios Playwright validés par testing_agent_v3_fork (rapport `/app/test_reports/iteration_8.json`).
+
+### Réconciliation MongoDB (initiale de l'itération)
 - [x] **Endpoint diagnostic** `GET /api/_diag/db` (staff-only) : renvoie mongo_host, db_name, compteurs de collections (sans credentials).
 - [x] **Endpoint migration** `POST /api/_admin/migrate-mongo` (superviseur/direction) — upsert idempotent, backup JSON `password_hash` REDACTED, skip par défaut de `otps`/`cron_runs`, options `dry_run` / `only_collections` / `skip_collections`, protection admin/superviseur (préserve `password_hash` + `is_active` sur la cible pour ces 2 emails).
 - [x] **Tests** : 23/23 pytest dans `test_iteration6_migrate.py`.
@@ -57,8 +68,9 @@ Application ALBARKA — portail de gestion des activités d'un cabinet comptable
 - Preview visuelle en direct de la couverture PDF lors du choix de template.
 
 ## Tests
-- Backend : **193/195 passent** (2 régressions pré-existantes non liées, dans `test_iteration3.TestNotificationGates` et `test_reports_notifications.TestEmailTransport`).
+- Backend : **242+ tests régression + 13 tests Phase A (`test_iteration9_phaseA.py`)**. 2 anciennes régressions pré-existantes documentées (fixture user).
 - Iteration 5 & 6 : **25/25 tests** dans `test_iteration5.py`.
+- Iteration 9 Phase A : **11/11 scénarios Playwright validés** (rapport `/app/test_reports/iteration_8.json`).
 
 ## Architecture
 ```

@@ -55,10 +55,16 @@ class UserUpdate(BaseModel):
     @field_validator("roles")
     @classmethod
     def _valid_roles(cls, v):
-        if v is None: return v
+        if v is None:
+            return v
+        if len(v) == 0:
+            raise ValueError("Au moins un rôle est requis")
         unknown = set(v) - set(ALBARKA_ROLES)
         if unknown:
             raise ValueError(f"Rôle(s) invalide(s) : {sorted(unknown)}")
+        # `client` est exclusif : impossible à cumuler avec un rôle cabinet.
+        if "client" in v and len(v) > 1:
+            raise ValueError("Le rôle 'client' ne peut pas être cumulé avec un rôle cabinet")
         return v
 
 

@@ -16,6 +16,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
+import EntitySelect from "@/components/EntitySelect";
 
 const TYPES = [
   { value: "tva", label: "TVA" },
@@ -136,8 +137,12 @@ export default function Echeances({ tenantIdOverride = null, staffMode = false }
               <div className="space-y-4">
                 {!tenantIdOverride && (
                   <div>
-                    <Label>ID client (tenant)</Label>
-                    <Input value={form.tenant_id} onChange={(e) => setForm({ ...form, tenant_id: e.target.value })} data-testid="echeance-tenant-input" />
+                    <Label>Client</Label>
+                    <EntitySelect
+                      value={form.tenant_id}
+                      onChange={(v) => setForm({ ...form, tenant_id: v })}
+                      testId="echeance-tenant-input"
+                    />
                   </div>
                 )}
                 <div>

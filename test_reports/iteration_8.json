@@ -1,0 +1,82 @@
+{
+  "summary": "Itération 9 Phase A (features 5, 13, 6, 7) testée end-to-end. Backend : nouveau fichier pytest /app/backend/tests/test_iteration9_phaseA.py (13 passed, 2 xfail documentant une faille RBAC) + suite complète de régression 242 passed / 1 skipped. Frontend : Playwright sur le vrai domaine public — login OTP, sidebar-last-login, édition Staff/Client (email readOnly, pas de password, PATCH 200 + rafraîchissement de table), EntitySelect sur /admin/documents, /admin/missions, /admin/echeances, accès /admin/settings par un utilisateur ayant UNIQUEMENT le rôle 'administrateur', et régression portail client. Toutes les features demandées fonctionnent. Un problème de sécurité réel a été trouvé sur PATCH /api/clients/{id} (voir backend_issues).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "PATCH /api/clients/{id}",
+        "issue": "Élévation de privilèges : UserUpdate.roles n'applique pas l'exclusivité du rôle 'client'. PATCH {roles:['client','administrateur']} sur un compte client renvoie 200 et le compte client obtient ensuite GET /api/admin/settings = 200 (vérifié en live avec client2@albarka-demo.bf, puis restauré). Idem : roles=['client'] peut être posé sur un compte staff, alors que POST /clients/staff le refuse (422). Ajouter le même field_validator que StaffCreate (interdire 'client' mélangé, et interdire de retirer/ajouter 'client' selon le type de compte).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "PATCH /api/clients/{id}",
+        "issue": "roles: [] est accepté (200) → utilisateur sans aucun rôle, plus aucun accès et non réparable via l'UI staff. Ajouter min_length=1 sur UserUpdate.roles."
+      },
+      {
+        "endpoint": "GET /api/admin/settings",
+        "issue": "La docstring de albarka_admin_settings.py indique encore 'Seul un utilisateur ayant le rôle superviseur ou direction' alors que _ADMIN_ROLES inclut désormais 'administrateur' — documentation obsolète."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "AdminStaff / staff-email-input",
+        "issue": "En mode édition l'input email est à la fois readOnly ET disabled : le texte n'est pas sélectionnable/copiable et le champ est grisé (perte de contraste). readOnly seul suffirait.",
+        "selector": "[data-testid='staff-email-input']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "AdminSettings — chargement",
+        "issue": "GET /api/admin/settings est appelé deux fois au montage de la page (double effet / StrictMode). Non bloquant mais doublement de requêtes.",
+        "affected_selectors": ["[data-testid='sidebar-link-param-tres']"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Dialogues 'Nouvelle mission' et 'Nouvelle échéance'",
+        "issues": [
+          "Le champ date utilise le date-picker natif du navigateur (placeholder mm/dd/yyyy, format US) au lieu du composant Calendar shadcn — incohérent avec le reste de l'UI en français (JJ/MM/AAAA)."
+        ]
+      },
+      {
+        "screen": "Sidebar — utilisateur 'administrateur' seul",
+        "issues": [
+          "La sidebar ne contient qu'un seul lien (Paramètres) mais l'utilisateur atterrit sur /admin/dashboard qui affiche tous les KPI cabinet (clients, collaborateurs, échéances) : incohérence entre le menu restreint et la page d'accueil accessible. À arbitrer (produit)."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9_phaseA.py",
+    "/app/test_reports/pytest/pytest_iteration9_phaseA.xml",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "HIGH : ajouter un validateur de rôles sur UserUpdate (PATCH /clients/{id}) — interdire 'client' mélangé avec des rôles staff et interdire roles vides, sinon un compte client peut obtenir 'administrateur' et accéder à /api/admin/settings.",
+    "Mettre à jour la docstring de albarka_admin_settings.py (rôle 'administrateur' désormais autorisé).",
+    "Centraliser _ADMIN_ROLES (dupliqué à l'identique dans albarka_admin_settings.py, albarka_branding.py, albarka_signing.py) dans albarka_models.py.",
+    "Remplacer les <input type='date'> des dialogues Missions/Échéances par le Calendar shadcn.",
+    "Retirer 'disabled' sur staff-email-input en édition (garder readOnly)."
+  ],
+  "critical_code_review_comments": [
+    "albarka_clients.py : POST /clients/staff refuse 'client' via field_validator mais PATCH /clients/{id} ne le fait pas → invariant 'le rôle client est exclusif' contournable. Faille RBAC confirmée en live.",
+    "albarka_clients.py : UserUpdate utilise exclude_none, donc impossible d'effacer company/phone (None ignoré) ; le frontend AdminClients envoie company: null quand vide → la valeur reste inchangée silencieusement.",
+    "_ADMIN_ROLES dupliqué dans 3 modules backend (DRY).",
+    "EntitySelect refait un GET /clients à chaque montage sans cache ; acceptable aujourd'hui (2 clients) mais à surveiller (pas de pagination côté API, to_list(1000)).",
+    "verify-otp lit le user AVANT de mettre à jour last_login : le 'Dernière connexion' affiché correspond bien à la connexion précédente (comportement correct, mais absent au tout premier login — attendu)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9_phaseA.py"
+  ],
+  "success_rate": {"backend": "100% (255 tests: 242 régression + 13 nouveaux, 1 skip, 2 xfail documentant la faille RBAC)", "frontend": "100% des 11 scénarios demandés validés"},
+  "seed_data_creation": "Utilisateur temporaire qa.admin.only@albarka-test.bf (rôle 'administrateur' seul, mdp AdminOnly2026!) créé puis SUPPRIMÉ. Données de test nettoyées/restaurées (client2 company/phone remis à 'Traoré BTP SARL' / +22672222222). ATTENTION : le test d'écriture PUT /admin/settings a laissé settings.cabinet_phone = '+22670000009' (valeur écrasée, valeur d'origine inconnue) — à corriger côté produit si nécessaire. Le compte staff dgalbarka@albarka-bf.com a été renommé par un test UI puis restauré en 'Direction Générale ALBARKA' (nom d'origine non retrouvable en base — à vérifier).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "superviseur@albarka-demo.bf / Superviseur2026! ; comptable@albarka-demo.bf / Comptable2026! ; client1|client2@albarka-demo.bf / Client2026! (OTP dev dans [data-testid='dev-otp-hint'])",
+  "context_for_next_testing_agent": "Résultats validés : (5) POST /clients/staff persiste roles=['administrateur'] ; un utilisateur administrateur-seul se logge et obtient 200 sur GET/PUT /admin/settings et GET /admin/branding ; comptable seul → 403 sur les 3. (5 UI) sidebar de l'administrateur-seul = uniquement 'sidebar-link-param-tres', badge 'administrateur', /admin/settings se charge. (13) [data-testid='sidebar-last-login'] visible, format 'Dernière connexion : 04/09/2026 18:38' ; NOTE : absent au premier login d'un compte neuf (last_login=null) — normal. (6) staff & client : dialogues 'Modifier un collaborateur'/'Modifier le client', email disabled+readOnly, aucun champ password, PATCH 200 et table rafraîchie (payload vérifié). (7) tenant-id-input / mission-tenant-input / echeance-tenant-input = <button role='combobox'>, popover avec 2 options, sélection reflétée. Régression client1 : sidebar client 5 liens, aucun EntitySelect sur /portal/documents|missions|echeances, données affichées. Piège : ne pas lancer la suite pytest complète en parallèle des tests Playwright — test_patch_client_company_phone modifie/restaure le client 0 et fausse les vérifications UI (faux négatif observé).",
+  "rca_of_the_issue": "Faille RBAC : albarka_clients.py déclare deux modèles distincts. StaffCreate._valid_roles interdit 'client' dans la liste des rôles, mais UserUpdate._valid_roles ne vérifie que l'appartenance à ALBARKA_ROLES. Comme require_roles(['superviseur','direction','administrateur']) ne fait qu'un test d'intersection sur user['roles'], un PATCH {roles:['client','administrateur']} sur un compte client lui ouvre /api/admin/settings, /api/admin/branding et /api/admin/certificates. Reproduction : login superviseur → PATCH /api/clients/{id_client} {roles:['client','administrateur']} → 200 → login client → GET /api/admin/settings → 200. Correctif : dupliquer le validateur de StaffCreate dans UserUpdate (rejeter 'client' combiné à des rôles staff, imposer min_length=1) et/ou comparer les rôles envoyés au type du compte existant dans l'endpoint."
+}

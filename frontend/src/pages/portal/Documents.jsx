@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
+import EntitySelect from "@/components/EntitySelect";
 
 const KINDS = [
   { value: "piece_comptable", label: "Pièce comptable" },
@@ -184,14 +185,12 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
               </Select>
             </div>
             {!isClient && !tenantIdOverride && (
-              <div className="flex-1">
-                <label className="text-sm font-medium mb-1.5 block">ID client (tenant)</label>
-                <input
-                  className="w-full h-10 rounded-md border border-input px-3 text-sm"
-                  placeholder="id du client"
+              <div className="flex-1 min-w-[240px]">
+                <label className="text-sm font-medium mb-1.5 block">Client</label>
+                <EntitySelect
                   value={tenantId}
-                  onChange={(e) => setTenantId(e.target.value)}
-                  data-testid="tenant-id-input"
+                  onChange={setTenantId}
+                  testId="tenant-id-input"
                 />
               </div>
             )}

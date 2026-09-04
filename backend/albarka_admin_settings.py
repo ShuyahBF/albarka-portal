@@ -1,8 +1,8 @@
 """Paramètres administrateur (settings globaux) — WABA config, notifications, etc.
 
 Document unique en base : `settings` avec `_id="global"` (compatible avec le
-pattern du repo d'origine). Seul un utilisateur ayant le rôle `superviseur` ou
-`direction` peut lire/écrire les paramètres.
+pattern du repo d'origine). Seul un utilisateur ayant l'un des rôles
+`superviseur`, `direction` ou `administrateur` peut lire/écrire les paramètres.
 """
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
-_ADMIN_ROLES = ["superviseur", "direction"]
+_ADMIN_ROLES = ["superviseur", "direction", "administrateur"]
 
 # Champs sensibles : masqués sur lecture (******** = présent).
 SENSITIVE_FIELDS = {"wa_access_token"}

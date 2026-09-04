@@ -51,7 +51,7 @@ const STAFF_MENU = [
   { to: "/admin/rapports", label: "Rapports client", icon: ClipboardList,
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
   { to: "/admin/settings", label: "Paramètres", icon: Settings,
-    roles: ["superviseur", "direction"] },
+    roles: ["superviseur", "direction", "administrateur"] },
 ];
 
 function allowedFor(link, roles) {
@@ -110,13 +110,29 @@ export default function PortalLayout({ admin = false }) {
         </nav>
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10 bg-[#0B1912]">
           <div className="text-xs text-white/70 mb-1 truncate font-medium">{user?.full_name}</div>
-          <div className="flex flex-wrap gap-1 mb-3">
+          <div className="flex flex-wrap gap-1 mb-2">
             {(user?.roles || []).map((r) => (
               <span key={r} className="text-[9px] uppercase tracking-wider bg-white/10 text-[#E5A24B] px-1.5 py-0.5 rounded" data-testid={`role-badge-${r}`}>
                 {r.replace("_", " ")}
               </span>
             ))}
           </div>
+          {user?.last_login && (
+            <div
+              className="text-[10px] text-white/50 mb-2 leading-tight"
+              data-testid="sidebar-last-login"
+              title={user.last_login}
+            >
+              Dernière connexion :{" "}
+              {new Date(user.last_login).toLocaleString("fr-FR", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+            </div>
+          )}
           <Button
             variant="outline"
             size="sm"

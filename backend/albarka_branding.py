@@ -20,7 +20,7 @@ logger = logging.getLogger("albarka.branding")
 
 router = APIRouter(prefix="/admin/branding", tags=["Branding cabinet"])
 
-_ADMIN_ROLES = ["superviseur", "direction"]
+_ADMIN_ROLES = ["superviseur", "direction", "administrateur"]
 BRANDING_KINDS = {"logo", "letterhead", "dg_signature", "watermark"}
 ALLOWED_MIMES = {"image/png", "image/jpeg", "image/webp"}
 MAX_SIZE = 5 * 1024 * 1024  # 5 MB
