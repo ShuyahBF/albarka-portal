@@ -506,12 +506,15 @@ class TestNotificationGates:
         ech = {"id": "x", "title": "TEST", "type": "tva", "due_date": "2031-01-31",
                "period": "2031-01", "amount": 1000}
         r1 = run_async(lambda _db: an.notify_echeance(
-            {"email": "a@b.co", "full_name": "A", "is_active": False}, ech, 3))
-        assert r1["skipped"] and r1["sent_email"] is False and r1["sent_wa"] is False
+            {"id": "TEST_nouser", "email": "a@b.co", "full_name": "A", "is_active": False}, ech, 3))
+        # NOTE: notify_echeance no longer returns a "skipped" flag (iteration-4 refactor);
+        # the gate is now expressed as "no recipients / nothing sent".
+        assert r1["sent_email"] is False and r1["sent_wa"] is False
+        assert r1["email_recipients"] == [] and r1["wa_recipients"] == []
         r2 = run_async(lambda _db: an.notify_echeance(
-            {"email": "a@b.co", "full_name": "A", "is_active": True,
+            {"id": "TEST_nouser", "email": "a@b.co", "full_name": "A", "is_active": True,
              "can_receive_notifications": False}, ech, 3))
-        assert r2["skipped"] and r2["sent_email"] is False
+        assert r2["sent_email"] is False and r2["email_recipients"] == []
 
     def test_send_whatsapp_returns_none_when_disabled(self, mongo):
         an = _an()

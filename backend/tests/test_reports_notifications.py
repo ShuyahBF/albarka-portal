@@ -299,7 +299,8 @@ class TestEmailTransport:
 
         from conftest import run_async
         res = run_async(lambda _db: an.notify_echeance(
-            {"email": "delivered@resend.dev", "full_name": "TEST Client", "phone": "+22671111111"},
+            {"id": "TEST_notify_user", "email": "delivered@resend.dev",
+             "full_name": "TEST Client", "phone": "+22671111111"},
             {"id": "TEST", "title": "TVA", "type": "tva", "due_date": "2026-09-09",
              "period": "2026-08", "amount": 250000},
             7,

@@ -12,6 +12,12 @@ Application ALBARKA — portail de gestion des activités d'un cabinet comptable
 - **Cron** quotidien 07:00 UTC.
 - **Signature électronique** : pyHanko PAdES-B + tampon visuel via PyMuPDF + certificats auto-signés RSA 3072.
 
+## Livrés iteration 9 (Feb 2026) — Réconciliation MongoDB
+- [x] **Endpoint diagnostic** `GET /api/_diag/db` (staff-only) : renvoie mongo_host, db_name, compteurs de collections (sans credentials).
+- [x] **Endpoint migration** `POST /api/_admin/migrate-mongo` (superviseur/direction) — upsert idempotent, backup JSON `password_hash` REDACTED, skip par défaut de `otps`/`cron_runs`, options `dry_run` / `only_collections` / `skip_collections`, protection admin/superviseur (préserve `password_hash` + `is_active` sur la cible pour ces 2 emails).
+- [x] **Tests** : 23/23 pytest dans `test_iteration6_migrate.py`.
+- Instructions post-fix : (1) redéployer les changements, (2) `GET /_admin/migrate-mongo/inventory` pour vérifier la source, (3) `POST /_admin/migrate-mongo` avec cible Atlas + confirm_token, (4) reconfigurer MONGO_URL/DB_NAME dans le dashboard Emergent, (5) redéployer, (6) retirer les endpoints après vérification.
+
 ## Livrés iteration 6 (Feb 2026)
 - [x] **Aperçu réel des images de branding** — endpoint `GET /api/admin/branding/{kind}/preview` + composant `BrandingThumbnail` (blob URL authentifié).
 - [x] **Signature visible sur PDF** — `_apply_visible_stamp` via PyMuPDF avant signature pyHanko :

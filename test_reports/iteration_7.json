@@ -1,0 +1,33 @@
+{
+  "summary": "Backend-only retest of the 4 iteration-6 minor fixes on the MongoDB reconciliation endpoints. Rewrote /app/backend/tests/test_iteration6_migrate.py (23 pytest cases, 23/23 PASSED, ~30s) against the public preview URL. Verified: (1) GET /api/_diag/db is now protected — no token -> 403 with no mongo_host/db_name/collections leakage in the body, garbage bearer -> 401/403, client1 -> 403, superviseur -> 200 with the same fields as before (mongo_scheme=mongodb+srv, sanitised mongo_host, db_name=albarka, 18 collection counts, no credential fragments). (2) POST /api/_admin/migrate-mongo dry_run=true without only_collections no longer reports 'otps' nor 'cron_runs' (ephemeral skip) while still covering 'users'. (3) only_collections=['otps'] DOES include otps (skip applies only when only_collections is empty) — report has exactly one key 'otps'. (4) Real run backup=true only_collections=['users'] wrote /tmp/albarka-migrate-backups/mongo-<stamp>/users.json outside the repo; every document has password_hash='[REDACTED]' and no '$2a$'/'$2b$' string exists in the file; /app/backend/backups no longer exists (old dumps removed). Non-regression of all 17 previous cases: inventory RBAC (no token/bad token 401-403, client 403, superviseur 200 without password_hash/_id), POST guards (no token 403, client 403, wrong confirm_token 400, target==source 400, missing fields 422, unreachable target 502), dry_run writes nothing (verified via pymongo on albarka_dryrun), only_collections / skip_collections filters, real migration of report_templates idempotent (run1 inserted=1, run2 inserted=0/skipped=1, no duplicate ids), protected_partial>=1 with sentinel password_hash + is_active=false preserved on admin@sawalismartsystems.com and non-protected fields synced. Also re-ran the full backend suite: 229 passed / 1 skipped. Production DB 'albarka' never written to.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/_admin/migrate-mongo", "issue": "MIGRATE_CONFIRM_TOKEN is not defined in /app/backend/.env, so the hardcoded fallback 'MIGRATE-EMERGENT-TO-ATLAS-2026' in albarka_migrate.py is what is actually enforced. The env-read fix works but is inert until the variable is set (and the fallback remains in source)."},
+      {"endpoint": "POST /api/_admin/migrate-mongo", "issue": "Known accepted tech debt (unchanged): synchronous run vs 30s ingress timeout, to_list(100_000) unbounded cursor, target_mongo_url taken from the request body (SSRF-shaped), no index creation on the target DB, no cleanup/retention for /tmp/albarka-migrate-backups (2 dirs currently on disk)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iteration6_migrate.py",
+    "/app/test_reports/pytest/iter7.xml",
+    "/app/test_reports/pytest/iter7_regression.xml"
+  ],
+  "action_items": [
+    "Optional: add MIGRATE_CONFIRM_TOKEN to backend/.env (and to the deployment env) so the env-based token is actually in effect, and drop the in-source fallback before prod cut-over.",
+    "Remove the /_admin/migrate-mongo router and the /_diag/db endpoint (plus test_iteration6_migrate.py) after the production cut-over.",
+    "Optional: purge /tmp/albarka-migrate-backups after the migration (redacted but still full data dumps)."
+  ],
+  "critical_code_review_comments": [
+    "albarka_migrate.py: the protected-email branch still increments stats['inserted'] on matched_count==0 without upsert=True (dead branch, guarded by `existing`) — harmless but misleading.",
+    "albarka_migrate.py: collections without an 'id' field still use find_one(doc) exact-match dedup (duplicate risk on modified docs) — unchanged debt."
+  ],
+  "updated_files": ["/app/backend/tests/test_iteration6_migrate.py"],
+  "success_rate": {"backend": "100% (23/23 migration cases; full suite 229 passed / 1 skipped)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "albarka_dryrun on the same Atlas cluster: report_templates re-migrated (1), users re-migrated (5, admin@sawalismartsystems.com keeps the sentinel password_hash + is_active=false from the protection assertion), contact_groups dropped. Two redacted backup dirs under /tmp/albarka-migrate-backups/.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "superviseur@albarka-demo.bf / Superviseur2026! and client1@albarka-demo.bf / Client2026! (2-step login + dev_otp) — both worked",
+  "context_for_next_testing_agent": "All 4 iteration-6 fixes verified. /api/_diag/db now requires superviseur/direction (tests updated accordingly). Migration tests live in /app/backend/tests/test_iteration6_migrate.py (target=Atlas MONGO_URL, db='albarka_dryrun', confirm token read from env with fallback MIGRATE-EMERGENT-TO-ATLAS-2026). Keep real runs limited to short collections (users, report_templates, settings) because the ingress proxy times out at 30s.",
+  "rca_of_the_issue": "No defect found. The only residual observation is configuration-level: MIGRATE_CONFIRM_TOKEN is absent from backend/.env so the code path falls back to the in-source default token."
+}

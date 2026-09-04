@@ -9,12 +9,12 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 load_dotenv(Path(__file__).parent / ".env")
 
-from albarka_auth import router as auth_router  # noqa: E402
+from albarka_auth import router as auth_router, require_roles  # noqa: E402
 from albarka_admin_settings import router as admin_settings_router  # noqa: E402
 from albarka_branding import router as branding_router  # noqa: E402
 from albarka_clients import router as clients_router  # noqa: E402
@@ -27,6 +27,7 @@ from albarka_echeances import router as echeances_router  # noqa: E402
 from albarka_missions import router as missions_router  # noqa: E402
 from albarka_report_templates import router as report_templates_router  # noqa: E402
 from albarka_reports_mgmt import router as reports_mgmt_router  # noqa: E402
+from albarka_migrate import router as migrate_router  # noqa: E402
 from albarka_reports_router import router as reports_router  # noqa: E402
 from albarka_signing import router as signing_router  # noqa: E402
 from albarka_storage import storage_mode  # noqa: E402
@@ -52,6 +53,7 @@ api_router.include_router(echeances_router)
 api_router.include_router(missions_router)
 api_router.include_router(reports_router)
 api_router.include_router(reports_mgmt_router)
+api_router.include_router(migrate_router)
 api_router.include_router(report_templates_router)
 
 
@@ -63,6 +65,28 @@ async def root():
 @api_router.get("/health")
 async def health():
     return {"status": "ok", "app": "albarka-portal", "storage": storage_mode()}
+
+
+@api_router.get("/_diag/db")
+async def _diag_db(user: dict = Depends(require_roles(["superviseur", "direction"]))):
+    """Diagnostic base MongoDB (staff seulement, temporaire audit réconciliation)."""
+    import re as _re
+    from db import mongo_url as _mu, db as _db
+    host_match = _re.search(r"@([^/?]+)", _mu)
+    host = host_match.group(1) if host_match else "(unknown)"
+    scheme = _mu.split("://", 1)[0] if "://" in _mu else "?"
+    collections = {}
+    for name in await _db.list_collection_names():
+        try:
+            collections[name] = await _db[name].estimated_document_count()
+        except Exception:
+            collections[name] = -1
+    return {
+        "mongo_scheme": scheme,
+        "mongo_host": host,
+        "db_name": _db.name,
+        "collections": collections,
+    }
 
 
 app.include_router(api_router)
