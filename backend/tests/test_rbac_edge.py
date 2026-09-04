@@ -6,6 +6,20 @@ import requests
 from conftest import API, CREDENTIALS, login_full, make_session
 
 
+def _grant_active_contract(staff_session, tenant_id):
+    """Feature 14 : un client ne peut se connecter qu'avec un contrat actif."""
+    from datetime import date, timedelta
+    r = staff_session.post(f"{API}/client-contracts", json={
+        "tenant_id": tenant_id,
+        "title": "TEST_Contrat RBAC",
+        "start_date": (date.today() - timedelta(days=1)).isoformat(),
+        "end_date": (date.today() + timedelta(days=90)).isoformat(),
+        "status": "active",
+    }, timeout=60)
+    assert r.status_code == 200, r.text[:200]
+    return r.json()["id"]
+
+
 class TestRbacEdge:
     created_users = []
 
@@ -13,6 +27,8 @@ class TestRbacEdge:
     def teardown_class(cls):
         s, _ = make_session(*CREDENTIALS["superviseur"])
         for uid in cls.created_users:
+            for ct in s.get(f"{API}/client-contracts", params={"tenant_id": uid}, timeout=60).json():
+                s.delete(f"{API}/client-contracts/{ct['id']}", timeout=60)
             s.delete(f"{API}/clients/{uid}", timeout=60)
 
     def test_non_superviseur_staff_has_staff_access(self, comptable):
@@ -74,6 +90,7 @@ class TestRbacEdge:
         uid = sup.post(f"{API}/clients", json={"email": email, "full_name": "TEST Deactivated",
                                                "password": "TestPass2026!"}, timeout=60).json()["id"]
         TestRbacEdge.created_users.append(uid)
+        _grant_active_contract(sup, uid)
         token, _ = login_full(email, "TestPass2026!")
         sup.patch(f"{API}/clients/{uid}", json={"is_active": False}, timeout=60)
 
@@ -87,6 +104,7 @@ class TestRbacEdge:
         email = f"test_del_{uuid.uuid4().hex[:8]}@albarka-demo.bf"
         uid = sup.post(f"{API}/clients", json={"email": email, "full_name": "TEST Deleted",
                                                "password": "TestPass2026!"}, timeout=60).json()["id"]
+        _grant_active_contract(sup, uid)
         token, _ = login_full(email, "TestPass2026!")
         sup.delete(f"{API}/clients/{uid}", timeout=60)
         me = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"}, timeout=60)

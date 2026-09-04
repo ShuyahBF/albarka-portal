@@ -12,8 +12,35 @@ Application ALBARKA — portail de gestion des activités d'un cabinet comptable
 - **Cron** quotidien 07:00 UTC.
 - **Signature électronique** : pyHanko PAdES-B + tampon visuel via PyMuPDF + certificats auto-signés RSA 3072.
 
-## Livrés iteration 9 (Feb 2026) — Réconciliation MongoDB + Phase A
+## Livrés iteration 9 (Feb 2026) — Réconciliation MongoDB + Phase A + Phase B + Phase C + Phase D
 ### Phase 0 — Skipped par l'utilisateur (Git realignment sera fait plus tard)
+
+### Phase B (P1) — 04/09/2026
+- [x] **Feature 14 — Contrats clients + gate login** : Nouveau CRUD `/api/client-contracts` (Contract{tenant_id, title, dates, amount, status}), page admin `/admin/contrats` avec EntitySelect + éditeur. `verify-otp` refuse (403) les clients sans contrat actif avec message clair. Les 2 clients demo ont été seedés avec un contrat actif 2026.
+- [x] **Feature 1 — WhatsApp retry** : `POST /reports/whatsapp/retry/{log_id}` re-envoie une entrée en échec. Bouton `[data-testid=wa-retry-{id}]` visible sur les échecs du `WhatsAppLogPanel`.
+- [x] **Feature 2 — Bulk generate** : `POST /reports/bulk-generate` — génère un rapport pour tous les clients actifs (ou liste passée). Page `/admin/rapports/bulk` (KPIs generated/failed).
+- [x] **Feature 3 — Auto WA J+N post-signature** : après `sign_report`, si `settings.auto_wa_after_sign_enabled=true`, planifie un envoi WA dans `scheduled_wa_sends` à J+`auto_wa_after_sign_days` (défaut 1). Marquage `auto:true` + `auto_reason`.
+- [x] **Feature 4 — Export trimestriel** : `POST /reports/client/{tenant_id}/generate-quarterly {period_quarter:"2026-Q1"}` — agrège les 3 mois du trimestre dans un PDF unique. UI Phase 2 dans `/admin/rapports/bulk`.
+
+### Phase C (P2) — 04/09/2026 (from scratch, commit legacy 1fa4095 introuvable)
+- [x] **8a Chat interne** : `chat_messages` collection, thread `client:{tenant_id}`. Endpoints `/chat/messages` GET/POST, `/chat/threads` (staff). Client isolé sur son propre thread. Pages `/admin/chat` (multi-fil) + `/portal/chat`.
+- [x] **8b Caisse / facturation** : `/billing/invoices` (calcul auto subtotal + TVA + total), `/billing/payments` (met à jour paid_amount et status unpaid → partial → paid), `/billing/summary` (KPIs facturé/encaissé/reste). Page `/admin/caisse` (tabs Factures/Encaissements).
+- [x] **9 RH & Paie** : `/hr/employees` + `/hr/payslips` avec calcul net = brut − retenues + primes. Page `/admin/paie` (rôle rh en plus des admin).
+- [x] **10 Platform logs** : `/platform-logs` (rôles superviseur/direction/administrateur). Auto-log sur invoice.create, payment.create, payslip.create, chat.post, broadcast.send. Filter action **partial regex-i**. Page `/admin/logs`.
+- [x] **11 Archives** : `/archives` CRUD, tags + catégories. Page `/admin/archives`.
+- [x] **12 Messagerie broadcast** : `/messaging/broadcast` (scope clients|staff|all, canal email|whatsapp), `broadcasts` + `broadcast_deliveries` collections. Page `/admin/messagerie`.
+
+### Phase D (P3) — 04/09/2026 — Comptabilité OHADA SYSCOHADA
+- [x] **Plan comptable** : 29 comptes SYSCOHADA seed via `POST /accounting/seed-plan?tenant_id=X` (classes 1-8). Ajout libre via `POST /accounting/accounts`.
+- [x] **Écritures double partie stricte** : `POST /accounting/entries` refuse si Σdébits ≠ Σcrédits (400). Validation 2 étapes (draft → validated). Numérotation `{JOURNAL}-YYYY-NNNNNN` par tenant/année.
+- [x] **Grand livre** : `GET /accounting/ledger/{code}?tenant_id=X` — running balance chronologique par compte.
+- [x] **Balance de vérification** : `GET /accounting/trial-balance?tenant_id=X` — agrège par compte + `balanced: bool`.
+- [x] Page `/admin/comptabilite` : 3 tabs Écritures/Plan/Balance, dialog multi-lignes avec équilibrage live, validation, suppression (draft only).
+
+### Tests Phase B/C/D
+- **Backend** : 262 tests pytest (dont `test_iteration9_phaseBCD.py` 20 tests, `test_rbac_edge.py`) — 100% passants.
+- **Frontend** : 92% (11 écrans Playwright, 3 défauts UX mineurs identifiés et corrigés : noms client au lieu de tenant_id dans Contracts/Chat, reload threads après post, état vide OHADA Balance).
+- Rapport : `/app/test_reports/iteration_9.json`.
 
 ### Phase A (P0) — 04/09/2026
 - [x] **Feature 5 — Rôle `administrateur`** : ajouté à `ALBARKA_ROLES`. `/admin/settings`, `/admin/branding`, `/admin/certificates` acceptent désormais `superviseur | direction | administrateur`. Un utilisateur avec ce rôle seul voit le lien "Paramètres" dans la sidebar staff.

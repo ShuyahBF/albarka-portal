@@ -17,6 +17,14 @@ import {
   Wallet,
   ClipboardList,
   Settings,
+  FileSignature,
+  MessageSquare,
+  Receipt,
+  Archive,
+  Send,
+  BookOpen,
+  ScrollText,
+  Zap,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -27,6 +35,7 @@ const CLIENT_LINKS = [
   { to: "/portal/documents", label: "Mes pièces", icon: FileText },
   { to: "/portal/missions", label: "Mes missions", icon: Briefcase },
   { to: "/portal/echeances", label: "Échéances", icon: CalendarClock },
+  { to: "/portal/chat", label: "Messagerie", icon: MessageSquare },
   { to: "/portal/historique", label: "Historique", icon: History },
 ];
 
@@ -50,6 +59,22 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "rh"] },
   { to: "/admin/rapports", label: "Rapports client", icon: ClipboardList,
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
+  { to: "/admin/rapports/bulk", label: "Rapports en masse", icon: Zap,
+    roles: ["superviseur", "direction", "comptable", "fiscaliste"] },
+  { to: "/admin/contrats", label: "Contrats clients", icon: FileSignature,
+    roles: ["superviseur", "direction", "administrateur", "secretariat"] },
+  { to: "/admin/caisse", label: "Caisse", icon: Receipt,
+    roles: ["superviseur", "direction", "administrateur", "comptable", "secretariat"] },
+  { to: "/admin/comptabilite", label: "Comptabilité OHADA", icon: BookOpen,
+    roles: ["superviseur", "direction", "administrateur", "comptable", "aide_comptable", "fiscaliste"] },
+  { to: "/admin/chat", label: "Chat interne", icon: MessageSquare,
+    roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
+  { to: "/admin/messagerie", label: "Messagerie", icon: Send,
+    roles: ["superviseur", "direction", "administrateur", "secretariat"] },
+  { to: "/admin/archives", label: "Archives", icon: Archive,
+    roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable"] },
+  { to: "/admin/logs", label: "Journal plateforme", icon: ScrollText,
+    roles: ["superviseur", "direction", "administrateur"] },
   { to: "/admin/settings", label: "Paramètres", icon: Settings,
     roles: ["superviseur", "direction", "administrateur"] },
 ];

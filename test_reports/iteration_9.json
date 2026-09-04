@@ -1,0 +1,62 @@
+{
+  "summary": "Testing complet des Phases B, C et D de l'itération 9 (portail ALBARKA). Backend : nouveau fichier pytest /app/backend/tests/test_iteration9_phaseBCD.py (20 tests, 100% passés) couvrant contrats clients + gate login OTP, WhatsApp retry, bulk-generate, export trimestriel, auto-WA J+N post-signature, chat interne (RBAC cross-tenant), caisse/billing (calcul TVA + unpaid→partial→paid + summary), RH/paie (net = brut - retenues + primes), platform logs (RBAC + auto-log), archives, broadcast, comptabilité OHADA (seed 29 comptes, double partie, validate, balance, grand livre) + régression sécurité RBAC clients. Suite complète du repo : 262 passed / 1 skipped / 2 xpassed / 0 failed. Frontend : Playwright sur 11 écrans (sidebar 18 liens, /admin/contrats CRUD complet, /admin/caisse, /admin/paie, /admin/comptabilite, /admin/rapports/bulk, /admin/chat, /portal/chat, /admin/archives, /admin/messagerie, /admin/logs) + régression Phase A (login OTP, last-login, email readOnly staff/client, EntitySelect). Aucun bug bloquant trouvé ; uniquement des écarts UX/cohérence UI listés ci-dessous.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/platform-logs", "issue": "Le filtre `action` est en égalité stricte alors que l'UI expose un champ texte libre ('Filtre action'). Taper 'broadcast' (partiel) renvoie 0 résultat alors que broadcast.send existe. Recommandation : match préfixe/regex insensible à la casse."},
+      {"endpoint": "DELETE /api/clients/{id}", "issue": "Pas de cascade sur client_contracts / accounting_accounts / chat_messages : après suppression d'un client, ses contrats et son plan comptable restent orphelins en base (constaté avec un client de test résiduel + 29 comptes orphelins nettoyés manuellement)."},
+      {"endpoint": "POST /api/reports/whatsapp/retry/{log_id}", "issue": "Chemin de succès non vérifiable dans l'environnement : renvoie 400 'WhatsApp désactivé dans les paramètres' (settings.wa_enabled=false). Les cas 404 (log inconnu) et 400 (entrée déjà réussie) sont corrects."},
+      {"endpoint": "POST /api/reports/bulk-generate", "issue": "Le champ period_quarter du payload est ignoré (seul period_month est utilisé) — pas de bulk trimestriel malgré le modèle."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminChat (liste des fils)", "issue": "Après 'Ouvrir le fil' + envoi du 1er message, la colonne FILS n'affiche pas le nouveau fil (GET /chat/threads non rechargé) ; il n'apparaît qu'après rechargement de la page.", "selector": "[data-testid^=\"chat-thread-\"]", "priority": "MEDIUM"},
+      {"component": "AdminAccounting (onglet Balance)", "issue": "Aucun état vide : quand aucune écriture validée n'existe, le tableau balance est totalement vide (filtre debit>0||credit>0) sans message 'Aucun mouvement'.", "selector": "[data-testid=\"tab-accounting-balance\"]", "priority": "LOW"},
+      {"component": "AdminAccounting / dialog écriture", "issue": "Warning React en console : 'In HTML, <span> cannot be a child of <option> — This will cause a hydration error' lors de l'ouverture du select de comptes.", "selector": "[data-testid=\"entry-dialog\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Messagerie broadcast (scope clients, canal email)", "issue": "0/3 livrés (SMTP non configuré en preview) : le tableau affiche 'Envoyés 0 / 3' sans aucune indication de la cause. Prévoir un tooltip/état 'canal non configuré'.", "affected_selectors": ["[data-testid=\"admin-messaging-page\"]"]},
+      {"flow": "Journal WhatsApp — retry", "issue": "Le bouton retry n'apparaît bien que sur les lignes en échec (vérifié en injectant une entrée wa_send_log échouée) et appelle bien l'endpoint, mais l'API répond 400 (WhatsApp désactivé) ; le toast d'erreur existe dans le code — non capturé au moment du screenshot.", "affected_selectors": ["[data-testid^=\"wa-retry-\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "AdminContracts (/admin/contrats)", "issues": ["La colonne Client affiche un tenant_id tronqué (ex. 'k6lPJ145…') au lieu du nom/entreprise du client", "Champs dates en <input type=date> natif au lieu du composant calendrier shadcn utilisé ailleurs"]},
+      {"screen": "AdminChat / PortalChat", "issues": ["Les fils sont libellés avec l'identifiant technique 'client:k6lPJ145Lz4JOW2X' au lieu du nom du client — illisible pour l'utilisateur final"]},
+      {"screen": "AdminHR, AdminChat, AdminAccounting", "issues": ["Utilisation de <select> HTML natifs (payslip-employee-select, chat-new-tenant-select, entry-line-N-account) alors que le reste du portail utilise Select/EntitySelect shadcn — incohérence visuelle"]},
+      {"screen": "AdminPlatformLogs", "issues": ["Le champ 'Filtre action' laisse croire à une recherche libre alors que le backend fait une égalité stricte : saisie partielle => 'Aucun événement.'"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration9_phaseBCD.py",
+    "/app/backend/tests/test_rbac_edge.py",
+    "/app/test_reports/pytest/iteration9_bcd.xml",
+    "/app/test_reports/pytest/iteration9_all.xml"
+  ],
+  "action_items": [
+    "AdminChat : recharger GET /chat/threads après création d'un fil / envoi de message, et afficher le nom du client au lieu du thread_id brut",
+    "AdminContracts : afficher le nom/entreprise du client (jointure côté API ou map clients côté UI) au lieu du tenant_id tronqué",
+    "GET /api/platform-logs : rendre le filtre action partiel (regex/prefix) ou renommer le champ en 'Action exacte'",
+    "DELETE /api/clients/{id} : cascader la suppression (client_contracts, accounting_accounts/entries, chat_messages, invoices, employees) ou bloquer la suppression si un contrat existe",
+    "Onglet Balance OHADA : ajouter un état vide 'Aucun mouvement sur la période'",
+    "Corriger le warning React <span> dans <option> (select de comptes) et harmoniser les <select> natifs vers les composants shadcn",
+    "POST /api/reports/bulk-generate : soit gérer period_quarter, soit le retirer du modèle"
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/albarka_reports_mgmt.py fait 1029 lignes (>700) : extraire les sous-domaines (WhatsApp scheduling/log, signature, génération/bulk) en modules distincts",
+    "L'auto-WA post-signature écrit dans scheduled_wa_sends sans dé-doublonnage : signer deux fois un rapport (ou re-signer après annulation) crée plusieurs programmations 'auto' pour le même report_id",
+    "Un rapport signé est indélétable (400) : les tests/UI n'ont aucun moyen de nettoyer un rapport signé — prévoir une suppression administrative tracée ou un statut 'archivé'",
+    "albarka_phase_c.py regroupe 6 modules fonctionnels (chat, billing, HR, logs, archives, broadcast) dans un même fichier de 582 lignes : découper par domaine pour la maintenabilité"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration9_phaseBCD.py",
+    "/app/backend/tests/test_rbac_edge.py",
+    "/app/frontend/src/pages/admin/AdminAccounting.jsx"
+  ],
+  "success_rate": {"backend": "100% (20/20 nouveaux tests, 262/262 suite complète)", "frontend": "~92% (tous les écrans B/C/D fonctionnels ; 3 défauts UX/UI mineurs)"},
+  "seed_data_creation": "Toutes les données créées ont été nettoyées : client de test du gate contrat (test_gate_*), contrats TEST_/UITEST, factures+paiements UITEST, employé+bulletin UITEST, écriture OHADA UITEST, archive UITEST, broadcast UITEST, messages chat UITEST, wa_send_log UITEST, rapports générés (2026-08 signé, 2026-10 x2, 2026-Q4). Nettoyage aussi d'un client résiduel d'un run antérieur (test_del_f6932f6e) + ses 29 comptes OHADA orphelins. Reste en base : plan SYSCOHADA (29 comptes) pour client1 et client2 (données de démo inoffensives).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "/app/memory/test_credentials.md — superviseur@albarka-demo.bf / Superviseur2026! ; comptable@albarka-demo.bf / Comptable2026! ; client1|client2@albarka-demo.bf / Client2026! (contrats actifs présents)",
+  "context_for_next_testing_agent": "Le fichier test_rbac_edge.py a été corrigé : tout client créé pour un test de login doit désormais recevoir un contrat actif via POST /api/client-contracts (helper _grant_active_contract) sinon verify-otp renvoie 403 (Feature 14). Ajout de data-testid entry-line-{i}-account/label/debit/credit dans AdminAccounting.jsx. Attention : les selects de AdminHR (payslip-employee-select), AdminChat (chat-new-tenant-select) et les lignes d'écriture sont des <select> natifs => utiliser page.select_option, pas [role=option]. WhatsApp et SMTP sont désactivés en preview : les chemins de succès d'envoi WA/email ne sont pas testables (400 'WhatsApp désactivé', broadcast 0 délivré). Un rapport signé ne peut pas être supprimé via l'API (nettoyage direct en Mongo nécessaire).",
+  "rca_of_the_issue": "Les 2 échecs initiaux de test_rbac_edge.py (login d'un client fraîchement créé) étaient causés par le nouveau gate contrat de la Feature 14 (verify-otp -> 403 'Aucun contrat actif'), donc un changement de comportement attendu et non un bug : les tests ont été mis à jour pour créer un contrat actif. Le tableau vide de l'onglet Balance OHADA constaté au premier passage n'est pas un bug non plus : la balance ne liste que les comptes mouvementés et l'écriture n'était encore qu'en brouillon ; après validation via l'UI, la balance affiche bien les 2 lignes et 'Balancée'."
+}

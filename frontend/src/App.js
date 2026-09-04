@@ -29,6 +29,13 @@ import AdminClientDetail from "@/pages/admin/AdminClientDetail";
 import AdminReports from "@/pages/admin/AdminReports";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminContacts from "@/pages/admin/AdminContacts";
+import AdminContracts from "@/pages/admin/AdminContracts";
+import AdminBilling from "@/pages/admin/AdminBilling";
+import AdminHR from "@/pages/admin/AdminHR";
+import AdminChat from "@/pages/admin/AdminChat";
+import AdminAccounting from "@/pages/admin/AdminAccounting";
+import AdminBulkReports from "@/pages/admin/AdminBulkReports";
+import { AdminArchives, AdminMessaging, AdminPlatformLogs } from "@/pages/admin/AdminPhaseC";
 import { AdminDashboard, AdminDocuments, AdminMissions, AdminEcheances } from "@/pages/admin/AdminShared";
 
 function RootRedirect() {
@@ -68,6 +75,7 @@ function App() {
             <Route path="documents" element={<Documents />} />
             <Route path="missions" element={<ClientMissions />} />
             <Route path="echeances" element={<ClientEcheances />} />
+            <Route path="chat" element={<AdminChat />} />
             <Route path="historique" element={<Historique />} />
           </Route>
 
@@ -82,8 +90,16 @@ function App() {
             <Route path="missions" element={<AdminMissions />} />
             <Route path="echeances" element={<AdminEcheances />} />
             <Route path="rapports" element={<AdminReports />} />
+            <Route path="rapports/bulk" element={<AdminBulkReports />} />
+            <Route path="contrats" element={<AdminContracts />} />
+            <Route path="chat" element={<AdminChat />} />
+            <Route path="caisse" element={<AdminBilling />} />
+            <Route path="paie" element={<AdminHR />} />
+            <Route path="archives" element={<AdminArchives />} />
+            <Route path="messagerie" element={<AdminMessaging />} />
+            <Route path="comptabilite" element={<AdminAccounting />} />
+            <Route path="logs" element={<AdminPlatformLogs />} />
             <Route path="settings" element={<AdminSettings />} />
-            <Route path="paie" element={<AdminEcheances />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

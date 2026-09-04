@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { MessageCircle, Search, CheckCircle2, XCircle } from "lucide-react";
+import { MessageCircle, Search, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -86,13 +87,14 @@ export default function WhatsAppLogPanel() {
               <TableHead>Stratégie</TableHead>
               <TableHead>Par</TableHead>
               <TableHead className="text-center">Statut</TableHead>
+              <TableHead className="text-right">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
             {!loading && filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                <TableCell colSpan={7} className="text-center py-10 text-muted-foreground">
                   <MessageCircle className="w-8 h-8 mx-auto mb-2 text-slate-400" />
                   Aucun envoi WhatsApp enregistré.
                 </TableCell>
@@ -113,6 +115,26 @@ export default function WhatsAppLogPanel() {
                   {r.success
                     ? <CheckCircle2 className="w-4 h-4 text-emerald-600 mx-auto" />
                     : <XCircle className="w-4 h-4 text-red-600 mx-auto" />}
+                </TableCell>
+                <TableCell className="text-right">
+                  {!r.success && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          const { data } = await apiClient.post(`/reports/whatsapp/retry/${r.id}`);
+                          if (data.ok) toast.success("Envoi WhatsApp relancé avec succès");
+                          else toast.error("Nouvelle tentative échouée");
+                          await load();
+                        } catch (err) { toast.error(extractError(err)); }
+                      }}
+                      title="Relancer l'envoi"
+                      data-testid={`wa-retry-${r.id}`}
+                    >
+                      <RefreshCw className="w-4 h-4 text-[#0F6B4A]" />
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

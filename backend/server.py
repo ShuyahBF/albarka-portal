@@ -21,10 +21,20 @@ from albarka_clients import router as clients_router  # noqa: E402
 from albarka_contact_groups import router as contact_groups_router  # noqa: E402
 from albarka_contacts import router as contacts_router  # noqa: E402
 from albarka_contacts_import import router as contacts_import_router  # noqa: E402
+from albarka_contracts import router as contracts_router  # noqa: E402
 from albarka_dashboard import router as dashboard_router  # noqa: E402
 from albarka_documents import router as documents_router  # noqa: E402
 from albarka_echeances import router as echeances_router  # noqa: E402
 from albarka_missions import router as missions_router  # noqa: E402
+from albarka_ohada import router as ohada_router  # noqa: E402
+from albarka_phase_c import (  # noqa: E402
+    chat_router,
+    billing_router,
+    hr_router,
+    logs_router,
+    archives_router,
+    messaging_router,
+)
 from albarka_report_templates import router as report_templates_router  # noqa: E402
 from albarka_reports_mgmt import router as reports_mgmt_router  # noqa: E402
 from albarka_migrate import router as migrate_router  # noqa: E402
@@ -55,6 +65,17 @@ api_router.include_router(reports_router)
 api_router.include_router(reports_mgmt_router)
 api_router.include_router(migrate_router)
 api_router.include_router(report_templates_router)
+# Phase B — Contrats clients
+api_router.include_router(contracts_router)
+# Phase C — Modules internes
+api_router.include_router(chat_router)
+api_router.include_router(billing_router)
+api_router.include_router(hr_router)
+api_router.include_router(logs_router)
+api_router.include_router(archives_router)
+api_router.include_router(messaging_router)
+# Phase D — Comptabilité OHADA
+api_router.include_router(ohada_router)
 
 
 @api_router.get("/")

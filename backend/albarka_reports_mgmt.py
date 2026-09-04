@@ -675,6 +675,184 @@ async def whatsapp_audit_log(
     return serialize_many(items)
 
 
+# ===================================================================
+# Feature 1 (Phase B) — WhatsApp retry
+# ===================================================================
+@router.post("/whatsapp/retry/{log_id}")
+async def whatsapp_retry(log_id: str, user: dict = Depends(require_staff())):
+    """Re-tente l'envoi WhatsApp d'une entrée de journal en échec.
+
+    Utilise la même stratégie que `_perform_wa_send` mais ciblée sur un
+    unique numéro (celui du log d'origine).
+    """
+    entry = await db.wa_send_log.find_one({"id": log_id}, {"_id": 0})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entrée de journal introuvable")
+    if entry.get("success"):
+        raise HTTPException(status_code=400, detail="Cette entrée a déjà été envoyée avec succès")
+    phone = entry.get("phone")
+    if not phone or not phone.startswith("+"):
+        raise HTTPException(status_code=400, detail="Numéro invalide dans l'entrée d'origine")
+    report = await db.client_reports.find_one({"id": entry["report_id"]}, {"_id": 0})
+    if not report:
+        raise HTTPException(status_code=404, detail="Rapport introuvable")
+    payload = SendReportWhatsAppPayload(to=phone)
+    result = await _perform_wa_send(report=report, payload=payload, user=user)
+    return {
+        "ok": bool(result.get("sent")),
+        "retried_log_id": log_id,
+        "result": result,
+    }
+
+
+# ===================================================================
+# Feature 2 (Phase B) — Bulk generate monthly reports
+# ===================================================================
+class BulkGeneratePayload(BaseModel):
+    kind: str = Field("mensuel", description="Type — mensuel/trimestriel/annuel/…")
+    period_month: Optional[str] = Field(None, description="YYYY-MM (mensuel/audit/…)")
+    period_quarter: Optional[str] = Field(None, description="YYYY-Qn (trimestriel)")
+    tenant_ids: Optional[list[str]] = Field(None, description="Sous-ensemble ; défaut = tous")
+    template_id: Optional[str] = None
+
+
+@router.post("/bulk-generate")
+async def bulk_generate_reports(
+    payload: BulkGeneratePayload, user: dict = Depends(require_staff()),
+):
+    """Génère un rapport pour chaque client (ou pour la liste fournie).
+
+    Chaque échec est capturé et rapporté ; le job continue.
+    """
+    if payload.kind not in REPORT_TYPES:
+        raise HTTPException(status_code=400, detail=f"Type inconnu : {payload.kind}")
+    if payload.tenant_ids:
+        clients = await db.users.find(
+            {"id": {"$in": payload.tenant_ids}, "roles": "client"},
+            {"_id": 0, "id": 1, "full_name": 1},
+        ).to_list(500)
+    else:
+        clients = await db.users.find(
+            {"roles": "client", "is_active": {"$ne": False}},
+            {"_id": 0, "id": 1, "full_name": 1},
+        ).to_list(500)
+    generated: list[dict] = []
+    failed: list[dict] = []
+    for c in clients:
+        try:
+            gen_payload = GenerateReportPayload(
+                kind=payload.kind,
+                period_month=payload.period_month,
+                template_id=payload.template_id,
+            )
+            report = await generate_report(
+                tenant_id=c["id"], payload=gen_payload, user=user,
+            )
+            generated.append({
+                "tenant_id": c["id"], "name": c.get("full_name"),
+                "report_id": report["id"], "number": report["number"],
+            })
+        except HTTPException as exc:
+            failed.append({
+                "tenant_id": c["id"], "name": c.get("full_name"),
+                "error": f"{exc.status_code}: {exc.detail}",
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Bulk-generate error for %s", c.get("id"))
+            failed.append({
+                "tenant_id": c["id"], "name": c.get("full_name"),
+                "error": str(exc)[:400],
+            })
+    return {
+        "ok": True,
+        "generated_count": len(generated),
+        "failed_count": len(failed),
+        "generated": generated,
+        "failed": failed,
+    }
+
+
+# ===================================================================
+# Feature 4 (Phase B) — Quarterly report export
+# ===================================================================
+class QuarterlyGeneratePayload(BaseModel):
+    period_quarter: str = Field(..., description="YYYY-Qn (ex. 2026-Q1)")
+    template_id: Optional[str] = None
+
+
+def _quarter_months(period_quarter: str) -> list[str]:
+    """`2026-Q1` -> ['2026-01', '2026-02', '2026-03']."""
+    m = re.match(r"^(\d{4})-Q([1-4])$", period_quarter.strip())
+    if not m:
+        raise ValueError("period_quarter attendu au format YYYY-Qn (ex. 2026-Q1)")
+    year = int(m.group(1))
+    q = int(m.group(2))
+    start = (q - 1) * 3 + 1
+    return [f"{year:04d}-{start + i:02d}" for i in range(3)]
+
+
+@router.post("/client/{tenant_id}/generate-quarterly")
+async def generate_quarterly_report(
+    tenant_id: str, payload: QuarterlyGeneratePayload,
+    user: dict = Depends(require_staff()),
+):
+    """Génère un rapport trimestriel agrégeant les 3 mois du trimestre.
+
+    Le PDF conserve la structure du rapport standard mais tape sur les
+    données du trimestre entier. Le numéro utilise `Q1`/`Q2`/`Q3`/`Q4` comme
+    clé de période.
+    """
+    try:
+        months = _quarter_months(payload.period_quarter)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    client, missions, echeances, documents, syntheses = await _load_report_data(tenant_id)
+    # Filtre trimestre : on garde les documents/missions/écheances dont
+    # created_at (ou due_date) tombe dans les 3 mois du trimestre.
+    prefix_set = tuple(months)  # (YYYY-MM, YYYY-MM, YYYY-MM)
+
+    def _in_q(iso_or_date: Optional[str]) -> bool:
+        if not iso_or_date:
+            return False
+        return str(iso_or_date)[:7] in prefix_set
+
+    q_documents = [d for d in documents if _in_q(d.get("created_at"))]
+    q_missions = [m for m in missions if _in_q(m.get("created_at")) or _in_q(m.get("due_date"))]
+    q_echeances = [e for e in echeances if _in_q(e.get("due_date"))]
+
+    settings = await get_settings_doc()
+    period_key = payload.period_quarter.strip().upper()  # 2026-Q1
+    month_key_for_series = period_key.replace("-Q", "-Q")  # keep same
+    seq = await _next_number(tenant_id=tenant_id, kind="trimestriel", month_key=period_key)
+    prefix = (settings.get("report_prefix") or "RAP").strip() or "RAP"
+    number = f"{prefix}-{_client_slug(client.get('full_name'), tenant_id)}-TRIMESTRIEL-{period_key.replace('-', '')}-{seq:04d}"
+
+    pdf_bytes = build_client_report_pdf(
+        client=client, missions=q_missions, echeances=q_echeances,
+        documents=q_documents, syntheses_by_doc=syntheses,
+        header_number=number,
+        report_kind_label=f"Rapport trimestriel — {period_key}",
+        month_key=period_key,
+        template=await get_template(payload.template_id),
+        branding=await _load_branding(),
+    )
+    storage_path = f"albarka/{tenant_id}/reports/{period_key}/{number}.pdf"
+    await put_object(storage_path, pdf_bytes, "application/pdf")
+    report_id = secrets.token_urlsafe(12)
+    doc = {
+        "id": report_id, "number": number, "tenant_id": tenant_id,
+        "kind": "trimestriel", "kind_label": f"Rapport trimestriel — {period_key}",
+        "month_key": period_key, "period_quarter": period_key,
+        "storage_path": storage_path, "size": len(pdf_bytes),
+        "generated_by": user["id"],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "signed": False, "signed_at": None, "signed_by": None,
+        "email_sent_at": None, "email_sent_to": None,
+    }
+    await db.client_reports.insert_one(doc.copy())
+    return serialize(doc)
+
+
 class SignReportPayload(BaseModel):
     signature_name: str = Field(..., min_length=2, max_length=200)
     signature_provider: Optional[str] = Field(None, max_length=100)
@@ -784,6 +962,35 @@ async def sign_report(
         "certificate_serial": signature_meta.get("certificate_serial"),
     }
     await db.signature_log.insert_one(log_entry.copy())
+
+    # Feature 3 (Phase B) — Auto WhatsApp send J+N after signing
+    if settings.get("auto_wa_after_sign_enabled"):
+        try:
+            days = int(settings.get("auto_wa_after_sign_days") or 1)
+        except (TypeError, ValueError):
+            days = 1
+        if days > 0:
+            scheduled_at = datetime.now(timezone.utc) + timedelta(days=days)
+            auto_entry = {
+                "id": secrets.token_urlsafe(12),
+                "report_id": report_id,
+                "report_number": r["number"],
+                "tenant_id": r["tenant_id"],
+                "scheduled_at": scheduled_at.isoformat(),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_by": user["id"],
+                "created_by_name": user.get("full_name") or user.get("email"),
+                "status": "pending",
+                "payload": {"all_whatsapp_contacts": True},
+                "auto": True,
+                "auto_reason": f"J+{days} après signature",
+            }
+            await db.scheduled_wa_sends.insert_one(dict(auto_entry))
+            logger.info(
+                "Auto-WA planifié pour rapport %s à %s",
+                r["number"], scheduled_at.isoformat(),
+            )
+
     updated = await db.client_reports.find_one({"id": report_id}, {"_id": 0})
     return serialize(updated)
 

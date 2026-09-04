@@ -48,6 +48,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "notif_overdue": True,
     "notif_upload_enabled": True,
     "notif_upload_wa": True,   # notifier aussi les collaborateurs par WA
+    # Auto WA after signing (Phase B — Feature 3)
+    "auto_wa_after_sign_enabled": False,
+    "auto_wa_after_sign_days": 1,
     # Report numbering
     "report_prefix": "RAP",
 }
@@ -107,6 +110,9 @@ class SettingsUpdate(BaseModel):
     notif_overdue: Optional[bool] = None
     notif_upload_enabled: Optional[bool] = None
     notif_upload_wa: Optional[bool] = None
+    # Auto WA after signing (Phase B — Feature 3)
+    auto_wa_after_sign_enabled: Optional[bool] = None
+    auto_wa_after_sign_days: Optional[int] = None
     # Reports
     report_prefix: Optional[str] = Field(None, max_length=10)
 

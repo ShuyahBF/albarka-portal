@@ -166,6 +166,18 @@ async def verify_otp(payload: OtpVerifyRequest):
     user = await db.users.find_one({"id": otp["user_id"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    # Feature 14 — clients cannot log in without an active contract.
+    roles = set(user.get("roles") or [])
+    if "client" in roles and len(roles) == 1:
+        from albarka_contracts import has_active_contract
+        if not await has_active_contract(user["id"]):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Aucun contrat actif — veuillez contacter votre cabinet "
+                    "ALBARKA pour activer votre accès."
+                ),
+            )
     await db.users.update_one(
         {"id": user["id"]},
         {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
