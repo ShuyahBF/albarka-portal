@@ -17,6 +17,7 @@ load_dotenv(Path(__file__).parent / ".env")
 from albarka_auth import router as auth_router, require_roles  # noqa: E402
 from albarka_admin_settings import router as admin_settings_router  # noqa: E402
 from albarka_branding import router as branding_router  # noqa: E402
+from albarka_chat_extra import router as chat_extra_router  # noqa: E402
 from albarka_clients import router as clients_router  # noqa: E402
 from albarka_contact_groups import router as contact_groups_router  # noqa: E402
 from albarka_contacts import router as contacts_router  # noqa: E402
@@ -35,8 +36,10 @@ from albarka_phase_c import (  # noqa: E402
     archives_router,
     messaging_router,
 )
+from albarka_public import router as public_router  # noqa: E402
 from albarka_report_templates import router as report_templates_router  # noqa: E402
 from albarka_reports_mgmt import router as reports_mgmt_router  # noqa: E402
+from albarka_wa_inbox import router as wa_inbox_router  # noqa: E402
 from albarka_migrate import router as migrate_router  # noqa: E402
 from albarka_reports_router import router as reports_router  # noqa: E402
 from albarka_signing import router as signing_router  # noqa: E402
@@ -76,6 +79,12 @@ api_router.include_router(archives_router)
 api_router.include_router(messaging_router)
 # Phase D — Comptabilité OHADA
 api_router.include_router(ohada_router)
+# Chat interne — extensions Partie 1 (transcribe/search/photo)
+api_router.include_router(chat_extra_router)
+# WhatsApp inbox — Partie 2.D (webhook + conversations)
+api_router.include_router(wa_inbox_router)
+# Endpoints publics (bouton wa.me — Partie 0)
+api_router.include_router(public_router)
 
 
 @api_router.get("/")

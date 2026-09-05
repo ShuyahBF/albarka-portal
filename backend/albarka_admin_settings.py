@@ -53,6 +53,14 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "auto_wa_after_sign_days": 1,
     # Report numbering
     "report_prefix": "RAP",
+    # WhatsApp click-to-chat public (Partie 0 — prospects, avant WABA validé)
+    "whatsapp_contact_number": "",
+    "whatsapp_contact_message": "Bonjour, je souhaite en savoir plus sur vos services comptables.",
+    # Chat interne
+    "voice_notes_enabled": True,
+    # WhatsApp inbox (Partie 2.D)
+    "wa_webhook_verify_token": "",
+    "wa_voice_transcribe_enabled": True,
 }
 
 
@@ -115,6 +123,14 @@ class SettingsUpdate(BaseModel):
     auto_wa_after_sign_days: Optional[int] = None
     # Reports
     report_prefix: Optional[str] = Field(None, max_length=10)
+    # Partie 0 — bouton wa.me public
+    whatsapp_contact_number: Optional[str] = Field(None, max_length=20)
+    whatsapp_contact_message: Optional[str] = Field(None, max_length=500)
+    # Partie 1.A — chat voice notes
+    voice_notes_enabled: Optional[bool] = None
+    # Partie 2.D — webhook WhatsApp entrant
+    wa_webhook_verify_token: Optional[str] = Field(None, max_length=200)
+    wa_voice_transcribe_enabled: Optional[bool] = None
 
 
 @router.get("/settings")
@@ -162,6 +178,8 @@ async def wa_test_send(
     if not settings.get("wa_access_token") or not settings.get("wa_phone_number_id"):
         return {"ok": False, "message_id": None, "diagnostic": "wa_access_token ou wa_phone_number_id manquant"}
     result = await send_whatsapp(to_phone=to, message=msg)
-    if result:
-        return {"ok": True, "message_id": result, "diagnostic": "Message envoyé avec succès"}
-    return {"ok": False, "message_id": None, "diagnostic": "Meta a rejeté l'envoi — consulter les logs serveur"}
+    if result.get("ok"):
+        return {"ok": True, "message_id": result.get("message_id"),
+                "kind": result.get("kind"), "diagnostic": "Message envoyé avec succès"}
+    return {"ok": False, "message_id": None, "kind": result.get("kind"),
+            "diagnostic": result.get("error") or "Meta a rejeté l'envoi — consulter les logs serveur"}

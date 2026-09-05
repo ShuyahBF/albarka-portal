@@ -494,18 +494,23 @@ async def _perform_wa_send(*, report: dict, payload: SendReportWhatsAppPayload, 
 
     delivery = []
     for phone in sorted(phones):
-        message_id = None
+        result: dict = {}
         strategy = None
         if media_id:
-            message_id = await send_whatsapp_document(
+            result = await send_whatsapp_document(
                 to_phone=phone, media_id=media_id, filename=filename, caption=caption_msg,
             )
-            if message_id: strategy = "document"
-        if not message_id:
+            if result.get("ok"): strategy = "document"
+        if not result.get("ok"):
             fallback_msg = f"{caption_msg}\n\nTéléchargement (lien sécurisé, 7 jours) :\n{share_url}"
-            message_id = await send_whatsapp(to_phone=phone, message=fallback_msg)
-            if message_id: strategy = "link"
-        delivery.append({"phone": phone, "message_id": message_id, "strategy": strategy})
+            result = await send_whatsapp(to_phone=phone, message=fallback_msg)
+            if result.get("ok"): strategy = "link"
+        delivery.append({
+            "phone": phone, "message_id": result.get("message_id"),
+            "strategy": strategy, "kind": result.get("kind"),
+            "error": result.get("error"),
+            "outside_24h_window": result.get("outside_24h_window"),
+        })
 
     delivered = [d for d in delivery if d["message_id"]]
     if not delivered:
@@ -519,7 +524,8 @@ async def _perform_wa_send(*, report: dict, payload: SendReportWhatsAppPayload, 
             "phone": d["phone"], "strategy": d["strategy"] or "unknown",
             "message_id": d["message_id"], "sent_at": now_iso,
             "sent_by": user["id"], "sent_by_name": user.get("full_name") or user.get("email"),
-            "success": True,
+            "success": True, "kind": d.get("kind"),
+            "outside_24h_window": d.get("outside_24h_window"),
         }
         for d in delivered
     ] + [
@@ -529,7 +535,9 @@ async def _perform_wa_send(*, report: dict, payload: SendReportWhatsAppPayload, 
             "phone": d["phone"], "strategy": None, "message_id": None,
             "sent_at": now_iso, "sent_by": user["id"],
             "sent_by_name": user.get("full_name") or user.get("email"),
-            "success": False,
+            "success": False, "kind": d.get("kind") or "unknown",
+            "error": d.get("error"),
+            "outside_24h_window": d.get("outside_24h_window"),
         }
         for d in delivery if not d["message_id"]
     ]

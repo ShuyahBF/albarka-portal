@@ -174,43 +174,149 @@ async def _get_wa_config() -> Optional[dict]:
     }
 
 
-async def send_whatsapp(*, to_phone: str, message: str) -> Optional[str]:
-    """Envoie un WhatsApp via l'API WhatsApp Business Cloud (Meta Graph).
+def _wa_split_long_text(text: str, max_len: int = 4096) -> list[str]:
+    """Découpe un message trop long en segments <= max_len sans couper de mot
+    quand c'est possible. Renvoie toujours au moins un segment.
+    """
+    if not text:
+        return [""]
+    if len(text) <= max_len:
+        return [text]
+    segments: list[str] = []
+    remaining = text
+    while len(remaining) > max_len:
+        # Cherche le dernier espace/retour ligne avant max_len pour ne pas
+        # couper un mot au milieu.
+        cut = remaining.rfind("\n", 0, max_len)
+        if cut <= 0:
+            cut = remaining.rfind(" ", 0, max_len)
+        if cut <= 0:
+            cut = max_len  # rien à faire — on coupe brutalement
+        segments.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip()
+    if remaining:
+        segments.append(remaining)
+    return segments
 
-    La config vient de `settings.wa_*`. Ignore silencieusement si non configuré."""
+
+async def _wa_last_inbound_iso(phone: str) -> Optional[str]:
+    """Retourne l'ISO datetime du dernier message entrant reçu de ce numéro
+    (via webhook Meta), ou None si aucun.
+    """
+    from db import db  # local import to avoid cycles
+    doc = await db.wa_messages.find_one(
+        {"phone": phone, "direction": "inbound"},
+        {"_id": 0, "created_at": 1},
+        sort=[("created_at", -1)],
+    )
+    return doc.get("created_at") if doc else None
+
+
+def _wa_window_open(last_inbound_iso: Optional[str], window_seconds: int = 86400) -> Optional[bool]:
+    """La fenêtre WhatsApp de 24h est-elle ouverte ?
+
+    Retourne True si le dernier message entrant est plus récent que
+    (now - window_seconds), False sinon, None si l'information n'est pas
+    disponible (webhook pas encore configuré ou aucun message reçu).
+    """
+    if not last_inbound_iso:
+        return None
+    from datetime import datetime, timezone
+    try:
+        # Support ISO 8601 avec ou sans microsecondes / Z suffix
+        s = last_inbound_iso.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        elapsed = (datetime.now(timezone.utc) - dt).total_seconds()
+        return elapsed < window_seconds
+    except (ValueError, TypeError):
+        return None
+
+
+async def send_whatsapp(*, to_phone: str, message: str) -> dict:
+    """Envoie un WhatsApp via l'API Meta Graph.
+
+    Retourne un dictionnaire structuré :
+      { ok: bool, message_id: str|None, message_ids: list[str] (segments),
+        status: int|None, error: str|None,
+        kind: "success"|"http_error"|"silent_drop"|"not_configured"|"invalid_phone",
+        outside_24h_window: bool|None }
+
+    Un message > 4096 caractères est **découpé** en plusieurs envois
+    séquentiels (jamais tronqué silencieusement — cf. Partie 2.A).
+    """
     cfg = await _get_wa_config()
     if not cfg:
-        logger.info("WhatsApp non configuré (settings.wa_enabled) — WA vers %s ignoré.", to_phone)
-        return None
+        logger.info("WhatsApp non configuré — envoi vers %s ignoré.", to_phone)
+        return {"ok": False, "message_id": None, "message_ids": [],
+                "status": None, "error": "wa_not_configured",
+                "kind": "not_configured", "outside_24h_window": None}
     if not to_phone or not to_phone.startswith("+"):
         logger.warning("Téléphone WA invalide (attendu +226…) : %r", to_phone)
-        return None
+        return {"ok": False, "message_id": None, "message_ids": [],
+                "status": None, "error": "invalid_phone",
+                "kind": "invalid_phone", "outside_24h_window": None}
+    window_state = _wa_window_open(await _wa_last_inbound_iso(to_phone))
+    outside = (window_state is False)  # False = fermée ; None = indéterminée
     to = to_phone.lstrip("+")
     url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/messages"
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": to,
-        "type": "text",
-        "text": {"preview_url": False, "body": message[:4096]},
+    headers = {
+        "Authorization": f"Bearer {cfg['access_token']}",
+        "Content-Type": "application/json",
     }
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                url,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {cfg['access_token']}",
-                    "Content-Type": "application/json",
-                },
-            )
-        resp.raise_for_status()
-        data = resp.json()
-        messages = data.get("messages") or []
-        return messages[0].get("id") if messages else None
-    except Exception:
-        logger.exception("Échec envoi WA à %s", to_phone)
-        return None
+    segments = _wa_split_long_text(message)
+    message_ids: list[str] = []
+    last_status = None
+    last_error = None
+    async with httpx.AsyncClient(timeout=30) as client:
+        for i, segment in enumerate(segments):
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": to,
+                "type": "text",
+                "text": {"preview_url": False, "body": segment},
+            }
+            try:
+                resp = await client.post(url, json=payload, headers=headers)
+                last_status = resp.status_code
+                if resp.status_code >= 300:
+                    last_error = resp.text[:400]
+                    logger.warning(
+                        "WA HTTP %s vers %s (segment %d/%d) : %s",
+                        resp.status_code, to_phone, i + 1, len(segments), last_error,
+                    )
+                    return {"ok": False, "message_id": None,
+                            "message_ids": message_ids, "status": last_status,
+                            "error": last_error, "kind": "http_error",
+                            "outside_24h_window": outside if window_state is not None else None}
+                data = resp.json()
+                messages = data.get("messages") or []
+                mid = messages[0].get("id") if messages else None
+                if not mid:
+                    # 2xx sans message_id — Meta a "accepté" mais rejeté sans le dire.
+                    last_error = str(data)[:400]
+                    logger.warning(
+                        "WA silent drop vers %s (segment %d/%d) : %s",
+                        to_phone, i + 1, len(segments), last_error,
+                    )
+                    return {"ok": False, "message_id": None,
+                            "message_ids": message_ids, "status": last_status,
+                            "error": "silent_drop", "kind": "silent_drop",
+                            "outside_24h_window": outside if window_state is not None else None}
+                message_ids.append(mid)
+            except httpx.HTTPError as exc:
+                logger.exception("Échec envoi WA à %s", to_phone)
+                return {"ok": False, "message_id": None,
+                        "message_ids": message_ids, "status": last_status,
+                        "error": str(exc)[:400], "kind": "http_error",
+                        "outside_24h_window": outside if window_state is not None else None}
+    return {
+        "ok": True, "message_id": message_ids[0] if message_ids else None,
+        "message_ids": message_ids, "status": last_status, "error": None,
+        "kind": "success", "outside_24h_window": outside if window_state is not None else None,
+    }
 
 
 async def _wa_upload_media(*, pdf_bytes: bytes, filename: str) -> Optional[str]:
@@ -236,13 +342,19 @@ async def _wa_upload_media(*, pdf_bytes: bytes, filename: str) -> Optional[str]:
 
 async def send_whatsapp_document(
     *, to_phone: str, media_id: str, filename: str, caption: str = "",
-) -> Optional[str]:
-    """Send a previously uploaded PDF as a WhatsApp document."""
+) -> dict:
+    """Envoie un document PDF déjà uploadé — même contrat de retour que send_whatsapp."""
     cfg = await _get_wa_config()
     if not cfg:
-        return None
+        return {"ok": False, "message_id": None, "status": None,
+                "error": "wa_not_configured", "kind": "not_configured",
+                "outside_24h_window": None}
     if not to_phone or not to_phone.startswith("+"):
-        return None
+        return {"ok": False, "message_id": None, "status": None,
+                "error": "invalid_phone", "kind": "invalid_phone",
+                "outside_24h_window": None}
+    window_state = _wa_window_open(await _wa_last_inbound_iso(to_phone))
+    outside = (window_state is False)
     to = to_phone.lstrip("+")
     url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/messages"
     payload = {
@@ -250,11 +362,7 @@ async def send_whatsapp_document(
         "recipient_type": "individual",
         "to": to,
         "type": "document",
-        "document": {
-            "id": media_id,
-            "filename": filename,
-            "caption": caption[:1024],
-        },
+        "document": {"id": media_id, "filename": filename, "caption": caption[:1024]},
     }
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -262,12 +370,25 @@ async def send_whatsapp_document(
                 url, json=payload,
                 headers={"Authorization": f"Bearer {cfg['access_token']}", "Content-Type": "application/json"},
             )
-        resp.raise_for_status()
-        messages = resp.json().get("messages") or []
-        return messages[0].get("id") if messages else None
-    except Exception:
+        if resp.status_code >= 300:
+            return {"ok": False, "message_id": None, "status": resp.status_code,
+                    "error": resp.text[:400], "kind": "http_error",
+                    "outside_24h_window": outside if window_state is not None else None}
+        data = resp.json()
+        messages = data.get("messages") or []
+        mid = messages[0].get("id") if messages else None
+        if not mid:
+            return {"ok": False, "message_id": None, "status": resp.status_code,
+                    "error": "silent_drop", "kind": "silent_drop",
+                    "outside_24h_window": outside if window_state is not None else None}
+        return {"ok": True, "message_id": mid, "status": resp.status_code,
+                "error": None, "kind": "success",
+                "outside_24h_window": outside if window_state is not None else None}
+    except httpx.HTTPError as exc:
         logger.exception("Envoi document WA échoué vers %s", to_phone)
-        return None
+        return {"ok": False, "message_id": None, "status": None,
+                "error": str(exc)[:400], "kind": "http_error",
+                "outside_24h_window": outside if window_state is not None else None}
 
 
 

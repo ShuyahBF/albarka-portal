@@ -2,6 +2,7 @@ import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { Sprout, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import PublicWhatsAppFAB from "@/components/PublicWhatsAppFAB";
 
 const NAV = [
   { to: "/", label: "Accueil" },
@@ -125,6 +126,8 @@ export default function PublicLayout({ children }) {
           © 2026 Cabinet ALBARKA — Tous droits réservés
         </div>
       </footer>
+      {/* Partie 0 — bouton wa.me public (masqué automatiquement si settings.whatsapp_contact_number vide) */}
+      <PublicWhatsAppFAB />
     </div>
   );
 }

@@ -697,19 +697,24 @@ async def send_broadcast(
                 continue
             if r.get("can_receive_notifications") is False:
                 continue
-            mid = None
+            result: dict = {}
             try:
-                mid = await _send_wa(
+                result = await _send_wa(
                     to_phone=phone,
                     message=f"{payload.subject}\n\n{payload.body}",
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("Broadcast WA error to %s", phone)
+                result = {"ok": False, "message_id": None, "kind": "http_error",
+                          "error": "exception", "outside_24h_window": None}
             deliveries.append({
                 "id": secrets.token_urlsafe(12), "broadcast_id": bid,
                 "recipient_id": r["id"], "recipient_phone": phone,
-                "channel": "whatsapp", "message_id": mid,
-                "success": bool(mid),
+                "channel": "whatsapp", "message_id": result.get("message_id"),
+                "success": bool(result.get("ok")),
+                "kind": result.get("kind"),
+                "error": result.get("error"),
+                "outside_24h_window": result.get("outside_24h_window"),
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
 
@@ -738,3 +743,69 @@ async def list_broadcasts(
 ):
     items = await db.broadcasts.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return serialize_many(items)
+
+
+@messaging_router.get("/broadcasts/{broadcast_id}/deliveries")
+async def broadcast_deliveries(
+    broadcast_id: str,
+    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "communication"])),
+):
+    """Détail des livraisons pour un broadcast (Partie 2.C — enrichissement UI)."""
+    b = await db.broadcasts.find_one({"id": broadcast_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Broadcast introuvable")
+    items = await db.broadcast_deliveries.find(
+        {"broadcast_id": broadcast_id}, {"_id": 0},
+    ).sort("created_at", 1).to_list(2000)
+    return {"broadcast": serialize(b), "deliveries": serialize_many(items)}
+
+
+@messaging_router.post("/broadcasts/{broadcast_id}/retry-failed")
+async def retry_broadcast_failed(
+    broadcast_id: str,
+    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "communication"])),
+):
+    """Renvoie uniquement les livraisons en échec de ce broadcast (Partie 2.C)."""
+    b = await db.broadcasts.find_one({"id": broadcast_id}, {"_id": 0})
+    if not b:
+        raise HTTPException(status_code=404, detail="Broadcast introuvable")
+    failed = await db.broadcast_deliveries.find(
+        {"broadcast_id": broadcast_id, "success": False}, {"_id": 0},
+    ).to_list(2000)
+    if not failed:
+        return {"ok": True, "retried": 0, "delivered": 0}
+    from albarka_notifications import send_email as _send_email, send_whatsapp as _send_wa
+    delivered = 0
+    for d in failed:
+        result: dict = {}
+        try:
+            if d.get("channel") == "email" and d.get("recipient_email"):
+                mid = await _send_email(
+                    to=d["recipient_email"], subject=b["subject"],
+                    html=f"<p>{b['body']}</p>",
+                )
+                result = {"ok": bool(mid), "message_id": mid, "kind": "success" if mid else "http_error"}
+            elif d.get("channel") == "whatsapp" and d.get("recipient_phone"):
+                result = await _send_wa(
+                    to_phone=d["recipient_phone"],
+                    message=f"{b['subject']}\n\n{b['body']}",
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("Retry-failed error on delivery %s", d.get("id"))
+        if result.get("ok"):
+            delivered += 1
+            await db.broadcast_deliveries.update_one(
+                {"id": d["id"]},
+                {"$set": {
+                    "success": True,
+                    "message_id": result.get("message_id"),
+                    "kind": result.get("kind"),
+                    "retried_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+    if delivered:
+        await db.broadcasts.update_one(
+            {"id": broadcast_id},
+            {"$inc": {"delivered_count": delivered}},
+        )
+    return {"ok": True, "retried": len(failed), "delivered": delivered}

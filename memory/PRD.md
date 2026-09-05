@@ -137,5 +137,23 @@ Application ALBARKA — portail de gestion des activités d'un cabinet comptable
   albarka_signing.py          pyHanko + tampon visible PyMuPDF + certs P12
   albarka_storage.py          R2 + local
   db.py, seed.py, server.py
-  tests/test_iteration5.py    25 tests (couvre iter5 + iter6)
-```
+### Iteration 11 — WhatsApp inbox + Chat vocal + Bouton public (Feb 2026, 05/09/2026)
+- [x] **Partie 0** Bouton WhatsApp click-to-chat public sur home + pages publiques (`PublicWhatsAppFAB.jsx`, config settings).
+- [x] **Partie 1.A** Note vocale Chat interne → transcription Whisper via `emergentintegrations` + `EMERGENT_LLM_KEY`. Endpoint `POST /chat/transcribe` (multipart audio → texte FR).
+- [x] **Partie 1.B** Recherche plein texte dans messages : `GET /chat/search?q=&thread_id=`. UI Ctrl/Cmd+K dans `ChatBubble`.
+- [x] **Partie 1.C** ChatBubble responsive : plein écran mobile (<768px), bulle 400×560 desktop. Polling 30s → 10s.
+- [x] **Partie 1.D** Envoi photo dans le chat interne : `POST /chat/messages/photo` (R2). Rendu inline `media_kind=image`.
+- [x] **Partie 2.A** Fiabilisation `send_whatsapp` : découpage messages > 4096 chars, vérification fenêtre 24h avec fallback template, retour structuré `{ok, message_id, kind, error, outside_24h_window}`.
+- [x] **Partie 2.B** Journalisation systématique dans `wa_send_log` (kind, target, message_id, error).
+- [x] **Partie 2.C** Webhook Meta entrant `GET/POST /whatsapp/webhook` : vérification token, dédup par `wa_message_id`, parsing text/image/audio/video/document/location, transcription automatique des notes vocales entrantes via Whisper, rattachement contact/client.
+- [x] **Partie 2.D** Centre de conversations WhatsApp : `GET /whatsapp/conversations` (agrégation par phone + non-lus), `GET /whatsapp/conversations/{phone}/messages` (marque lus), `POST /whatsapp/conversations/{phone}/reply`. UI 2 colonnes `AdminWhatsAppConversations.jsx` (desktop) + vue empilée mobile avec bouton retour. Route `/admin/whatsapp`, entrée sidebar réservée aux rôles `superviseur/direction/administrateur/communication`.
+- **Tests unitaires** : 16/16 `test_iteration11_whatsapp.py` verts (split, dédup, 24h window, webhook verify).
+- **Vérification conditions réelles** : ⚠️ **En attente de validation du WABA Meta**. À tester par l'utilisateur une fois le numéro validé : réception réelle d'un message (texte/image/note vocale), envoi hors fenêtre 24h, template fallback, chargement média via Graph API.
+
+### Fichiers ajoutés Iteration 11
+- `backend/albarka_wa_inbox.py` — Webhook + centre conversations
+- `backend/albarka_chat_extra.py` — Whisper STT + recherche chat + photos
+- `backend/tests/test_iteration11_whatsapp.py` — 16 tests unitaires
+- `frontend/src/pages/admin/AdminWhatsAppConversations.jsx` — UI 2 colonnes
+- `frontend/src/components/PublicWhatsAppFAB.jsx` — Bouton public
+- MAJ : `ChatBubble.jsx` (audio + photo + recherche + responsive), `albarka_notifications.py` (send_whatsapp fiabilisé), `App.js` + `PortalLayout.jsx` (route/sidebar `/admin/whatsapp`).
