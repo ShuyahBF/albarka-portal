@@ -150,6 +150,13 @@ Application ALBARKA — portail de gestion des activités d'un cabinet comptable
 - **Tests unitaires** : 16/16 `test_iteration11_whatsapp.py` verts (split, dédup, 24h window, webhook verify).
 - **Vérification conditions réelles** : ⚠️ **En attente de validation du WABA Meta**. À tester par l'utilisateur une fois le numéro validé : réception réelle d'un message (texte/image/note vocale), envoi hors fenêtre 24h, template fallback, chargement média via Graph API.
 
+### Iteration 11.5 — WhatsApp Inbox Extras (05/09/2026)
+- [x] **Alerte nouveau message** : bip WebAudio + Notification API sur nouveaux entrants (toggle persisté `localStorage`).
+- [x] **Réponses rapides** (`wa_quick_replies`) : CRUD complet côté staff, dropdown Zap dans le composer, dialog création/édition/suppression, insertion en un clic.
+- [x] **Étiquettes de conversation** (`wa_conversation_labels`) : todo/waiting/resolved (à traiter / en attente / résolu), dropdown Tag dans le header du fil, points de couleur dans la liste, filtres par label.
+- [x] **Statistiques mensuelles** : nouvelle page `/admin/whatsapp/stats` avec KPIs (entrants/envoyés/temps de réponse moyen+médiane/total), répartition par type, top 10 contacts, séries journalières (mini bar chart CSS).
+- **Nouveaux endpoints** : `/whatsapp/quick-replies` (GET/POST/PATCH/DELETE), `/whatsapp/conversations/{phone}/label` (PATCH), `/whatsapp/conversations-labels` (GET), `/whatsapp/stats` (GET, filtre `year_month=YYYY-MM`).
+
 ### Fichiers ajoutés Iteration 11
 - `backend/albarka_wa_inbox.py` — Webhook + centre conversations
 - `backend/albarka_chat_extra.py` — Whisper STT + recherche chat + photos

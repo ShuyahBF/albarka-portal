@@ -219,11 +219,15 @@ async def list_conversations(user: dict = Depends(require_roles(_INBOX_ROLES))):
         {"$limit": 300},
     ]
     rows = await db.wa_messages.aggregate(pipeline).to_list(300)
+    # Joindre les labels de conversation (Partie 2.E)
+    label_rows = await db.wa_conversation_labels.find({}, {"_id": 0, "phone": 1, "label": 1}).to_list(2000)
+    label_map = {r["phone"]: r["label"] for r in label_rows if r.get("phone")}
     return [{
         "phone": r["_id"], "last_at": r["last_at"], "last_body": r["last_body"][:200],
         "last_direction": r["last_direction"], "last_type": r["last_type"],
         "contact_name": r.get("contact_name") or r.get("profile_name") or None,
         "count": r["count"], "unread": r["unread"],
+        "label": label_map.get(r["_id"]),
     } for r in rows]
 
 

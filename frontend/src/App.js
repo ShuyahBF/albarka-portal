@@ -36,6 +36,7 @@ import AdminAccounting from "@/pages/admin/AdminAccounting";
 import AdminBulkReports from "@/pages/admin/AdminBulkReports";
 import { AdminArchives, AdminMessaging, AdminPlatformLogs } from "@/pages/admin/AdminPhaseC";
 import AdminWhatsAppConversations from "@/pages/admin/AdminWhatsAppConversations";
+import AdminWhatsAppStats from "@/pages/admin/AdminWhatsAppStats";
 import { AdminDashboard, AdminDocuments, AdminMissions, AdminEcheances } from "@/pages/admin/AdminShared";
 
 function RootRedirect() {
@@ -96,6 +97,7 @@ function App() {
             <Route path="archives" element={<AdminArchives />} />
             <Route path="messagerie" element={<AdminMessaging />} />
             <Route path="whatsapp" element={<AdminWhatsAppConversations />} />
+            <Route path="whatsapp/stats" element={<AdminWhatsAppStats />} />
             <Route path="comptabilite" element={<AdminAccounting />} />
             <Route path="logs" element={<AdminPlatformLogs />} />
             <Route path="settings" element={<AdminSettings />} />

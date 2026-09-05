@@ -40,6 +40,7 @@ from albarka_public import router as public_router  # noqa: E402
 from albarka_report_templates import router as report_templates_router  # noqa: E402
 from albarka_reports_mgmt import router as reports_mgmt_router  # noqa: E402
 from albarka_wa_inbox import router as wa_inbox_router  # noqa: E402
+from albarka_wa_extras import router as wa_extras_router  # noqa: E402
 from albarka_migrate import router as migrate_router  # noqa: E402
 from albarka_reports_router import router as reports_router  # noqa: E402
 from albarka_signing import router as signing_router  # noqa: E402
@@ -83,6 +84,8 @@ api_router.include_router(ohada_router)
 api_router.include_router(chat_extra_router)
 # WhatsApp inbox — Partie 2.D (webhook + conversations)
 api_router.include_router(wa_inbox_router)
+# WhatsApp extras — Partie 2.E (quick replies, labels, stats)
+api_router.include_router(wa_extras_router)
 # Endpoints publics (bouton wa.me — Partie 0)
 api_router.include_router(public_router)
 
