@@ -224,6 +224,11 @@ class TestWebhookDedup:
             class users:
                 @staticmethod
                 async def find_one(*a, **kw): return None
+            class wa_conversation_labels:
+                @staticmethod
+                async def find_one(*a, **kw): return None
+                @staticmethod
+                async def update_one(*a, **kw): return None
 
         monkeypatch.setattr("albarka_wa_inbox.db", FakeDb)
         async def _no_settings(): return {"wa_voice_transcribe_enabled": False}
@@ -259,6 +264,115 @@ class TestWebhookDedup:
         assert store[0]["body"] == "Bonjour, question facture"
         assert store[0]["phone"] == "+22670000000"
         assert store[0]["direction"] == "inbound"
+
+    @pytest.mark.asyncio
+    async def test_resolved_conversation_auto_reopens_to_todo(self, monkeypatch):
+        """Nouveau message entrant sur une conv 'resolved' → doit repasser en 'todo'."""
+        from albarka_wa_inbox import receive_webhook
+
+        msg_store: list[dict] = []
+        label_store: dict[str, dict] = {"+22670000042": {
+            "phone": "+22670000042", "label": "resolved",
+            "updated_at": "2026-02-01T00:00:00+00:00",
+        }}
+
+        class FakeDb:
+            class wa_messages:
+                @staticmethod
+                async def find_one(q, p=None): return None
+                @staticmethod
+                async def insert_one(doc): msg_store.append(dict(doc))
+            class contacts:
+                @staticmethod
+                async def find_one(*a, **kw): return None
+            class users:
+                @staticmethod
+                async def find_one(*a, **kw): return None
+            class wa_conversation_labels:
+                @staticmethod
+                async def find_one(q, p=None):
+                    return label_store.get(q.get("phone"))
+                @staticmethod
+                async def update_one(q, upd, upsert=False):
+                    phone = q.get("phone")
+                    label_store[phone] = {**label_store.get(phone, {}), **upd.get("$set", {})}
+                    return None
+
+        monkeypatch.setattr("albarka_wa_inbox.db", FakeDb)
+        async def _no_settings(): return {"wa_voice_transcribe_enabled": False}
+        monkeypatch.setattr("albarka_wa_inbox.get_settings_doc", _no_settings)
+
+        payload = {"entry": [{"changes": [{"value": {
+            "contacts": [{"profile": {"name": "Client Reopen"}}],
+            "messages": [{
+                "id": "wamid.REOPEN_1",
+                "from": "22670000042",
+                "type": "text",
+                "text": {"body": "Nouvelle question !"},
+            }],
+        }}]}]}
+
+        class FakeRequest:
+            async def json(self): return payload
+
+        r = await receive_webhook(FakeRequest())
+        assert r["inserted"] == 1
+        assert label_store["+22670000042"]["label"] == "todo", (
+            f"L'étiquette 'resolved' aurait dû basculer en 'todo'. "
+            f"Store: {label_store!r}"
+        )
+        assert label_store["+22670000042"]["updated_by"] == "system:auto_reopen"
+
+    @pytest.mark.asyncio
+    async def test_waiting_conversation_is_not_auto_reopened(self, monkeypatch):
+        """Nouveau message sur 'waiting' → NE doit PAS être remis à 'todo'."""
+        from albarka_wa_inbox import receive_webhook
+
+        label_store: dict[str, dict] = {"+22670000099": {
+            "phone": "+22670000099", "label": "waiting",
+            "updated_at": "2026-02-01T00:00:00+00:00",
+        }}
+
+        class FakeDb:
+            class wa_messages:
+                @staticmethod
+                async def find_one(q, p=None): return None
+                @staticmethod
+                async def insert_one(doc): pass
+            class contacts:
+                @staticmethod
+                async def find_one(*a, **kw): return None
+            class users:
+                @staticmethod
+                async def find_one(*a, **kw): return None
+            class wa_conversation_labels:
+                @staticmethod
+                async def find_one(q, p=None): return label_store.get(q.get("phone"))
+                @staticmethod
+                async def update_one(q, upd, upsert=False):
+                    phone = q.get("phone")
+                    label_store[phone] = {**label_store.get(phone, {}), **upd.get("$set", {})}
+
+        monkeypatch.setattr("albarka_wa_inbox.db", FakeDb)
+        async def _no_settings(): return {"wa_voice_transcribe_enabled": False}
+        monkeypatch.setattr("albarka_wa_inbox.get_settings_doc", _no_settings)
+
+        payload = {"entry": [{"changes": [{"value": {
+            "messages": [{
+                "id": "wamid.WAITING_1",
+                "from": "22670000099",
+                "type": "text",
+                "text": {"body": "Toujours en attente"},
+            }],
+        }}]}]}
+
+        class FakeRequest:
+            async def json(self): return payload
+
+        await receive_webhook(FakeRequest())
+        assert label_store["+22670000099"]["label"] == "waiting", (
+            "L'étiquette 'waiting' ne doit pas être écrasée par 'todo'"
+        )
 
 
 if __name__ == "__main__":

@@ -50,7 +50,14 @@ class TestAdminAccount:
         assert v.status_code == 200, v.text[:300]
         data = v.json()
         assert isinstance(data.get("access_token"), str) and data["access_token"]
-        assert sorted(data["user"]["roles"]) == ["direction", "superviseur"]
+        # Le compte admin doit inclure au minimum "superviseur" + "direction".
+        # Depuis les Phases A → D, il a été enrichi de rôles opérationnels
+        # (administrateur, communication, comptable, fiscaliste, rh, aide_comptable,
+        # secretariat) pour permettre l'accès administrateur transversal.
+        roles = set(data["user"]["roles"])
+        assert {"superviseur", "direction"}.issubset(roles), (
+            f"Rôles minimum manquants: {sorted(roles)}"
+        )
         assert "password_hash" not in data["user"]
 
     def test_seed_accounts_present(self, mongo):

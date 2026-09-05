@@ -185,6 +185,25 @@ async def receive_webhook(request: Request):
 
                 await db.wa_messages.insert_one(dict(doc))
                 inserted += 1
+
+                # Auto-étiquette : si la conversation était "resolved",
+                # la remettre à "todo" pour que le staff la retraite.
+                # (les conversations "waiting" restent en attente ;
+                # les conversations "todo" ou sans label ne sont pas touchées)
+                existing_label = await db.wa_conversation_labels.find_one(
+                    {"phone": phone}, {"_id": 0, "label": 1},
+                )
+                if existing_label and existing_label.get("label") == "resolved":
+                    await db.wa_conversation_labels.update_one(
+                        {"phone": phone},
+                        {"$set": {
+                            "phone": phone, "label": "todo",
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_by": "system:auto_reopen",
+                            "updated_by_name": "Réouverture automatique",
+                        }},
+                        upsert=True,
+                    )
     return {"ok": True, "inserted": inserted}
 
 
