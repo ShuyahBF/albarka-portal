@@ -516,18 +516,23 @@ class TestNotificationGates:
              "can_receive_notifications": False}, ech, 3))
         assert r2["sent_email"] is False and r2["email_recipients"] == []
 
-    def test_send_whatsapp_returns_none_when_disabled(self, mongo):
+    def test_send_whatsapp_returns_failure_when_disabled(self, mongo):
         an = _an()
         mongo.settings.update_one({"_id": "global"}, {"$set": {"wa_enabled": False}})
-        assert run_async(lambda _db: an.send_whatsapp(to_phone="+22670000000", message="TEST")) is None
+        result = run_async(lambda _db: an.send_whatsapp(to_phone="+22670000000", message="TEST"))
+        assert isinstance(result, dict)
+        assert result.get("ok") is False
+        assert result.get("kind") == "not_configured"
 
-    def test_send_whatsapp_returns_none_when_enabled_but_unconfigured(self, mongo):
+    def test_send_whatsapp_returns_failure_when_enabled_but_unconfigured(self, mongo):
         an = _an()
         mongo.settings.update_one({"_id": "global"},
                                   {"$set": {"wa_enabled": True, "wa_access_token": "",
                                             "wa_phone_number_id": ""}})
         try:
-            assert run_async(lambda _db: an.send_whatsapp(to_phone="+22670000000", message="TEST")) is None
+            result = run_async(lambda _db: an.send_whatsapp(to_phone="+22670000000", message="TEST"))
+            assert isinstance(result, dict)
+            assert result.get("ok") is False
         finally:
             mongo.settings.update_one({"_id": "global"}, {"$set": {"wa_enabled": False}})
 

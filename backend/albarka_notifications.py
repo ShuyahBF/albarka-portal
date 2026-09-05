@@ -513,10 +513,10 @@ async def notify_echeance(user: dict, echeance: dict, days_left: int) -> dict:
             days_left=days_left, cabinet_name=cabinet_name,
         )
         for phone in wa_phones:
-            sid = await send_whatsapp(to_phone=phone, message=wa_text)
-            if sid:
+            result = await send_whatsapp(to_phone=phone, message=wa_text)
+            if result.get("ok"):
                 wa_sent += 1
-                wa_last_id = sid
+                wa_last_id = result.get("message_id")
 
     return {
         "email_id": email_id, "wa_sid": wa_last_id,
@@ -597,7 +597,7 @@ async def notify_upload(db, *, document: dict, tenant: dict) -> dict:
         for s in staff:
             phone = (s.get("phone") or "").strip()
             if phone.startswith("+"):
-                sid = await send_whatsapp(to_phone=phone, message=wa_text)
-                if sid:
+                result = await send_whatsapp(to_phone=phone, message=wa_text)
+                if result.get("ok"):
                     wa_sent += 1
     return {"targets": len(staff), "sent": sent, "wa_sent": wa_sent}
