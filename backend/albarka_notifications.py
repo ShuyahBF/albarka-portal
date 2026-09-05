@@ -319,8 +319,13 @@ async def send_whatsapp(*, to_phone: str, message: str) -> dict:
     }
 
 
-async def _wa_upload_media(*, pdf_bytes: bytes, filename: str) -> Optional[str]:
-    """Upload a PDF to Meta Media API, returns media_id or None."""
+async def _wa_upload_media(*, pdf_bytes: bytes, filename: str, content_type: str = "application/pdf") -> Optional[str]:
+    """Upload un fichier à la Media API Meta, retourne le media_id ou None.
+
+    `content_type` par défaut à "application/pdf" pour ne pas changer le
+    comportement des appelants historiques (rapports, toujours des PDF) ;
+    les pièces client de type image/Office doivent passer leur vrai type MIME,
+    sinon Meta reçoit un contenu mal étiqueté."""
     cfg = await _get_wa_config()
     if not cfg:
         return None
@@ -330,8 +335,8 @@ async def _wa_upload_media(*, pdf_bytes: bytes, filename: str) -> Optional[str]:
             resp = await client.post(
                 url,
                 headers={"Authorization": f"Bearer {cfg['access_token']}"},
-                data={"messaging_product": "whatsapp", "type": "application/pdf"},
-                files={"file": (filename, pdf_bytes, "application/pdf")},
+                data={"messaging_product": "whatsapp", "type": content_type},
+                files={"file": (filename, pdf_bytes, content_type)},
             )
         resp.raise_for_status()
         return resp.json().get("id")
@@ -340,10 +345,9 @@ async def _wa_upload_media(*, pdf_bytes: bytes, filename: str) -> Optional[str]:
         return None
 
 
-async def send_whatsapp_document(
-    *, to_phone: str, media_id: str, filename: str, caption: str = "",
-) -> dict:
-    """Envoie un document PDF déjà uploadé — même contrat de retour que send_whatsapp."""
+async def _wa_send_media_message(*, to_phone: str, msg_type: str, media_payload: dict) -> dict:
+    """Cœur partagé d'envoi d'un message média (document ou image) déjà
+    uploadé — même contrat de retour que send_whatsapp."""
     cfg = await _get_wa_config()
     if not cfg:
         return {"ok": False, "message_id": None, "status": None,
@@ -361,8 +365,8 @@ async def send_whatsapp_document(
         "messaging_product": "whatsapp",
         "recipient_type": "individual",
         "to": to,
-        "type": "document",
-        "document": {"id": media_id, "filename": filename, "caption": caption[:1024]},
+        "type": msg_type,
+        msg_type: media_payload,
     }
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -385,10 +389,31 @@ async def send_whatsapp_document(
                 "error": None, "kind": "success",
                 "outside_24h_window": outside if window_state is not None else None}
     except httpx.HTTPError as exc:
-        logger.exception("Envoi document WA échoué vers %s", to_phone)
+        logger.exception("Envoi média WA (%s) échoué vers %s", msg_type, to_phone)
         return {"ok": False, "message_id": None, "status": None,
                 "error": str(exc)[:400], "kind": "http_error",
                 "outside_24h_window": outside if window_state is not None else None}
+
+
+async def send_whatsapp_document(
+    *, to_phone: str, media_id: str, filename: str, caption: str = "",
+) -> dict:
+    """Envoie un document (PDF, Office…) déjà uploadé."""
+    return await _wa_send_media_message(
+        to_phone=to_phone, msg_type="document",
+        media_payload={"id": media_id, "filename": filename, "caption": caption[:1024]},
+    )
+
+
+async def send_whatsapp_image(
+    *, to_phone: str, media_id: str, caption: str = "",
+) -> dict:
+    """Envoie une image déjà uploadée. Meta n'accepte pas les images via le
+    type de message "document" — elles doivent passer par le type "image"."""
+    return await _wa_send_media_message(
+        to_phone=to_phone, msg_type="image",
+        media_payload={"id": media_id, "caption": caption[:1024]},
+    )
 
 
 

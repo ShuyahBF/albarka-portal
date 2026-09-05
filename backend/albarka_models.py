@@ -18,6 +18,10 @@ ALBARKA_ROLES = [
     "aide_comptable",
     "rh",
     "communication",
+    # Rôle transversal : accordé en plus du métier principal, donne le droit
+    # de télécharger les pièces client quel que soit le profil (comptable,
+    # communication, etc.) qui le porte.
+    "telechargement",
     "client",
 ]
 STAFF_ROLES = [r for r in ALBARKA_ROLES if r != "client"]

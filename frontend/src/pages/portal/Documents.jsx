@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Upload, FileText, Download, Trash2, Sparkles, ChevronDown, ChevronUp } from "lucide-react";
+import { Upload, FileText, Download, Trash2, Sparkles, ChevronDown, ChevronUp, Mail, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient, extractError, API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,10 @@ const STATUS_TONE = {
   erreur_analyse: "bg-red-100 text-red-700",
 };
 
+// Doit rester identique à SENSITIVE_DOC_ROLES côté backend (albarka_documents.py) :
+// rôle "telechargement" cumulable, accordé en plus du métier principal.
+const SENSITIVE_DOC_ROLES = ["superviseur", "direction", "administrateur", "telechargement"];
+
 export default function Documents({ tenantIdOverride = null, hideUpload = false }) {
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -52,8 +56,12 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
   const [expanded, setExpanded] = useState(null);
   const [synth, setSynth] = useState({});
   const fileRef = useRef(null);
-  const { isClient } = useAuth();
+  const { isClient, user } = useAuth();
   const [tenantId, setTenantId] = useState(tenantIdOverride || "");
+
+  // Côté staff uniquement : le client garde son accès Download inchangé sur
+  // ses propres pièces, cette restriction ne s'applique qu'à /admin/documents.
+  const canManageSensitive = !isClient && (user?.roles || []).some((r) => SENSITIVE_DOC_ROLES.includes(r));
 
   const load = async () => {
     setLoading(true);
@@ -155,6 +163,28 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
     }
   };
 
+  const sendDocByEmail = async (doc) => {
+    const owner = doc.client_name || doc.client_company || "le client";
+    if (!window.confirm(`Envoyer "${doc.original_filename}" par email à ${owner} ?`)) return;
+    try {
+      await apiClient.post(`/documents/${doc.id}/send-email`, {});
+      toast.success("Pièce envoyée par email");
+    } catch (err) {
+      toast.error(extractError(err, "Échec de l'envoi par email"));
+    }
+  };
+
+  const sendDocByWhatsapp = async (doc) => {
+    const owner = doc.client_name || doc.client_company || "le client";
+    if (!window.confirm(`Envoyer "${doc.original_filename}" par WhatsApp à ${owner} ?`)) return;
+    try {
+      await apiClient.post(`/documents/${doc.id}/send-whatsapp`, {});
+      toast.success("Pièce envoyée par WhatsApp");
+    } catch (err) {
+      toast.error(extractError(err, "Échec de l'envoi par WhatsApp"));
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="documents-page">
       <div>
@@ -227,6 +257,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
             <TableRow>
               <TableHead className="w-12"></TableHead>
               <TableHead>Fichier</TableHead>
+              {!isClient && <TableHead>Client</TableHead>}
               <TableHead>Type</TableHead>
               <TableHead>Taille</TableHead>
               <TableHead>Déposé le</TableHead>
@@ -236,10 +267,10 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
           </TableHeader>
           <TableBody>
             {loading && (
-              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Chargement…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={isClient ? 7 : 8} className="text-center text-muted-foreground py-8">Chargement…</TableCell></TableRow>
             )}
             {!loading && docs.length === 0 && (
-              <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-10">
+              <TableRow><TableCell colSpan={isClient ? 7 : 8} className="text-center text-muted-foreground py-10">
                 Aucune pièce déposée pour le moment.
               </TableCell></TableRow>
             )}
@@ -261,28 +292,56 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                       <span className="truncate max-w-[280px]">{d.original_filename}</span>
                     </div>
                   </TableCell>
-                  <TableCell className="text-sm">{d.kind?.replaceAll("_", " ")}</TableCell>
+                  {!isClient && (
+                    <TableCell className="text-sm">
+                      {d.client_name || d.client_company || "—"}
+                    </TableCell>
+                  )}
+                  <TableCell className={`text-sm ${!isClient ? "uppercase" : ""}`}>{d.kind?.replaceAll("_", " ")}</TableCell>
                   <TableCell className="text-sm">{Math.round((d.size || 0) / 1024)} Ko</TableCell>
                   <TableCell className="text-sm">
-                    {d.created_at?.slice(0, 10)}
+                    {isClient ? d.created_at?.slice(0, 10) : d.created_at?.slice(0, 16).replace("T", " ")}
                   </TableCell>
                   <TableCell>
                     <span className={`albarka-chip ${STATUS_TONE[d.status] || "bg-slate-100 text-slate-700"}`}>
                       {STATUS_LABEL[d.status] || d.status}
                     </span>
                   </TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => downloadDoc(d)} data-testid={`download-doc-${d.id}`}>
-                      <Download className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => deleteDoc(d)} data-testid={`delete-doc-${d.id}`}>
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </Button>
+                  <TableCell className="text-right whitespace-nowrap">
+                    {isClient ? (
+                      <>
+                        <Button variant="ghost" size="sm" onClick={() => downloadDoc(d)} data-testid={`download-doc-${d.id}`}>
+                          <Download className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => deleteDoc(d)} data-testid={`delete-doc-${d.id}`}>
+                          <Trash2 className="w-4 h-4 text-red-600" />
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button variant="ghost" size="sm" onClick={() => sendDocByEmail(d)} data-testid={`send-email-doc-${d.id}`} title="Envoyer par email">
+                          <Mail className="w-4 h-4" />
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => sendDocByWhatsapp(d)} data-testid={`send-wa-doc-${d.id}`} title="Envoyer par WhatsApp">
+                          <MessageCircle className="w-4 h-4" />
+                        </Button>
+                        {canManageSensitive && (
+                          <>
+                            <Button variant="ghost" size="sm" onClick={() => downloadDoc(d)} data-testid={`download-doc-${d.id}`} title="Télécharger">
+                              <Download className="w-4 h-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={() => deleteDoc(d)} data-testid={`delete-doc-${d.id}`} title="Supprimer">
+                              <Trash2 className="w-4 h-4 text-red-600" />
+                            </Button>
+                          </>
+                        )}
+                      </>
+                    )}
                   </TableCell>
                 </TableRow>
                 {expanded === d.id && (
                   <TableRow>
-                    <TableCell colSpan={7} className="bg-[var(--albarka-paper)]/50 border-t border-border">
+                    <TableCell colSpan={isClient ? 7 : 8} className="bg-[var(--albarka-paper)]/50 border-t border-border">
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Sparkles className="w-4 h-4 text-[#0F6B4A]" />

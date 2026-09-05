@@ -24,6 +24,9 @@ const STAFF_ROLES = [
   { value: "aide_comptable", label: "Aide-comptable" },
   { value: "rh", label: "RH" },
   { value: "communication", label: "Communication" },
+  // Rôle transversal cumulable : accorde le droit de télécharger les pièces
+  // client quel que soit le métier principal du collaborateur.
+  { value: "telechargement", label: "Téléchargement" },
 ];
 
 const emptyForm = () => ({
