@@ -14,7 +14,15 @@ from pydantic import BaseModel
 
 from albarka_ai import analyze_document
 from albarka_auth import get_current_user, require_staff
-from albarka_models import DOCS_DELETE_ROLES, DOCS_PRIVILEGED_ROLES, DOCUMENT_KINDS, is_client, tenant_id_of
+from albarka_models import (
+    DOCS_DELETE_ROLES,
+    DOCS_PRIVILEGED_ROLES,
+    DOCUMENT_KINDS,
+    is_client,
+    is_whatsapp_verified,
+    tenant_id_of,
+    whatsapp_number_of,
+)
 from albarka_notifications import notify_upload, send_email
 from albarka_storage import get_object, guess_content_type, presigned_url, save_and_log, storage_mode
 from db import db, serialize, serialize_many
@@ -58,12 +66,14 @@ def _require_delete_access(user: dict) -> None:
 def _can_send_whatsapp(user: dict, owner: dict) -> bool:
     """Un collaborateur privilégié (DOCS_PRIVILEGED_ROLES) peut toujours
     envoyer. Les autres ne le peuvent que s'ils portent le rôle
-    "communication" ET que le numéro du client est attesté "vérifié" —
-    voir albarka_clients.py pour l'endpoint qui pose ce statut."""
+    "communication" ET que le numéro WhatsApp du client est attesté
+    "vérifié" — voir albarka_clients.py pour l'endpoint qui pose ce statut,
+    et is_whatsapp_verified() dans albarka_models.py pour le repli sur
+    phone_verified quand aucun numéro WhatsApp distinct n'est renseigné."""
     roles = set(user.get("roles") or [])
     if roles & set(DOCS_PRIVILEGED_ROLES):
         return True
-    return "communication" in roles and bool(owner.get("phone_verified"))
+    return "communication" in roles and is_whatsapp_verified(owner)
 
 
 def _ext_of(filename: str) -> str:
@@ -183,14 +193,16 @@ async def list_documents(tenant_id: Optional[str] = None, user: dict = Depends(g
     if not is_client(user) and docs:
         tenant_ids = sorted({d["tenant_id"] for d in docs if d.get("tenant_id")})
         clients = await db.users.find(
-            {"id": {"$in": tenant_ids}}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "phone_verified": 1},
+            {"id": {"$in": tenant_ids}},
+            {"_id": 0, "id": 1, "full_name": 1, "company": 1, "phone_verified": 1,
+             "whatsapp_number": 1, "whatsapp_verified": 1},
         ).to_list(len(tenant_ids))
         by_id = {c["id"]: c for c in clients}
         for d in docs:
             c = by_id.get(d.get("tenant_id"))
             d["client_name"] = (c or {}).get("full_name")
             d["client_company"] = (c or {}).get("company")
-            d["client_phone_verified"] = bool((c or {}).get("phone_verified"))
+            d["client_whatsapp_verified"] = is_whatsapp_verified(c or {})
 
     return docs
 
@@ -332,7 +344,7 @@ async def send_document_whatsapp(
             detail="Envoi WhatsApp réservé au rôle Communication sur un numéro attesté vérifié "
                    "(ou aux rôles superviseur/direction/DG/administrateur/secrétariat)",
         )
-    phone = (payload.to or owner.get("phone") or "").strip()
+    phone = (payload.to or whatsapp_number_of(owner) or "").strip()
     if not phone.startswith("+"):
         raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…)")
 

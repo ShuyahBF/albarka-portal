@@ -26,10 +26,15 @@ import {
   BookOpen,
   ScrollText,
   Zap,
+  CreditCard,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import ChatBubble from "@/components/ChatBubble";
+import PaymentBubble from "@/components/PaymentBubble";
+
+// Doit rester identique à PAYMENTS_ROLES côté backend (albarka_models.py).
+const PAYMENTS_ROLES = ["caissier"];
 
 // Client sidebar (unchanged for pure clients).
 const CLIENT_LINKS = [
@@ -38,6 +43,7 @@ const CLIENT_LINKS = [
   { to: "/portal/missions", label: "Mes missions", icon: Briefcase },
   { to: "/portal/echeances", label: "Échéances", icon: CalendarClock },
   { to: "/portal/historique", label: "Historique", icon: History },
+  { to: "/portal/mon-compte", label: "Mon compte", icon: UserCog },
 ];
 
 // Staff menu items with the roles that grant access. `superviseur` = full access.
@@ -66,6 +72,10 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "administrateur", "secretariat"] },
   { to: "/admin/caisse", label: "Caisse", icon: Receipt,
     roles: ["superviseur", "direction", "administrateur", "comptable", "secretariat"] },
+  // Réservé au rôle "caissier" — masqué pour tous les autres, y compris les
+  // rôles Caisse ci-dessus (paiements mobile money, distinct de la caisse
+  // manuelle). Le passe-droit "superviseur" standard reste appliqué.
+  { to: "/admin/paiements", label: "Paiements", icon: CreditCard, roles: PAYMENTS_ROLES },
   { to: "/admin/comptabilite", label: "Comptabilité OHADA", icon: BookOpen,
     roles: ["superviseur", "direction", "administrateur", "comptable", "aide_comptable", "fiscaliste"] },
   { to: "/admin/messagerie", label: "Diffusion", icon: Send,
@@ -78,11 +88,15 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "administrateur"] },
   { to: "/admin/settings", label: "Paramètres", icon: Settings,
     roles: ["superviseur", "direction", "administrateur"] },
+  // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —
+  // voir allowedFor() ci-dessous.
+  { to: "/admin/mon-compte", label: "Mon compte", icon: UserCog, alwaysAllowed: true },
 ];
 
 function allowedFor(link, roles) {
+  if (link.alwaysAllowed) return true;
   if (roles.includes("superviseur")) return true;
-  return link.roles.some((r) => roles.includes(r));
+  return (link.roles || []).some((r) => roles.includes(r));
 }
 
 export default function PortalLayout({ admin = false }) {
@@ -93,6 +107,7 @@ export default function PortalLayout({ admin = false }) {
   const links = admin
     ? STAFF_MENU.filter((l) => allowedFor(l, roles))
     : CLIENT_LINKS;
+  const canUsePayments = roles.includes("superviseur") || roles.some((r) => PAYMENTS_ROLES.includes(r));
 
   const handleLogout = () => {
     logout();
@@ -104,11 +119,11 @@ export default function PortalLayout({ admin = false }) {
       {/* Sidebar */}
       <aside
         data-testid="portal-sidebar"
-        className={`fixed md:sticky top-0 z-40 h-screen w-64 bg-[#0B1912] text-white flex-shrink-0 transition-transform md:translate-x-0 ${
+        className={`fixed md:sticky top-0 z-40 h-screen w-64 bg-[#0B1912] text-white flex-shrink-0 flex flex-col transition-transform md:translate-x-0 ${
           openSidebar ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="px-5 py-6 border-b border-white/10 flex items-center gap-2.5">
+        <div className="px-5 py-6 border-b border-white/10 flex items-center gap-2.5 shrink-0">
           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#0F6B4A] to-[#E5A24B] flex items-center justify-center">
             <Sprout className="w-5 h-5 text-white" />
           </div>
@@ -119,7 +134,13 @@ export default function PortalLayout({ admin = false }) {
             </div>
           </div>
         </div>
-        <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-220px)]">
+        {/* flex-1 + min-h-0 (au lieu d'un max-h calculé en dur) : le menu prend
+            exactement l'espace restant, quelle que soit la hauteur réelle du
+            bloc utilisateur ci-dessous — un compte cumulant beaucoup de rôles
+            (les badges passent sur plusieurs lignes) ne fait plus recouvrir
+            les derniers liens (ex. "Paramètres") par ce bloc, qui était
+            positionné en `absolute` par-dessus le menu. */}
+        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
           {links.map((link) => (
             <NavLink
               key={link.to}
@@ -134,7 +155,7 @@ export default function PortalLayout({ admin = false }) {
             </NavLink>
           ))}
         </nav>
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10 bg-[#0B1912]">
+        <div className="shrink-0 p-4 border-t border-white/10 bg-[#0B1912]">
           <div className="text-xs text-white/70 mb-1 truncate font-medium">{user?.full_name}</div>
           <div className="flex flex-wrap gap-1 mb-2">
             {(user?.roles || []).map((r) => (
@@ -220,6 +241,8 @@ export default function PortalLayout({ admin = false }) {
       </div>
       {/* Chat interne — strictement réservé aux collaborateurs, jamais aux clients */}
       {admin && <ChatBubble />}
+      {/* Bulle Paiements — accès rapide à un lien PawaPay, réservée au rôle caissier */}
+      {admin && canUsePayments && <PaymentBubble />}
     </div>
   );
 }

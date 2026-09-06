@@ -23,6 +23,9 @@ ALBARKA_ROLES = [
     # de télécharger les pièces client quel que soit le profil (comptable,
     # communication, etc.) qui le porte.
     "telechargement",
+    # Accès exclusif au module Paiements (liens de paiement mobile money) —
+    # voir PAYMENTS_ROLES et albarka_payments.py.
+    "caissier",
     "client",
 ]
 STAFF_ROLES = [r for r in ALBARKA_ROLES if r != "client"]
@@ -37,6 +40,12 @@ VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"]
 CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"]
 CLIENT_MANAGE_ROLES = DOCS_PRIVILEGED_ROLES
 CHAT_THREAD_CREATE_ROLES = DOCS_PRIVILEGED_ROLES
+# Module Paiements (liens PawaPay) — réservé au rôle "caissier" uniquement,
+# à la demande explicite du client ("accessible seulement au nouveau rôle
+# Collaborateur Caissier"). require_roles() conserve malgré tout le
+# passe-droit "superviseur" déjà appliqué partout ailleurs dans l'app —
+# cohérence avec le reste du portail plutôt qu'un cas particulier isolé.
+PAYMENTS_ROLES = ["caissier"]
 
 MISSION_TYPES = [
     "tenue_comptable",
@@ -103,10 +112,15 @@ class User(BaseModel):
     roles: List[str] = Field(default_factory=lambda: ["client"])
     company: Optional[str] = None
     phone: Optional[str] = None
-    # Attesté par un collaborateur habilité (voir albarka_clients.py) — numéro
-    # de confiance, condition d'accès à l'action "Envoyer par WhatsApp" pour
-    # un collaborateur non-privilégié du rôle "communication".
+    # Attesté par un collaborateur habilité (voir albarka_clients.py).
     phone_verified: bool = False
+    # Numéro WhatsApp distinct du téléphone (facultatif — laisser vide si
+    # identique). Sa propre attestation "vérifié" conditionne l'accès à
+    # l'action "Envoyer par WhatsApp" pour un collaborateur non-privilégié
+    # du rôle "communication" — voir is_whatsapp_verified() ci-dessous pour
+    # la logique de repli sur phone_verified quand ce champ est vide.
+    whatsapp_number: Optional[str] = None
+    whatsapp_verified: bool = False
     is_active: bool = True
     created_at: str = Field(default_factory=_now_iso)
     last_login: Optional[str] = None
@@ -114,6 +128,25 @@ class User(BaseModel):
 
 def is_client(user: dict) -> bool:
     return "client" in (user.get("roles") or [])
+
+
+def is_whatsapp_verified(user_doc: dict) -> bool:
+    """Vrai si le numéro utilisé pour un envoi WhatsApp est attesté vérifié.
+
+    Si un numéro WhatsApp distinct a été renseigné, sa propre vérification
+    fait foi. Sinon (fiche créée avant la scission téléphone/WhatsApp, ou
+    client n'ayant qu'un seul numéro pour les deux usages), on retombe sur
+    `phone_verified`.
+    """
+    if user_doc.get("whatsapp_number"):
+        return bool(user_doc.get("whatsapp_verified"))
+    return bool(user_doc.get("phone_verified"))
+
+
+def whatsapp_number_of(user_doc: dict) -> Optional[str]:
+    """Numéro à utiliser pour un envoi WhatsApp : le numéro dédié s'il existe,
+    sinon le téléphone (numéro unique historique servant aux deux usages)."""
+    return user_doc.get("whatsapp_number") or user_doc.get("phone")
 
 
 def is_superviseur(user: dict) -> bool:
@@ -138,6 +171,9 @@ def tenant_id_of(user: dict) -> str:
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # reCAPTCHA v2 (widget "je ne suis pas un robot") — optionnel : ignoré si
+    # le captcha est désactivé côté paramètres admin, voir albarka_recaptcha.py.
+    captcha_token: Optional[str] = None
 
 
 class LoginResponse(BaseModel):

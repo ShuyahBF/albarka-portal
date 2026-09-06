@@ -12,20 +12,26 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 
+// Valeurs par défaut (identité de signature du cabinet — pas une donnée
+// client à ne jamais faire persister) : réinitialisées à l'identique à
+// chaque ouverture du formulaire, pour qu'une valeur modifiée pour un
+// certificat ne se retrouve jamais pré-remplie sur le suivant.
+const defaultCertForm = () => ({
+  common_name: "Cabinet ALBARKA",
+  organization: "Cabinet ALBARKA SARL",
+  country: "BF",
+  email: "",
+  valid_years: 5,
+  passphrase: "",
+  activate: true,
+});
+
 export default function CertificatesPanel() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({
-    common_name: "Cabinet ALBARKA",
-    organization: "Cabinet ALBARKA SARL",
-    country: "BF",
-    email: "",
-    valid_years: 5,
-    passphrase: "",
-    activate: true,
-  });
+  const [form, setForm] = useState(defaultCertForm());
 
   const load = async () => {
     setLoading(true);
@@ -49,7 +55,7 @@ export default function CertificatesPanel() {
       await apiClient.post("/admin/certificates", form);
       toast.success("Certificat créé et activé");
       setOpen(false);
-      setForm({ ...form, passphrase: "" });
+      setForm(defaultCertForm());
       await load();
     } catch (err) {
       toast.error(extractError(err));
@@ -150,7 +156,7 @@ export default function CertificatesPanel() {
         </Table>
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) setForm(defaultCertForm()); }}>
         <DialogContent data-testid="cert-dialog">
           <DialogHeader><DialogTitle>Nouveau certificat auto-signé</DialogTitle></DialogHeader>
           <div className="space-y-3">

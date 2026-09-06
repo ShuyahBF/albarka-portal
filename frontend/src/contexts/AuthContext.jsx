@@ -29,8 +29,12 @@ export function AuthProvider({ children }) {
     fetchMe();
   }, [fetchMe]);
 
-  const loginStart = async (email, password) => {
-    const { data } = await apiClient.post("/auth/login", { email, password });
+  const loginStart = async (email, password, captchaToken) => {
+    const { data } = await apiClient.post("/auth/login", {
+      email,
+      password,
+      captcha_token: captchaToken || null,
+    });
     return data; // { session_token, dev_otp, message }
   };
 

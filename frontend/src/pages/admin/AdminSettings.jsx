@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Save, Send, Building, MessageCircle, Bell, Hash, KeyRound, Image as ImageIcon } from "lucide-react";
+import { Save, Send, Building, MessageCircle, Bell, Hash, KeyRound, Image as ImageIcon, CreditCard } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,9 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [testPhone, setTestPhone] = useState("");
   const [wa_new_token, setWaNewToken] = useState("");
+  const [recaptchaNewSecret, setRecaptchaNewSecret] = useState("");
+  const [pawapaySandboxNewToken, setPawapaySandboxNewToken] = useState("");
+  const [pawapayProductionNewToken, setPawapayProductionNewToken] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -39,11 +42,17 @@ export default function AdminSettings() {
     setSaving(true);
     try {
       const payload = { ...partial };
-      // If wa_access_token is masked, do not resend it.
+      // If wa_access_token / recaptcha_secret_key / jetons PawaPay sont masqués, ne pas les renvoyer.
       if (payload.wa_access_token === "********") delete payload.wa_access_token;
+      if (payload.recaptcha_secret_key === "********") delete payload.recaptcha_secret_key;
+      if (payload.pawapay_api_token_sandbox === "********") delete payload.pawapay_api_token_sandbox;
+      if (payload.pawapay_api_token_production === "********") delete payload.pawapay_api_token_production;
       const { data } = await apiClient.put("/admin/settings", payload);
       setSettings(data);
       setWaNewToken("");
+      setRecaptchaNewSecret("");
+      setPawapaySandboxNewToken("");
+      setPawapayProductionNewToken("");
       toast.success("Paramètres enregistrés");
     } catch (err) {
       toast.error(extractError(err));
@@ -97,6 +106,9 @@ export default function AdminSettings() {
           </TabsTrigger>
           <TabsTrigger value="signature" data-testid="tab-signature">
             <KeyRound className="w-4 h-4 mr-1.5" /> Signature
+          </TabsTrigger>
+          <TabsTrigger value="paiements" data-testid="tab-paiements">
+            <CreditCard className="w-4 h-4 mr-1.5" /> Paiements
           </TabsTrigger>
         </TabsList>
 
@@ -204,6 +216,59 @@ export default function AdminSettings() {
                   Enregistrer le RGPD
                 </Button>
               )}
+            </div>
+
+            <div className="border-t pt-4 mt-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-semibold">reCAPTCHA — page de connexion</div>
+                  <div className="text-sm text-muted-foreground max-w-md">
+                    Widget Google « je ne suis pas un robot » (reCAPTCHA v2) affiché sur la
+                    page de connexion. Nécessite une paire clé de site / clé secrète créée sur
+                    la console Google reCAPTCHA.
+                  </div>
+                </div>
+                <Switch
+                  checked={!!settings.recaptcha_enabled}
+                  onCheckedChange={(v) => setSettings({ ...settings, recaptcha_enabled: v })}
+                  data-testid="recaptcha-enabled-switch"
+                />
+              </div>
+              <div className="mt-3 space-y-3">
+                <div>
+                  <Label>Clé de site (publique)</Label>
+                  <Input
+                    value={settings.recaptcha_site_key || ""}
+                    onChange={(e) => setSettings({ ...settings, recaptcha_site_key: e.target.value })}
+                    placeholder="6Lc..."
+                    data-testid="recaptcha-site-key-input"
+                  />
+                </div>
+                <div>
+                  <Label>Clé secrète</Label>
+                  <Input
+                    type="password"
+                    value={recaptchaNewSecret || (settings.recaptcha_secret_key === "********" ? "" : (settings.recaptcha_secret_key || ""))}
+                    onChange={(e) => setRecaptchaNewSecret(e.target.value)}
+                    placeholder={settings.recaptcha_secret_key === "********" ? "•••••••• (déjà configurée, laisser vide pour ne pas changer)" : "6Lc..."}
+                    data-testid="recaptcha-secret-key-input"
+                  />
+                </div>
+              </div>
+              <Button
+                onClick={() => save({
+                  recaptcha_enabled: settings.recaptcha_enabled,
+                  recaptcha_site_key: settings.recaptcha_site_key,
+                  ...(recaptchaNewSecret ? { recaptcha_secret_key: recaptchaNewSecret } : {}),
+                })}
+                disabled={saving}
+                variant="outline"
+                className="mt-3"
+                data-testid="save-recaptcha-btn"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Enregistrer le reCAPTCHA
+              </Button>
             </div>
           </div>
         </TabsContent>
@@ -451,6 +516,95 @@ export default function AdminSettings() {
         {/* --- SIGNATURE --- */}
         <TabsContent value="signature" className="pt-6">
           <CertificatesPanel />
+        </TabsContent>
+
+        {/* --- PAIEMENTS (PawaPay) --- */}
+        <TabsContent value="paiements" className="pt-6">
+          <div className="albarka-card p-6 space-y-4 max-w-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="font-semibold">PawaPay — mobile money</div>
+                <div className="text-sm text-muted-foreground">
+                  Liens de paiement Orange/Moov/Telecel générés depuis le module Paiements (rôle Caissier).
+                </div>
+              </div>
+              <Switch
+                checked={!!settings.pawapay_enabled}
+                onCheckedChange={(v) => setSettings({ ...settings, pawapay_enabled: v })}
+                data-testid="pawapay-enabled-switch"
+              />
+            </div>
+            <div>
+              <Label>Environnement</Label>
+              <select
+                className="w-full h-9 text-sm rounded-md border border-input bg-background px-3"
+                value={settings.pawapay_environment || "sandbox"}
+                onChange={(e) => setSettings({ ...settings, pawapay_environment: e.target.value })}
+                data-testid="pawapay-environment-select"
+              >
+                <option value="sandbox">Sandbox (test)</option>
+                <option value="production">Production</option>
+              </select>
+            </div>
+            <div>
+              <Label>Jeton API — Sandbox</Label>
+              <Input
+                type="password"
+                value={pawapaySandboxNewToken || (settings.pawapay_api_token_sandbox === "********" ? "" : (settings.pawapay_api_token_sandbox || ""))}
+                onChange={(e) => setPawapaySandboxNewToken(e.target.value)}
+                placeholder={settings.pawapay_api_token_sandbox === "********" ? "•••••••• (déjà configuré, laisser vide pour ne pas changer)" : "Jeton sandbox PawaPay"}
+                data-testid="pawapay-sandbox-token-input"
+              />
+            </div>
+            <div>
+              <Label>Jeton API — Production</Label>
+              <Input
+                type="password"
+                value={pawapayProductionNewToken || (settings.pawapay_api_token_production === "********" ? "" : (settings.pawapay_api_token_production || ""))}
+                onChange={(e) => setPawapayProductionNewToken(e.target.value)}
+                placeholder={settings.pawapay_api_token_production === "********" ? "•••••••• (déjà configuré, laisser vide pour ne pas changer)" : "Jeton production PawaPay"}
+                data-testid="pawapay-production-token-input"
+              />
+            </div>
+            <div>
+              <Label>Pays (ISO-3)</Label>
+              <Input
+                value={settings.pawapay_country || "BFA"}
+                onChange={(e) => setSettings({ ...settings, pawapay_country: e.target.value.toUpperCase() })}
+                maxLength={3} data-testid="pawapay-country-input"
+              />
+            </div>
+            <div>
+              <Label>Secret du webhook de callback</Label>
+              <Input
+                value={settings.pawapay_callback_secret || ""}
+                onChange={(e) => setSettings({ ...settings, pawapay_callback_secret: e.target.value })}
+                placeholder="Chaîne aléatoire utilisée dans l'URL du webhook PawaPay"
+                data-testid="pawapay-callback-secret-input"
+              />
+              {settings.pawapay_callback_secret && (
+                <div className="text-xs text-muted-foreground mt-1 font-mono break-all">
+                  URL webhook : {window.location.origin}/api/webhooks/pawapay/{settings.pawapay_callback_secret}
+                </div>
+              )}
+            </div>
+            <Button
+              onClick={() => save({
+                pawapay_enabled: settings.pawapay_enabled,
+                pawapay_environment: settings.pawapay_environment,
+                pawapay_country: settings.pawapay_country,
+                pawapay_callback_secret: settings.pawapay_callback_secret,
+                ...(pawapaySandboxNewToken ? { pawapay_api_token_sandbox: pawapaySandboxNewToken } : {}),
+                ...(pawapayProductionNewToken ? { pawapay_api_token_production: pawapayProductionNewToken } : {}),
+              })}
+              disabled={saving}
+              className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
+              data-testid="save-pawapay-btn"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Enregistrer
+            </Button>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

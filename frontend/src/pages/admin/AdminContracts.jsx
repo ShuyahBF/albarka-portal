@@ -191,7 +191,7 @@ export default function AdminContracts() {
               <TableHead>Client</TableHead>
               <TableHead>Début</TableHead>
               <TableHead>Fin</TableHead>
-              <TableHead>Montant</TableHead>
+              <TableHead className="text-right">Montant</TableHead>
               <TableHead>Dernier paiement</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -217,7 +217,7 @@ export default function AdminContracts() {
                 </TableCell>
                 <TableCell className="text-sm">{c.start_date}</TableCell>
                 <TableCell className="text-sm">{c.end_date || "—"}</TableCell>
-                <TableCell className="text-sm font-mono">{c.amount ? `${Number(c.amount).toLocaleString()} ${c.currency || "XOF"}` : "—"}</TableCell>
+                <TableCell className="text-sm font-mono text-right">{c.amount ? `${Number(c.amount).toLocaleString()} ${c.currency || "XOF"}` : "—"}</TableCell>
                 <TableCell className="text-sm">{c.date_dernier_paiement || "—"}</TableCell>
                 <TableCell>
                   <span className={`albarka-chip ${STATUS_TONE[c.status] || "bg-slate-100 text-slate-700"}`}>

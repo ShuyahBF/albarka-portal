@@ -43,20 +43,22 @@ const STATUS_TONE = {
   en_retard: "bg-red-100 text-red-700",
 };
 
+const defaultEcheanceForm = (tenantIdOverride) => ({
+  tenant_id: tenantIdOverride || "",
+  title: "",
+  type: "tva",
+  due_date: "",
+  amount: "",
+  period: "",
+  notes: "",
+  status: "a_venir",
+});
+
 export default function Echeances({ tenantIdOverride = null, staffMode = false }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    tenant_id: tenantIdOverride || "",
-    title: "",
-    type: "tva",
-    due_date: "",
-    amount: "",
-    period: "",
-    notes: "",
-    status: "a_venir",
-  });
+  const [form, setForm] = useState(defaultEcheanceForm(tenantIdOverride));
   const { isClient } = useAuth();
   const canCreate = staffMode || !isClient;
 
@@ -87,7 +89,7 @@ export default function Echeances({ tenantIdOverride = null, staffMode = false }
       await apiClient.post("/echeances", payload);
       toast.success("Échéance ajoutée");
       setOpen(false);
-      setForm({ ...form, title: "", due_date: "", amount: "", period: "", notes: "" });
+      setForm(defaultEcheanceForm(tenantIdOverride));
       await load();
     } catch (err) {
       toast.error(extractError(err));
@@ -124,7 +126,7 @@ export default function Echeances({ tenantIdOverride = null, staffMode = false }
           <p className="text-muted-foreground mt-1">TVA, IS, IRPP, CNSS, IUTS et bilans annuels.</p>
         </div>
         {canCreate && (
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) setForm(defaultEcheanceForm(tenantIdOverride)); }}>
             <DialogTrigger asChild>
               <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-echeance-btn">
                 <Plus className="w-4 h-4 mr-2" />Nouvelle échéance
@@ -196,7 +198,7 @@ export default function Echeances({ tenantIdOverride = null, staffMode = false }
               <TableHead>Type</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Période</TableHead>
-              <TableHead>Montant</TableHead>
+              <TableHead className="text-right">Montant</TableHead>
               <TableHead>Statut</TableHead>
               {canCreate && <TableHead>Actions</TableHead>}
             </TableRow>
@@ -216,7 +218,7 @@ export default function Echeances({ tenantIdOverride = null, staffMode = false }
                 <TableCell className="text-sm">{TYPES.find((t) => t.value === e.type)?.label || e.type}</TableCell>
                 <TableCell className="text-sm">{e.due_date}</TableCell>
                 <TableCell className="text-sm">{e.period || "—"}</TableCell>
-                <TableCell className="text-sm font-mono">{e.amount ? `${Number(e.amount).toLocaleString()} FCFA` : "—"}</TableCell>
+                <TableCell className="text-sm font-mono text-right">{e.amount ? `${Number(e.amount).toLocaleString()} FCFA` : "—"}</TableCell>
                 <TableCell>
                   <span className={`albarka-chip ${STATUS_TONE[e.status] || "bg-slate-100 text-slate-700"}`}>
                     {STATUSES.find((s) => s.value === e.status)?.label || e.status}

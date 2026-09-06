@@ -31,6 +31,7 @@ async def _apply_rgpd_masking(docs: List[dict], viewer: dict) -> List[dict]:
         return docs
     for d in docs:
         d["phone"] = _mask_phone(d.get("phone"))
+        d["whatsapp_number"] = _mask_phone(d.get("whatsapp_number"))
     return docs
 
 
@@ -39,6 +40,10 @@ class ClientCreate(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=200)
     company: Optional[str] = None
     phone: Optional[str] = None
+    # Numéro WhatsApp distinct du téléphone — facultatif, laisser vide si
+    # identique (voir is_whatsapp_verified()/whatsapp_number_of() dans
+    # albarka_models.py pour la logique de repli).
+    whatsapp_number: Optional[str] = None
     password: str = Field(..., min_length=8)
     can_receive_notifications: bool = True
 
@@ -67,6 +72,7 @@ class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     company: Optional[str] = None
     phone: Optional[str] = None
+    whatsapp_number: Optional[str] = None
     is_active: Optional[bool] = None
     can_receive_notifications: Optional[bool] = None
     roles: Optional[List[str]] = None
@@ -121,6 +127,9 @@ async def create_client(payload: ClientCreate, user: dict = Depends(require_role
         "roles": ["client"],
         "company": payload.company,
         "phone": payload.phone,
+        "phone_verified": False,
+        "whatsapp_number": payload.whatsapp_number,
+        "whatsapp_verified": False,
         "is_active": True,
         "can_receive_notifications": payload.can_receive_notifications,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -215,6 +224,19 @@ async def verify_client_phone(
     d'accès à l'action "Envoyer par WhatsApp" pour le rôle Communication
     seul (voir _can_send_whatsapp dans albarka_documents.py)."""
     res = await db.users.update_one({"id": user_id}, {"$set": {"phone_verified": payload.verified}})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    doc = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return serialize(doc)
+
+
+@router.patch("/{user_id}/verify-whatsapp")
+async def verify_client_whatsapp(
+    user_id: str, payload: VerifyPhonePayload, user: dict = Depends(require_roles(VERIFY_PHONE_ROLES)),
+):
+    """Pendant de verify_client_phone pour le numéro WhatsApp dédié (voir
+    is_whatsapp_verified() dans albarka_models.py)."""
+    res = await db.users.update_one({"id": user_id}, {"$set": {"whatsapp_verified": payload.verified}})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     doc = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})

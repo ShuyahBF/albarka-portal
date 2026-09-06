@@ -12,6 +12,7 @@ Chaque module expose un CRUD Mongo minimal, protégé par les rôles cabinet.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import secrets
 from datetime import date, datetime, timedelta, timezone
@@ -20,8 +21,9 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from albarka_admin_settings import get_settings_doc
 from albarka_auth import get_current_user, require_roles, require_staff
-from albarka_models import CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES
+from albarka_models import CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, is_client
 from db import db, serialize, serialize_many
 
 logger = logging.getLogger("albarka.phase_c")
@@ -47,10 +49,20 @@ class ChatMessageCreate(BaseModel):
     body: str = Field(..., min_length=1, max_length=4000)
 
 
-async def _get_thread_or_404(thread_id: str) -> dict:
+class ChatDmStart(BaseModel):
+    peer_id: str = Field(..., min_length=1)
+
+
+async def _get_thread_or_404(thread_id: str, user: Optional[dict] = None) -> dict:
     thread = await db.chat_threads.find_one({"id": thread_id}, {"_id": 0})
     if not thread:
         raise HTTPException(status_code=404, detail="Fil introuvable")
+    # Une discussion directe (kind="dm") est privée à ses deux participants —
+    # contrairement aux fils nommés, ouverts à tout le cabinet par design
+    # (voir list_chat_threads). Un utilisateur hors de la conversation ne
+    # doit ni la lire, ni y écrire, même en devinant son id.
+    if user and thread.get("kind") == "dm" and user["id"] not in (thread.get("participants") or []):
+        raise HTTPException(status_code=403, detail="Discussion privée réservée à ses deux participants")
     return thread
 
 
@@ -58,7 +70,37 @@ async def _get_thread_or_404(thread_id: str) -> dict:
 async def create_chat_thread(payload: ChatThreadCreate, user: dict = Depends(require_roles(CHAT_THREAD_CREATE_ROLES))):
     doc = {
         "id": secrets.token_urlsafe(12),
+        "kind": "group",
         "title": payload.title.strip(),
+        "created_by": user["id"],
+        "created_by_name": user.get("full_name") or user.get("email"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.chat_threads.insert_one(doc.copy())
+    return serialize(doc)
+
+
+@chat_router.post("/dm")
+async def start_or_get_dm(payload: ChatDmStart, user: dict = Depends(require_staff())):
+    """Discussion directe 1-à-1 entre deux collaborateurs, sans fil nommé à
+    créer au préalable — ouverte à tout collaborateur (pas seulement
+    CHAT_THREAD_CREATE_ROLES, réservé aux fils de groupe). Idempotent : un
+    second appel entre les deux mêmes personnes retrouve la même discussion
+    plutôt que d'en recréer une."""
+    if payload.peer_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Impossible de démarrer une discussion avec soi-même")
+    peer = await db.users.find_one({"id": payload.peer_id}, {"_id": 0, "password_hash": 0})
+    if not peer or is_client(peer):
+        raise HTTPException(status_code=404, detail="Collaborateur introuvable")
+    participants = sorted([user["id"], payload.peer_id])
+    existing = await db.chat_threads.find_one({"kind": "dm", "participants": participants}, {"_id": 0})
+    if existing:
+        return serialize(existing)
+    doc = {
+        "id": secrets.token_urlsafe(12),
+        "kind": "dm",
+        "participants": participants,
+        "title": None,
         "created_by": user["id"],
         "created_by_name": user.get("full_name") or user.get("email"),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -69,9 +111,17 @@ async def create_chat_thread(payload: ChatThreadCreate, user: dict = Depends(req
 
 @chat_router.get("/threads")
 async def list_chat_threads(user: dict = Depends(require_staff())):
-    """Tous les fils (même sans message, pour qu'un fil tout juste créé
-    apparaisse immédiatement), triés par activité la plus récente."""
+    """Tous les fils de groupe (même sans message, pour qu'un fil tout
+    juste créé apparaisse immédiatement) + les discussions directes dont
+    l'utilisateur est l'un des deux participants — triés par activité la
+    plus récente. Le titre d'une discussion directe est calculé à
+    l'affichage : le nom du collègue en face, jamais stocké tel quel
+    (symétrique : chacun voit le nom de l'AUTRE)."""
     threads = await db.chat_threads.find({}, {"_id": 0}).to_list(500)
+    visible = [
+        t for t in threads
+        if t.get("kind") != "dm" or user["id"] in (t.get("participants") or [])
+    ]
     last_by_thread = {
         t["_id"]: t async for t in db.chat_messages.aggregate([
             {"$sort": {"created_at": -1}},
@@ -85,10 +135,16 @@ async def list_chat_threads(user: dict = Depends(require_staff())):
         ])
     }
     result = []
-    for t in threads:
+    for t in visible:
         last = last_by_thread.get(t["id"])
+        if t.get("kind") == "dm":
+            peer_id = next((p for p in (t.get("participants") or []) if p != user["id"]), None)
+            peer = await db.users.find_one({"id": peer_id}, {"_id": 0, "full_name": 1}) if peer_id else None
+            title = (peer or {}).get("full_name") or "Discussion directe"
+        else:
+            title = t["title"]
         result.append({
-            "thread_id": t["id"], "title": t["title"],
+            "thread_id": t["id"], "title": title, "kind": t.get("kind", "group"),
             "last_at": last["last_at"] if last else t["created_at"],
             "last_author": last["last_author"] if last else None,
             "last_body": (last["last_body"][:120] if last else ""),
@@ -104,7 +160,7 @@ async def list_chat_messages(
     limit: int = 200,
     user: dict = Depends(require_staff()),
 ):
-    await _get_thread_or_404(thread_id)
+    await _get_thread_or_404(thread_id, user)
     items = await db.chat_messages.find(
         {"thread_id": thread_id}, {"_id": 0},
     ).sort("created_at", 1).to_list(min(max(limit, 1), 500))
@@ -115,7 +171,7 @@ async def list_chat_messages(
 async def post_chat_message(
     payload: ChatMessageCreate, user: dict = Depends(require_staff()),
 ):
-    await _get_thread_or_404(payload.thread_id)
+    await _get_thread_or_404(payload.thread_id, user)
     doc = {
         "id": secrets.token_urlsafe(12),
         "thread_id": payload.thread_id,
@@ -293,19 +349,25 @@ def _is_caisse_date_privileged(user: dict) -> bool:
     return bool(set(user.get("roles") or []) & set(CAISSE_DATE_RANGE_ROLES))
 
 
-def _payments_date_bounds(user: dict, date_from: Optional[str], date_to: Optional[str]) -> tuple[str, str]:
-    """Renvoie (borne basse incluse, borne haute exclue) en ISO datetime.
+def _payments_date_bounds(
+    user: dict, date_from: Optional[str], date_to: Optional[str], all_time: bool = False,
+) -> tuple[Optional[str], Optional[str]]:
+    """Renvoie (borne basse incluse, borne haute exclue) en ISO datetime, ou
+    (None, None) si `all_time` est actif (aucun filtre de date — "Depuis
+    toujours").
 
-    Seuls Administrateur/DG/Superviseur peuvent choisir une période — tout
-    autre collaborateur est forcé sur la journée en cours côté serveur,
-    même s'il tente de passer ses propres date_from/date_to (l'UI ne lui
-    présente pas le sélecteur, mais l'API doit refuser aussi)."""
+    Seuls Administrateur/DG/Superviseur peuvent choisir une période ou
+    "Depuis toujours" — tout autre collaborateur est forcé sur la journée en
+    cours côté serveur, même s'il tente de passer ses propres paramètres
+    (l'UI ne lui présente pas le sélecteur, mais l'API doit refuser aussi)."""
     today = date.today()
     if not _is_caisse_date_privileged(user):
         date_from = date_to = today.isoformat()
-    else:
-        date_from = date_from or today.isoformat()
-        date_to = date_to or today.isoformat()
+        all_time = False
+    if all_time:
+        return None, None
+    date_from = date_from or today.isoformat()
+    date_to = date_to or today.isoformat()
     low = f"{date_from}T00:00:00"
     high_date = date.fromisoformat(date_to) + timedelta(days=1)
     high = f"{high_date.isoformat()}T00:00:00"
@@ -318,10 +380,13 @@ async def list_payments(
     invoice_id: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    all_time: bool = False,
     user: dict = Depends(require_staff()),
 ):
-    low, high = _payments_date_bounds(user, date_from, date_to)
-    q: dict = {"paid_at": {"$gte": low, "$lt": high}}
+    low, high = _payments_date_bounds(user, date_from, date_to, all_time)
+    q: dict = {}
+    if low is not None:
+        q["paid_at"] = {"$gte": low, "$lt": high}
     if tenant_id: q["tenant_id"] = tenant_id
     if invoice_id: q["invoice_id"] = invoice_id
     items = await db.payments.find(q, {"_id": 0}).sort("paid_at", -1).to_list(1000)
@@ -333,14 +398,15 @@ async def billing_summary(
     tenant_id: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    all_time: bool = False,
     user: dict = Depends(require_staff()),
 ):
     """Agrégat rapide : total facturé / impayé (toutes dates confondues —
     les factures restent visibles sans restriction de période pour tous les
     collaborateurs) et total encaissé (carte "Encaissement", qui reflète
     strictement les encaissements visibles par l'utilisateur : journée en
-    cours pour un collaborateur ordinaire, période choisie pour
-    Administrateur/DG/Superviseur — voir _payments_date_bounds)."""
+    cours pour un collaborateur ordinaire, période choisie — ou "Depuis
+    toujours" — pour Administrateur/DG/Superviseur, voir _payments_date_bounds)."""
     inv_q: dict = {}
     if tenant_id: inv_q["tenant_id"] = tenant_id
     invoices = await db.invoices.find(inv_q, {"_id": 0, "total": 1, "paid_amount": 1, "status": 1}).to_list(2000)
@@ -348,8 +414,10 @@ async def billing_summary(
     outstanding = sum(float(i.get("total", 0)) - float(i.get("paid_amount", 0)) for i in invoices)
     unpaid_count = sum(1 for i in invoices if i.get("status") != "paid")
 
-    low, high = _payments_date_bounds(user, date_from, date_to)
-    pay_q: dict = {"paid_at": {"$gte": low, "$lt": high}}
+    low, high = _payments_date_bounds(user, date_from, date_to, all_time)
+    pay_q: dict = {}
+    if low is not None:
+        pay_q["paid_at"] = {"$gte": low, "$lt": high}
     if tenant_id: pay_q["tenant_id"] = tenant_id
     payments = await db.payments.find(pay_q, {"_id": 0, "amount": 1}).to_list(5000)
     paid = sum(float(p.get("amount", 0)) for p in payments)
@@ -361,9 +429,149 @@ async def billing_summary(
         "outstanding": round(outstanding, 2),
         "unpaid_count": unpaid_count,
         "date_range_editable": _is_caisse_date_privileged(user),
-        "date_from": low[:10],
-        "date_to": (date.fromisoformat(high[:10]) - timedelta(days=1)).isoformat(),
+        "date_from": low[:10] if low else None,
+        "date_to": (date.fromisoformat(high[:10]) - timedelta(days=1)).isoformat() if high else None,
     }
+
+
+def _statement_period_label(user: dict, date_from: Optional[str], date_to: Optional[str], all_time: bool) -> str:
+    if not _is_caisse_date_privileged(user):
+        return f"Aujourd'hui ({date.today().isoformat()})"
+    if all_time:
+        return "Depuis toujours"
+    low, high = _payments_date_bounds(user, date_from, date_to, all_time)
+    low_d = low[:10]
+    high_d = (date.fromisoformat(high[:10]) - timedelta(days=1)).isoformat()
+    return f"{low_d} → {high_d}"
+
+
+async def _build_statement(
+    user: dict, tenant_id: Optional[str], date_from: Optional[str], date_to: Optional[str], all_time: bool,
+) -> tuple[bytes, Optional[dict], str]:
+    """Rassemble les factures/encaissements (mêmes filtres que l'écran Caisse
+    — factures non bornées dans le temps, encaissements bornés par la
+    période) et construit le PDF "situation de compte". Partagé par le
+    téléchargement (GET .../pdf) et l'envoi au client (POST .../send)."""
+    from albarka_reports import build_billing_statement_pdf
+
+    client = None
+    if tenant_id:
+        client = await db.users.find_one({"id": tenant_id}, {"_id": 0, "password_hash": 0})
+        if not client:
+            raise HTTPException(status_code=404, detail="Client introuvable")
+
+    inv_q: dict = {"tenant_id": tenant_id} if tenant_id else {}
+    invoices = await db.invoices.find(inv_q, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    total_billed = sum(float(i.get("total", 0)) for i in invoices)
+    outstanding = sum(float(i.get("total", 0)) - float(i.get("paid_amount", 0)) for i in invoices)
+
+    low, high = _payments_date_bounds(user, date_from, date_to, all_time)
+    pay_q: dict = {}
+    if low is not None:
+        pay_q["paid_at"] = {"$gte": low, "$lt": high}
+    if tenant_id: pay_q["tenant_id"] = tenant_id
+    payments = await db.payments.find(pay_q, {"_id": 0}).sort("paid_at", -1).to_list(5000)
+    total_paid = sum(float(p.get("amount", 0)) for p in payments)
+
+    period_label = _statement_period_label(user, date_from, date_to, all_time)
+    pdf_bytes = build_billing_statement_pdf(
+        client=client, invoices=invoices, payments=payments, period_label=period_label,
+        total_billed=total_billed, total_paid=total_paid, outstanding=outstanding,
+    )
+    return pdf_bytes, client, period_label
+
+
+@billing_router.get("/statement/pdf")
+async def billing_statement_pdf(
+    tenant_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    all_time: bool = False,
+    user: dict = Depends(require_staff()),
+):
+    """Export PDF de la Caisse ("situation de compte") — mêmes filtres que
+    l'écran, sans colonne Actions (voir build_billing_statement_pdf)."""
+    from fastapi.responses import Response
+
+    pdf_bytes, _client, _period = await _build_statement(user, tenant_id, date_from, date_to, all_time)
+    filename = f"situation_de_compte_{tenant_id or 'tous_clients'}_{date.today().isoformat()}.pdf"
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class SendStatementPayload(BaseModel):
+    tenant_id: str
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    all_time: bool = False
+    channel: str = "whatsapp"  # "whatsapp" | "email"
+
+
+@billing_router.post("/statement/send")
+async def send_billing_statement(payload: SendStatementPayload, user: dict = Depends(require_staff())):
+    """Envoie la situation de compte du client sélectionné par WhatsApp ou
+    email — même restriction que l'envoi de pièces (_can_send_whatsapp) pour
+    le canal WhatsApp : rôle Communication limité aux clients au numéro
+    attesté vérifié."""
+    from albarka_documents import _can_send_whatsapp
+    from albarka_models import whatsapp_number_of
+    from albarka_notifications import _wa_upload_media, send_email, send_whatsapp_document
+
+    pdf_bytes, client, period_label = await _build_statement(
+        user, payload.tenant_id, payload.date_from, payload.date_to, payload.all_time,
+    )
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    filename = "situation_de_compte.pdf"
+
+    if payload.channel == "email":
+        recipient = (client.get("email") or "").strip()
+        if not recipient:
+            raise HTTPException(status_code=400, detail="Aucune adresse email disponible pour ce client")
+        client_label = client.get("company") or client.get("full_name", "")
+        html = f"""
+<div style="font-family:Arial,sans-serif;color:#0F172A;padding:16px;">
+  <p>Bonjour,</p>
+  <p>Veuillez trouver ci-joint la situation de compte de <strong>{client_label}</strong>
+     pour la période : {period_label}.</p>
+</div>
+"""
+        attachment = {
+            "filename": filename,
+            "content": base64.b64encode(pdf_bytes).decode("ascii"),
+            "content_type": "application/pdf",
+        }
+        message_id = await send_email(
+            to=[recipient], subject=f"Situation de compte — {period_label}", html=html, attachments=[attachment],
+        )
+        if not message_id:
+            raise HTTPException(status_code=502, detail="Échec envoi email (proxy indisponible ou rejeté)")
+        return {"ok": True, "channel": "email", "to": recipient}
+
+    if not _can_send_whatsapp(user, client):
+        raise HTTPException(
+            status_code=403,
+            detail="Envoi WhatsApp réservé au rôle Communication sur un numéro attesté vérifié "
+                   "(ou aux rôles superviseur/direction/DG/administrateur/secrétariat)",
+        )
+    phone = whatsapp_number_of(client) or ""
+    if not phone.startswith("+"):
+        raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…) pour ce client")
+    settings = await get_settings_doc()
+    if not settings.get("wa_enabled"):
+        raise HTTPException(status_code=400, detail="WhatsApp désactivé dans les paramètres")
+    media_id = await _wa_upload_media(pdf_bytes=pdf_bytes, filename=filename)
+    if not media_id:
+        raise HTTPException(status_code=502, detail="Échec de l'envoi (WhatsApp non configuré ou upload refusé)")
+    result = await send_whatsapp_document(
+        to_phone=phone, media_id=media_id, filename=filename,
+        caption=f"Situation de compte — {period_label}",
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=f"Échec envoi WhatsApp : {result.get('error') or 'erreur inconnue'}")
+    return {"ok": True, "channel": "whatsapp", "to": phone, "message_id": result.get("message_id")}
 
 
 # ==========================================================================
@@ -548,6 +756,12 @@ async def download_payslip_pdf(payslip_id: str, user: dict = Depends(require_rol
 # ==========================================================================
 logs_router = APIRouter(prefix="/platform-logs", tags=["Logs plateforme"])
 _LOG_ROLES = ["superviseur", "direction", "administrateur"]
+# Même compte que _PROTECT_EMAILS dans albarka_migrate.py — l'administrateur
+# système du portail (pas un simple rôle "administrateur" parmi d'autres).
+# Ses propres actions sont masquées du journal pour tout le monde SAUF pour
+# lui-même : personne d'autre — même un autre administrateur/superviseur —
+# ne doit voir ce qu'il fait sur la plateforme.
+_SYSTEM_ADMIN_EMAIL = "admin@sawalismartsystems.com"
 
 
 async def _log_platform_event(
@@ -585,6 +799,17 @@ async def list_platform_logs(
         q["action"] = {"$regex": action, "$options": "i"}
     if entity_type: q["entity_type"] = entity_type
     if actor_id: q["actor_id"] = actor_id
+
+    is_system_admin = (user.get("email") or "").strip().lower() == _SYSTEM_ADMIN_EMAIL
+    if not is_system_admin:
+        sys_admin = await db.users.find_one({"email": _SYSTEM_ADMIN_EMAIL}, {"_id": 0, "id": 1})
+        sys_admin_id = sys_admin["id"] if sys_admin else None
+        if sys_admin_id:
+            if actor_id == sys_admin_id:
+                # Tentative explicite de cibler l'administrateur système via
+                # ?actor_id=... — jamais dévoilé à quelqu'un d'autre que lui.
+                return []
+            q["actor_id"] = {"$ne": sys_admin_id}
     items = await db.platform_logs.find(q, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
     return serialize_many(items)
 

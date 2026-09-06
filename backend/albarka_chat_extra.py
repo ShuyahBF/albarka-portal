@@ -145,7 +145,19 @@ async def chat_search(
         raise HTTPException(status_code=400, detail="Terme de recherche requis")
     query: dict = {"body": {"$regex": q.strip(), "$options": "i"}}
     if thread_id:
+        await _get_thread_or_404(thread_id, user)
         query["thread_id"] = thread_id
+    else:
+        # Une recherche globale (sans thread_id) ne doit jamais faire
+        # remonter le contenu d'une discussion directe dont l'utilisateur
+        # n'est pas participant — les fils de groupe, eux, restent
+        # cherchables par tout collaborateur, comme avant.
+        foreign_dms = await db.chat_threads.find(
+            {"kind": "dm", "participants": {"$ne": user["id"]}}, {"_id": 0, "id": 1},
+        ).to_list(5000)
+        foreign_ids = [d["id"] for d in foreign_dms]
+        if foreign_ids:
+            query["thread_id"] = {"$nin": foreign_ids}
     items = await db.chat_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 100))
     return serialize_many(items)
 
@@ -175,7 +187,7 @@ async def post_file_message(
     file: UploadFile = File(...),
     user: dict = Depends(require_staff()),
 ):
-    await _get_thread_or_404(thread_id)
+    await _get_thread_or_404(thread_id, user)
     mime = (file.content_type or "").lower()
     if mime not in ALLOWED_ATTACHMENT_MIME:
         raise HTTPException(status_code=400, detail=f"Type de fichier non pris en charge : {mime or 'inconnu'}")
@@ -210,9 +222,18 @@ async def post_file_message(
 
 @router.get("/media/{path:path}")
 async def get_chat_media(path: str, user: dict = Depends(require_staff())):
-    """Sert un media chat depuis R2 — chat interne = staff uniquement."""
+    """Sert un media chat depuis R2 — chat interne = staff uniquement.
+
+    Le chemin de stockage embarque le thread_id ("albarka/chat/{thread_id}/…")
+    — on le retrouve pour appliquer la même restriction de participation
+    qu'ailleurs sur une discussion directe (kind="dm") : impossible de
+    contourner la confidentialité d'une pièce jointe en devinant/observant
+    son URL."""
     from fastapi.responses import Response
     from storage_r2 import get_object
+    parts = path.split("/")
+    if len(parts) >= 3 and parts[0] == "albarka" and parts[1] == "chat":
+        await _get_thread_or_404(parts[2], user)
     try:
         blob, mime = await get_object(path)
     except Exception:

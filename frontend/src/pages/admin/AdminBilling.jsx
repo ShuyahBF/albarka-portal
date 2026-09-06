@@ -28,14 +28,40 @@ export default function AdminBilling() {
   const [invForm, setInvForm] = useState({ tenant_id: "", title: "", label: "", quantity: 1, unit_price: "", tax_rate: 18, document_type: "facture" });
   const [payForm, setPayForm] = useState({ amount: "", method: "cash", reference: "" });
   const [filterTenantId, setFilterTenantId] = useState("");
+  // Résout tenant_id -> {company, full_name} pour la colonne Client à
+  // l'écran ("Entreprise (Nom client)" — voir clientLabel ci-dessous). Le
+  // PDF exporté, lui, n'affiche jamais le nom du client (voir backend
+  // build_billing_statement_pdf).
+  const [clientsById, setClientsById] = useState({});
+  const [openSend, setOpenSend] = useState(false);
+  const [sendChannel, setSendChannel] = useState("whatsapp");
+  const [exporting, setExporting] = useState(false);
+  const [sending, setSending] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // Presets au-dessus du sélecteur Du/Au — visibles seulement pour les rôles
+  // autorisés à choisir une période (CAISSE_DATE_RANGE_ROLES) :
+  //  - "all"    : Depuis toujours — aucun filtre de date (all_time=true).
+  //  - "3m"     : 3 derniers mois — calculé une fois puis traité comme une
+  //               période classique.
+  //  - "custom" : Période — les champs Du/Au manuels existants.
+  const [rangeMode, setRangeMode] = useState("custom");
 
-  const load = async () => {
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+  const threeMonthsAgoISO = () => {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const load = async (overrides = {}) => {
+    const mode = overrides.rangeMode ?? rangeMode;
+    const from = overrides.dateFrom ?? dateFrom;
+    const to = overrides.dateTo ?? dateTo;
     try {
       const params = { tenant_id: filterTenantId || undefined };
       const dateParams = canPickDateRange
-        ? { date_from: dateFrom || undefined, date_to: dateTo || undefined }
+        ? (mode === "all" ? { all_time: true } : { date_from: from || undefined, date_to: to || undefined })
         : {};
       const [{ data: inv }, { data: pay }, { data: sum }] = await Promise.all([
         apiClient.get("/billing/invoices", { params }),
@@ -45,12 +71,83 @@ export default function AdminBilling() {
       setInvoices(inv); setPayments(pay); setSummary(sum);
       // Reflète la période réellement appliquée par le serveur (utile pour
       // les non-privilégiés, forcés sur "aujourd'hui" même sans sélecteur).
-      if (sum) { setDateFrom(sum.date_from); setDateTo(sum.date_to); }
+      // Ignoré en mode "Depuis toujours" : le serveur renvoie alors
+      // date_from/date_to à null, qui ne doivent pas écraser les champs
+      // Du/Au (masqués dans ce mode, mais réutilisés si on repasse en Période).
+      if (sum && mode !== "all") { setDateFrom(sum.date_from); setDateTo(sum.date_to); }
     } catch (err) { toast.error(extractError(err)); }
   };
   useEffect(() => { load(); }, [filterTenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    apiClient.get("/clients").then(({ data }) => {
+      const map = {};
+      for (const c of data || []) map[c.id] = c;
+      setClientsById(map);
+    }).catch(() => {});
+  }, []);
+
+  const clientLabel = (tenantId) => {
+    const c = clientsById[tenantId];
+    if (!c) return "—";
+    return c.company ? `${c.company} (${c.full_name})` : c.full_name;
+  };
+
   const applyDateRange = () => load();
+
+  const selectAllTime = () => { setRangeMode("all"); load({ rangeMode: "all" }); };
+  const select3Months = () => {
+    const from = threeMonthsAgoISO();
+    const to = todayISO();
+    setRangeMode("3m");
+    setDateFrom(from);
+    setDateTo(to);
+    load({ rangeMode: "3m", dateFrom: from, dateTo: to });
+  };
+  const selectCustomPeriod = () => setRangeMode("custom");
+
+  // Filtres actuellement appliqués à l'écran, réutilisés tels quels pour
+  // l'export PDF / l'envoi client ("situation de compte") — voir
+  // GET/POST /billing/statement/* côté backend.
+  const currentStatementParams = () => ({
+    tenant_id: filterTenantId || undefined,
+    ...(canPickDateRange
+      ? (rangeMode === "all" ? { all_time: true } : { date_from: dateFrom || undefined, date_to: dateTo || undefined })
+      : {}),
+  });
+
+  const exportStatementPdf = async () => {
+    setExporting(true);
+    try {
+      const res = await apiClient.get("/billing/statement/pdf", {
+        params: currentStatementParams(), responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `situation_de_compte_${filterTenantId || "tous_clients"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(extractError(err, "Échec de l'export PDF"));
+    } finally { setExporting(false); }
+  };
+
+  const sendStatement = async () => {
+    if (!filterTenantId) return;
+    setSending(true);
+    try {
+      const { data } = await apiClient.post("/billing/statement/send", {
+        ...currentStatementParams(), tenant_id: filterTenantId, channel: sendChannel,
+      });
+      toast.success(`Situation de compte envoyée (${sendChannel === "whatsapp" ? "WhatsApp" : "email"}) à ${data.to}`);
+      setOpenSend(false);
+    } catch (err) {
+      toast.error(extractError(err, "Échec de l'envoi"));
+    } finally { setSending(false); }
+  };
 
   const submitInvoice = async () => {
     if (!invForm.tenant_id || !invForm.title || !invForm.label || !invForm.unit_price) {
@@ -110,16 +207,46 @@ export default function AdminBilling() {
         </div>
 
         {canPickDateRange ? (
-          <div className="flex items-end gap-2" data-testid="billing-date-range">
-            <div>
-              <Label className="text-xs">Du</Label>
-              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10" data-testid="billing-date-from" />
+          <div className="flex items-end gap-2 flex-wrap" data-testid="billing-date-range">
+            <div className="flex gap-1" data-testid="billing-range-presets">
+              <Button
+                type="button" size="sm"
+                variant={rangeMode === "all" ? "default" : "outline"}
+                className={rangeMode === "all" ? "bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" : ""}
+                onClick={selectAllTime} data-testid="billing-range-all-time"
+              >
+                Depuis toujours
+              </Button>
+              <Button
+                type="button" size="sm"
+                variant={rangeMode === "3m" ? "default" : "outline"}
+                className={rangeMode === "3m" ? "bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" : ""}
+                onClick={select3Months} data-testid="billing-range-3-months"
+              >
+                3 derniers mois
+              </Button>
+              <Button
+                type="button" size="sm"
+                variant={rangeMode === "custom" ? "default" : "outline"}
+                className={rangeMode === "custom" ? "bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" : ""}
+                onClick={selectCustomPeriod} data-testid="billing-range-custom"
+              >
+                Période
+              </Button>
             </div>
-            <div>
-              <Label className="text-xs">Au</Label>
-              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" data-testid="billing-date-to" />
-            </div>
-            <Button variant="outline" onClick={applyDateRange} data-testid="billing-date-apply-btn">Appliquer</Button>
+            {rangeMode === "custom" && (
+              <>
+                <div>
+                  <Label className="text-xs">Du</Label>
+                  <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10" data-testid="billing-date-from" />
+                </div>
+                <div>
+                  <Label className="text-xs">Au</Label>
+                  <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" data-testid="billing-date-to" />
+                </div>
+                <Button variant="outline" onClick={applyDateRange} data-testid="billing-date-apply-btn">Appliquer</Button>
+              </>
+            )}
           </div>
         ) : (
           <div className="text-xs text-muted-foreground pb-2" data-testid="billing-date-fixed">
@@ -128,12 +255,53 @@ export default function AdminBilling() {
         )}
       </div>
 
+      <div className="flex flex-wrap items-center gap-2" data-testid="billing-export-toolbar">
+        <Button variant="outline" size="sm" onClick={exportStatementPdf} disabled={exporting} data-testid="billing-export-pdf-btn">
+          {exporting ? "Export…" : "Exporter en PDF (situation de compte)"}
+        </Button>
+        {filterTenantId && (
+          <Dialog open={openSend} onOpenChange={setOpenSend}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" data-testid="billing-send-statement-btn">
+                Envoyer au client
+              </Button>
+            </DialogTrigger>
+            <DialogContent data-testid="billing-send-statement-dialog">
+              <DialogHeader><DialogTitle>Envoyer la situation de compte</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground">
+                  Destinataire : {clientLabel(filterTenantId)}
+                </div>
+                <div>
+                  <Label>Canal</Label>
+                  <Select value={sendChannel} onValueChange={setSendChannel}>
+                    <SelectTrigger data-testid="billing-send-channel-select"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                      <SelectItem value="email">Email</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setOpenSend(false)}>Annuler</Button>
+                <Button onClick={sendStatement} disabled={sending} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="billing-send-statement-submit">
+                  {sending ? "Envoi…" : "Envoyer"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
+      </div>
+
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="billing-summary">
           <div className="albarka-card p-4"><div className="text-xs text-muted-foreground">Factures</div><div className="text-2xl font-display">{summary.invoice_count}</div></div>
           <div className="albarka-card p-4"><div className="text-xs text-muted-foreground">Facturé</div><div className="text-2xl font-display">{Number(summary.total_billed).toLocaleString()}</div></div>
           <div className="albarka-card p-4">
-            <div className="text-xs text-muted-foreground">Encaissé {canPickDateRange ? `(${summary.date_from} → ${summary.date_to})` : "(aujourd'hui)"}</div>
+            <div className="text-xs text-muted-foreground">
+              Encaissé {!canPickDateRange ? "(aujourd'hui)" : rangeMode === "all" ? "(depuis toujours)" : `(${summary.date_from} → ${summary.date_to})`}
+            </div>
             <div className="text-2xl font-display text-emerald-700">{Number(summary.total_paid).toLocaleString()}</div>
           </div>
           <div className="albarka-card p-4"><div className="text-xs text-muted-foreground">Reste dû</div><div className="text-2xl font-display text-amber-700">{Number(summary.outstanding).toLocaleString()}</div></div>
@@ -184,12 +352,13 @@ export default function AdminBilling() {
           </div>
           <div className="albarka-card overflow-hidden">
             <Table>
-              <TableHeader><TableRow><TableHead>Numéro</TableHead><TableHead>Type</TableHead><TableHead>Titre</TableHead><TableHead>Total</TableHead><TableHead>Payé</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Numéro</TableHead><TableHead>Client</TableHead><TableHead>Type</TableHead><TableHead>Titre</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Payé</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
               <TableBody>
-                {invoices.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucun document caisse.</TableCell></TableRow>}
+                {invoices.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Aucun document caisse.</TableCell></TableRow>}
                 {invoices.map((i) => (
                   <TableRow key={i.id}>
                     <TableCell className="font-mono text-xs">{i.number}</TableCell>
+                    <TableCell className="text-sm">{clientLabel(i.tenant_id)}</TableCell>
                     <TableCell>
                       <span className={`albarka-chip text-[10px] ${
                         i.document_type === "recu" ? "bg-emerald-100 text-emerald-800"
@@ -200,8 +369,8 @@ export default function AdminBilling() {
                       </span>
                     </TableCell>
                     <TableCell>{i.title}</TableCell>
-                    <TableCell>{Number(i.total).toLocaleString()} {i.currency}</TableCell>
-                    <TableCell>{Number(i.paid_amount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{Number(i.total).toLocaleString()} {i.currency}</TableCell>
+                    <TableCell className="text-right">{Number(i.paid_amount || 0).toLocaleString()}</TableCell>
                     <TableCell><span className={`albarka-chip ${i.status === "paid" ? "bg-emerald-100 text-emerald-800" : i.status === "partial" ? "bg-amber-100 text-amber-800" : i.status === "proforma" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-700"}`}>
                       {i.status === "paid" ? "Payé" : i.status === "partial" ? "Partiel" : i.status === "proforma" ? "Proforma" : i.status === "unpaid" ? "Impayé" : i.status}
                     </span></TableCell>
@@ -220,13 +389,14 @@ export default function AdminBilling() {
         <TabsContent value="payments" className="pt-4">
           <div className="albarka-card overflow-hidden">
             <Table>
-              <TableHeader><TableRow><TableHead>Facture</TableHead><TableHead>Montant</TableHead><TableHead>Méthode</TableHead><TableHead>Référence</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Facture</TableHead><TableHead>Client</TableHead><TableHead className="text-right">Montant</TableHead><TableHead>Méthode</TableHead><TableHead>Référence</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
               <TableBody>
-                {payments.length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Aucun encaissement.</TableCell></TableRow>}
+                {payments.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Aucun encaissement.</TableCell></TableRow>}
                 {payments.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-mono text-xs">{p.invoice_number}</TableCell>
-                    <TableCell>{Number(p.amount).toLocaleString()}</TableCell>
+                    <TableCell className="text-sm">{clientLabel(p.tenant_id)}</TableCell>
+                    <TableCell className="text-right">{Number(p.amount).toLocaleString()}</TableCell>
                     <TableCell>{p.method}</TableCell>
                     <TableCell>{p.reference || "—"}</TableCell>
                     <TableCell className="text-xs">{p.paid_at?.slice(0, 16).replace("T", " ")}</TableCell>

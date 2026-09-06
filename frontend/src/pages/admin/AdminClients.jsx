@@ -20,7 +20,7 @@ const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction",
 const VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"];
 
 const emptyForm = () => ({
-  email: "", full_name: "", company: "", phone: "", password: "",
+  email: "", full_name: "", company: "", phone: "", whatsapp_number: "", password: "",
   can_receive_notifications: true, is_active: true,
 });
 
@@ -59,6 +59,7 @@ export default function AdminClients() {
       full_name: c.full_name || "",
       company: c.company || "",
       phone: c.phone || "",
+      whatsapp_number: c.whatsapp_number || "",
       password: "",
       can_receive_notifications: c.can_receive_notifications !== false,
       is_active: c.is_active !== false,
@@ -76,6 +77,7 @@ export default function AdminClients() {
           full_name: form.full_name,
           company: form.company || null,
           phone: form.phone || null,
+          whatsapp_number: form.whatsapp_number || null,
           can_receive_notifications: form.can_receive_notifications,
           is_active: form.is_active,
         });
@@ -108,10 +110,14 @@ export default function AdminClients() {
     toast.success("ID copié");
   };
 
-  const toggleVerified = async (c) => {
+  // Téléphone et WhatsApp sont deux numéros distincts, chacun avec son propre
+  // statut "vérifié" (attestation manuelle par un collaborateur habilité).
+  const toggleVerified = async (c, kind) => {
+    const field = kind === "whatsapp" ? "whatsapp_verified" : "phone_verified";
+    const url = kind === "whatsapp" ? `/clients/${c.id}/verify-whatsapp` : `/clients/${c.id}/verify-phone`;
     try {
-      await apiClient.patch(`/clients/${c.id}/verify-phone`, { verified: !c.phone_verified });
-      toast.success(c.phone_verified ? "Numéro marqué non vérifié" : "Numéro attesté vérifié");
+      await apiClient.patch(url, { verified: !c[field] });
+      toast.success(c[field] ? "Numéro marqué non vérifié" : "Numéro attesté vérifié");
       await load();
     } catch (err) {
       toast.error(extractError(err));
@@ -151,6 +157,10 @@ export default function AdminClients() {
               <div><Label>Nom complet</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="client-name-input" /></div>
               <div><Label>Entreprise</Label><Input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} data-testid="client-company-input" /></div>
               <div><Label>Téléphone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="client-phone-input" /></div>
+              <div>
+                <Label>Numéro WhatsApp</Label>
+                <Input value={form.whatsapp_number} onChange={(e) => setForm({ ...form, whatsapp_number: e.target.value })} placeholder="Laisser vide si identique au téléphone" data-testid="client-whatsapp-input" />
+              </div>
               {!editing && (
                 <div><Label>Mot de passe (temp)</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="client-password-input" /></div>
               )}
@@ -192,34 +202,48 @@ export default function AdminClients() {
               <TableHead>Email</TableHead>
               <TableHead>Entreprise</TableHead>
               <TableHead>Téléphone</TableHead>
-              {canVerifyPhone && <TableHead>Vérifié</TableHead>}
+              <TableHead>WhatsApp</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead>ID (tenant)</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={canVerifyPhone ? 8 : 7} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && items.length === 0 && <TableRow><TableCell colSpan={canVerifyPhone ? 8 : 7} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+            {!loading && items.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
             {items.map((c) => (
               <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">{c.full_name}</TableCell>
                 <TableCell className="text-sm">{c.email}</TableCell>
                 <TableCell className="text-sm">{c.company || "—"}</TableCell>
-                <TableCell className="text-sm">{c.phone || "—"}</TableCell>
-                {canVerifyPhone && (
-                  <TableCell>
+                <TableCell className="text-sm">
+                  <div>{c.phone || "—"}</div>
+                  {c.phone && canVerifyPhone && (
                     <button
-                      onClick={() => toggleVerified(c)}
-                      className={`flex items-center gap-1 text-xs ${c.phone_verified ? "text-emerald-700" : "text-muted-foreground"}`}
+                      onClick={() => toggleVerified(c, "phone")}
+                      className={`mt-0.5 flex items-center gap-1 text-[10px] ${c.phone_verified ? "text-emerald-700" : "text-muted-foreground"}`}
                       title={c.phone_verified ? "Numéro attesté vérifié — cliquer pour révoquer" : "Attester que ce numéro est vérifié"}
                       data-testid={`verify-phone-${c.id}`}
                     >
-                      <ShieldCheck className={`w-4 h-4 ${c.phone_verified ? "fill-emerald-100" : ""}`} />
+                      <ShieldCheck className={`w-3 h-3 ${c.phone_verified ? "fill-emerald-100" : ""}`} />
                       {c.phone_verified ? "Vérifié" : "Non vérifié"}
                     </button>
-                  </TableCell>
-                )}
+                  )}
+                </TableCell>
+                <TableCell className="text-sm">
+                  <div>{c.whatsapp_number || "—"}</div>
+                  {c.whatsapp_number && canVerifyPhone && (
+                    <button
+                      onClick={() => toggleVerified(c, "whatsapp")}
+                      className={`mt-0.5 flex items-center gap-1 text-[10px] ${c.whatsapp_verified ? "text-emerald-700" : "text-muted-foreground"}`}
+                      title={c.whatsapp_verified ? "Numéro attesté vérifié — cliquer pour révoquer" : "Attester que ce numéro est vérifié"}
+                      data-testid={`verify-whatsapp-${c.id}`}
+                    >
+                      <ShieldCheck className={`w-3 h-3 ${c.whatsapp_verified ? "fill-emerald-100" : ""}`} />
+                      {c.whatsapp_verified ? "Vérifié" : "Non vérifié"}
+                    </button>
+                  )}
+                </TableCell>
                 <TableCell>
                   {c.is_active === false
                     ? <span className="albarka-chip bg-slate-100 text-slate-500">Inactif</span>

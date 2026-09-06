@@ -67,7 +67,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
   const isPrivileged = !isClient && myRoles.some((r) => DOCS_PRIVILEGED_ROLES.includes(r));
   const canDownload = !isClient && myRoles.some((r) => DOWNLOAD_ROLES.includes(r));
   const canDelete = !isClient && myRoles.some((r) => DOCS_DELETE_ROLES.includes(r));
-  const canSendWhatsapp = (doc) => isPrivileged || (myRoles.includes("communication") && doc.client_phone_verified);
+  const canSendWhatsapp = (doc) => isPrivileged || (myRoles.includes("communication") && doc.client_whatsapp_verified);
 
   const load = async () => {
     setLoading(true);
@@ -265,7 +265,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
               <TableHead>Fichier</TableHead>
               {!isClient && <TableHead>Entreprise</TableHead>}
               <TableHead>Type</TableHead>
-              <TableHead>Taille</TableHead>
+              <TableHead className="text-right">Taille</TableHead>
               <TableHead>Déposé le</TableHead>
               <TableHead>Statut</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -304,7 +304,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                     </TableCell>
                   )}
                   <TableCell className={`text-sm ${!isClient ? "uppercase" : ""}`}>{d.kind?.replaceAll("_", " ")}</TableCell>
-                  <TableCell className="text-sm">{Math.round((d.size || 0) / 1024)} Ko</TableCell>
+                  <TableCell className="text-sm text-right">{Math.round((d.size || 0) / 1024)} Ko</TableCell>
                   <TableCell className="text-sm">
                     {isClient ? d.created_at?.slice(0, 10) : d.created_at?.slice(0, 16).replace("T", " ")}
                   </TableCell>

@@ -179,7 +179,7 @@ export default function AdminAccounting() {
             </div>
             <div className="albarka-card overflow-hidden">
               <Table>
-                <TableHeader><TableRow><TableHead>Numéro</TableHead><TableHead>Date</TableHead><TableHead>Journal</TableHead><TableHead>Libellé</TableHead><TableHead>Total D/C</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow><TableHead>Numéro</TableHead><TableHead>Date</TableHead><TableHead>Journal</TableHead><TableHead>Libellé</TableHead><TableHead className="text-right">Total D/C</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
                 <TableBody>
                   {entries.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucune écriture.</TableCell></TableRow>}
                   {entries.map((e) => (
@@ -188,7 +188,7 @@ export default function AdminAccounting() {
                       <TableCell>{e.entry_date}</TableCell>
                       <TableCell>{e.journal}</TableCell>
                       <TableCell>{e.label}</TableCell>
-                      <TableCell className="font-mono text-xs">{Number(e.total_debit).toLocaleString()}</TableCell>
+                      <TableCell className="font-mono text-xs text-right">{Number(e.total_debit).toLocaleString()}</TableCell>
                       <TableCell><span className={`albarka-chip ${e.status === "validated" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{e.status}</span></TableCell>
                       <TableCell className="text-right whitespace-nowrap">
                         {e.status !== "validated" && (<Button variant="ghost" size="sm" onClick={() => validate(e.id)} data-testid={`validate-entry-${e.id}`} title="Valider"><CheckCircle2 className="w-4 h-4 text-emerald-700" /></Button>)}

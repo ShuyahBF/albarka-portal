@@ -44,18 +44,20 @@ const STATUS_TONE = {
   archivee: "bg-slate-100 text-slate-500",
 };
 
+const defaultMissionForm = (tenantIdOverride) => ({
+  tenant_id: tenantIdOverride || "",
+  title: "",
+  type: "tenue_comptable",
+  description: "",
+  due_date: "",
+  status: "en_attente",
+});
+
 export default function Missions({ tenantIdOverride = null, staffMode = false }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    tenant_id: tenantIdOverride || "",
-    title: "",
-    type: "tenue_comptable",
-    description: "",
-    due_date: "",
-    status: "en_attente",
-  });
+  const [form, setForm] = useState(defaultMissionForm(tenantIdOverride));
   const { isClient } = useAuth();
   const canCreate = staffMode || !isClient;
 
@@ -83,7 +85,7 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
       await apiClient.post("/missions", form);
       toast.success("Mission créée");
       setOpen(false);
-      setForm({ ...form, title: "", description: "", due_date: "" });
+      setForm(defaultMissionForm(tenantIdOverride));
       await load();
     } catch (err) {
       toast.error(extractError(err));
@@ -111,7 +113,7 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
           <p className="text-muted-foreground mt-1">Suivi des dossiers ouverts, en revue et terminés.</p>
         </div>
         {canCreate && (
-          <Dialog open={open} onOpenChange={setOpen}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) setForm(defaultMissionForm(tenantIdOverride)); }}>
             <DialogTrigger asChild>
               <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-mission-btn">
                 <Plus className="w-4 h-4 mr-2" />Nouvelle mission

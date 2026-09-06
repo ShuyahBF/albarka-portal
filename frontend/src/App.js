@@ -21,6 +21,7 @@ import Documents from "@/pages/portal/Documents";
 import ClientMissions from "@/pages/portal/Missions";
 import ClientEcheances from "@/pages/portal/Echeances";
 import Historique from "@/pages/portal/Historique";
+import MyAccount from "@/pages/portal/MyAccount";
 
 // Admin (staff)
 import AdminClients from "@/pages/admin/AdminClients";
@@ -31,6 +32,7 @@ import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminContracts from "@/pages/admin/AdminContracts";
 import AdminBilling from "@/pages/admin/AdminBilling";
+import AdminPayments from "@/pages/admin/AdminPayments";
 import AdminHR from "@/pages/admin/AdminHR";
 import AdminAccounting from "@/pages/admin/AdminAccounting";
 import AdminBulkReports from "@/pages/admin/AdminBulkReports";
@@ -77,6 +79,7 @@ function App() {
             <Route path="missions" element={<ClientMissions />} />
             <Route path="echeances" element={<ClientEcheances />} />
             <Route path="historique" element={<Historique />} />
+            <Route path="mon-compte" element={<MyAccount />} />
           </Route>
 
           {/* Admin */}
@@ -93,6 +96,7 @@ function App() {
             <Route path="rapports/bulk" element={<AdminBulkReports />} />
             <Route path="contrats" element={<AdminContracts />} />
             <Route path="caisse" element={<AdminBilling />} />
+            <Route path="paiements" element={<AdminPayments />} />
             <Route path="paie" element={<AdminHR />} />
             <Route path="archives" element={<AdminArchives />} />
             <Route path="messagerie" element={<AdminMessaging />} />
@@ -101,6 +105,7 @@ function App() {
             <Route path="comptabilite" element={<AdminAccounting />} />
             <Route path="logs" element={<AdminPlatformLogs />} />
             <Route path="settings" element={<AdminSettings />} />
+            <Route path="mon-compte" element={<MyAccount />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

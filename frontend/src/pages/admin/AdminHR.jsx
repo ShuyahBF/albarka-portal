@@ -108,14 +108,14 @@ export default function AdminHR() {
           </div>
           <div className="albarka-card overflow-hidden">
             <Table>
-              <TableHeader><TableRow><TableHead>Nom</TableHead><TableHead>Fonction</TableHead><TableHead>Salaire base</TableHead><TableHead>Contact</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Nom</TableHead><TableHead>Fonction</TableHead><TableHead className="text-right">Salaire base</TableHead><TableHead>Contact</TableHead></TableRow></TableHeader>
               <TableBody>
                 {employees.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Aucun employé.</TableCell></TableRow>}
                 {employees.map((e) => (
                   <TableRow key={e.id}>
                     <TableCell className="font-medium">{e.full_name}</TableCell>
                     <TableCell>{e.role || "—"}</TableCell>
-                    <TableCell>{Number(e.base_salary).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{Number(e.base_salary).toLocaleString()}</TableCell>
                     <TableCell className="text-sm">{e.email || e.phone || "—"}</TableCell>
                   </TableRow>
                 ))}
@@ -156,15 +156,15 @@ export default function AdminHR() {
           </div>
           <div className="albarka-card overflow-hidden">
             <Table>
-              <TableHeader><TableRow><TableHead>Employé</TableHead><TableHead>Période</TableHead><TableHead>Brut</TableHead><TableHead>Net</TableHead><TableHead className="text-right">PDF</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>Employé</TableHead><TableHead>Période</TableHead><TableHead className="text-right">Brut</TableHead><TableHead className="text-right">Net</TableHead><TableHead className="text-right">PDF</TableHead></TableRow></TableHeader>
               <TableBody>
                 {payslips.length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Aucun bulletin.</TableCell></TableRow>}
                 {payslips.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-medium">{p.employee_name}</TableCell>
                     <TableCell>{p.period_month}</TableCell>
-                    <TableCell>{Number(p.gross_salary).toLocaleString()}</TableCell>
-                    <TableCell className="font-semibold">{Number(p.net_salary).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">{Number(p.gross_salary).toLocaleString()}</TableCell>
+                    <TableCell className="font-semibold text-right">{Number(p.net_salary).toLocaleString()}</TableCell>
                     <TableCell className="text-right">
                       <Button
                         variant="ghost"

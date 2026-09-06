@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare, X, Send, Users, Mic, Square, Search, Paperclip, Loader2, Plus, FileText } from "lucide-react";
+import { MessageSquare, X, Send, Users, Mic, Square, Search, Paperclip, Loader2, Plus, FileText, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient, extractError, API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,12 @@ const CHAT_THREAD_CREATE_ROLES = ["administrateur", "superviseur", "dg", "direct
  * ChatBubble — bulle flottante du Chat interne.
  *
  * Strictement réservé aux collaborateurs entre eux (jamais monté pour un
- * client, voir PortalLayout.jsx). Organisé en fils nommés par sujet/mission,
- * créables à la volée.
+ * client, voir PortalLayout.jsx). Deux façons de discuter :
+ *  - Fils de groupe nommés par sujet/mission, création réservée aux rôles
+ *    CHAT_THREAD_CREATE_ROLES (voir canCreateThread).
+ *  - Discussions directes 1-à-1 (POST /chat/dm) : ouvertes à TOUT
+ *    collaborateur, sans fil à nommer — un "trouve ou crée" idempotent
+ *    entre soi et un collègue choisi dans la liste.
  *
  *  - A. Note vocale → texte (bouton micro, MediaRecorder, POST /chat/transcribe)
  *  - B. Recherche plein texte (Ctrl/Cmd+K → GET /chat/search)
@@ -35,6 +39,9 @@ export default function ChatBubble() {
   const [body, setBody] = useState("");
   const [newThreadTitle, setNewThreadTitle] = useState("");
   const [creatingThread, setCreatingThread] = useState(false);
+  const [colleagues, setColleagues] = useState([]);
+  const [dmPeerId, setDmPeerId] = useState("");
+  const [startingDm, setStartingDm] = useState(false);
   const [seenAt, setSeenAt] = useState(() => localStorage.getItem(LS_KEY) || "1970-01-01");
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -74,6 +81,27 @@ export default function ChatBubble() {
   }, [user?.id]);
 
   useEffect(() => { loadMessages(); }, [activeThread]);
+
+  // Annuaire des collègues pour démarrer une discussion directe — chargé une
+  // fois à l'ouverture de la bulle, pas besoin d'être dans CHAT_THREAD_CREATE_ROLES.
+  useEffect(() => {
+    if (!open || !user) return;
+    apiClient.get("/clients/staff").then(({ data }) => {
+      setColleagues((data || []).filter((s) => s.id !== user.id));
+    }).catch(() => {});
+  }, [open, user]);
+
+  const startDm = async () => {
+    if (!dmPeerId) return;
+    setStartingDm(true);
+    try {
+      const { data } = await apiClient.post("/chat/dm", { peer_id: dmPeerId });
+      await loadThreads();
+      setActiveThread(data.id);
+      setDmPeerId("");
+    } catch (err) { toast.error(extractError(err, "Impossible de démarrer la discussion")); }
+    finally { setStartingDm(false); }
+  };
 
   // Ctrl/Cmd+K → ouvre recherche
   useEffect(() => {
@@ -268,6 +296,26 @@ export default function ChatBubble() {
               </select>
             </div>
           )}
+          {/* Discussion directe — ouverte à tout collaborateur, sans fil à
+              nommer (contrairement aux fils de groupe ci-dessous). */}
+          <div className="p-2 border-b border-border flex gap-1 items-center">
+            <select
+              className="flex-1 h-7 text-xs bg-white rounded border border-input px-1"
+              value={dmPeerId}
+              onChange={(e) => setDmPeerId(e.target.value)}
+              data-testid="chat-bubble-dm-select"
+            >
+              <option value="">— Discuter avec un collègue —</option>
+              {colleagues.map((c) => (<option key={c.id} value={c.id}>{c.full_name}</option>))}
+            </select>
+            <Button
+              size="sm" variant="outline" className="h-7 px-2 text-xs"
+              onClick={startDm} disabled={!dmPeerId || startingDm}
+              data-testid="chat-bubble-dm-start-btn"
+            >
+              {startingDm ? <Loader2 className="w-3 h-3 animate-spin" /> : <MessageCircle className="w-3 h-3" />}
+            </Button>
+          </div>
           {canCreateThread && (
             <div className="p-2 border-b border-border flex gap-1 items-center">
               <Input

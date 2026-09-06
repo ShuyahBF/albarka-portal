@@ -26,7 +26,7 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 _ADMIN_ROLES = ["superviseur", "direction", "administrateur"]
 
 # Champs sensibles : masqués sur lecture (******** = présent).
-SENSITIVE_FIELDS = {"wa_access_token"}
+SENSITIVE_FIELDS = {"wa_access_token", "recaptcha_secret_key", "pawapay_api_token_sandbox", "pawapay_api_token_production"}
 
 # Valeurs par défaut.
 DEFAULT_SETTINGS: Dict[str, Any] = {
@@ -72,6 +72,22 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "wa_watermark_text": "{cabinet} — {date}",
     "wa_qr_enabled": False,
     "wa_qr_content": "",
+    # reCAPTCHA v2 sur la page de connexion (voir albarka_recaptcha.py).
+    # Désactivé par défaut : n'a d'effet qu'une fois une paire clé site/clé
+    # secrète Google renseignée.
+    "recaptcha_enabled": False,
+    "recaptcha_site_key": "",
+    "recaptcha_secret_key": "",
+    # PawaPay (mobile money — Orange/Moov/Telecel) : liens de paiement du
+    # module Paiements, réservé au rôle "caissier" (voir albarka_payments.py).
+    # Porté depuis ShuyahBF/Emergent — deux jetons distincts sandbox/prod,
+    # le jeu actif dépend de pawapay_environment.
+    "pawapay_enabled": False,
+    "pawapay_environment": "sandbox",  # "sandbox" | "production"
+    "pawapay_api_token_sandbox": "",
+    "pawapay_api_token_production": "",
+    "pawapay_country": "BFA",  # ISO-3
+    "pawapay_callback_secret": "",
 }
 
 
@@ -149,6 +165,17 @@ class SettingsUpdate(BaseModel):
     wa_watermark_text: Optional[str] = Field(None, max_length=120)
     wa_qr_enabled: Optional[bool] = None
     wa_qr_content: Optional[str] = Field(None, max_length=500)
+    # reCAPTCHA v2 (page de connexion)
+    recaptcha_enabled: Optional[bool] = None
+    recaptcha_site_key: Optional[str] = Field(None, max_length=200)
+    recaptcha_secret_key: Optional[str] = Field(None, max_length=200)
+    # PawaPay (module Paiements)
+    pawapay_enabled: Optional[bool] = None
+    pawapay_environment: Optional[str] = None
+    pawapay_api_token_sandbox: Optional[str] = Field(None, max_length=500)
+    pawapay_api_token_production: Optional[str] = Field(None, max_length=500)
+    pawapay_country: Optional[str] = Field(None, max_length=3)
+    pawapay_callback_secret: Optional[str] = Field(None, max_length=200)
 
 
 @router.get("/settings")

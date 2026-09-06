@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import io
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -326,3 +326,99 @@ def build_client_report_pdf(
 
     doc.build(story, onFirstPage=_on_page, onLaterPages=_on_page)
     return buf.getvalue()
+
+
+def build_billing_statement_pdf(
+    *, client: Optional[dict], invoices: List[dict], payments: List[dict],
+    period_label: str, total_billed: float, total_paid: float, outstanding: float,
+) -> bytes:
+    """Situation de compte — export PDF de la page Caisse (sans colonne
+    Actions, jamais présente ici puisqu'on ne sérialise que des données).
+
+    Contrairement à l'écran (qui affiche "Entreprise (Nom client)" pour
+    distinguer les homonymes), le PDF n'affiche QUE le nom de l'entreprise —
+    ou "Tous les clients" si aucun n'est sélectionné — le nom du client
+    individuel n'a pas sa place sur un document remis en main propre ou
+    envoyé par WhatsApp/email."""
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=1.8 * cm, rightMargin=1.8 * cm,
+        topMargin=1.8 * cm, bottomMargin=1.8 * cm,
+        title="Situation de compte — Cabinet ALBARKA",
+        author="Cabinet ALBARKA",
+    )
+    ss = _paragraph_styles()
+    story = []
+
+    client_label = (client.get("company") or client.get("full_name")) if client else "Tous les clients"
+    story.append(Paragraph("CABINET ALBARKA · SITUATION DE COMPTE", ss["AlbSubtitle"]))
+    story.append(Paragraph(client_label, ss["AlbTitle"]))
+    story.append(Paragraph(
+        f"Période : {period_label} · Généré le {datetime.now(timezone.utc).strftime('%d/%m/%Y à %H:%M UTC')}",
+        ss["AlbSubtitle"],
+    ))
+
+    story.append(_kpi_row([
+        ("Facturé", f"{total_billed:,.0f}".replace(",", " ")),
+        ("Encaissé", f"{total_paid:,.0f}".replace(",", " ")),
+        ("Reste dû", f"{outstanding:,.0f}".replace(",", " ")),
+    ]))
+
+    story.append(Paragraph("Factures", ss["AlbH2"]))
+    if invoices:
+        rows = [
+            [
+                i.get("number", ""),
+                {"recu": "Reçu", "proforma": "Proforma"}.get(i.get("document_type"), "Facture"),
+                i.get("title", ""),
+                f"{_number_fmt(i.get('total'))} {i.get('currency', '')}".strip(),
+                _number_fmt(i.get("paid_amount") or 0),
+                {"paid": "Payé", "partial": "Partiel", "proforma": "Proforma", "unpaid": "Impayé"}.get(
+                    i.get("status"), i.get("status", ""),
+                ),
+            ]
+            for i in invoices
+        ]
+        story.append(_table(
+            ["Numéro", "Type", "Titre", "Total", "Payé", "Statut"], rows,
+            col_widths=[2.8 * cm, 2.2 * cm, 5 * cm, 2.5 * cm, 2.5 * cm, 2.2 * cm],
+        ))
+    else:
+        story.append(Paragraph("<i>Aucune facture sur la période.</i>", ss["AlbBody"]))
+
+    story.append(Paragraph("Encaissements", ss["AlbH2"]))
+    if payments:
+        rows = [
+            [
+                p.get("invoice_number", ""),
+                _number_fmt(p.get("amount")),
+                p.get("method", ""),
+                p.get("reference") or "—",
+                (p.get("paid_at") or "")[:16].replace("T", " "),
+            ]
+            for p in payments
+        ]
+        story.append(_table(
+            ["Facture", "Montant", "Méthode", "Référence", "Date"], rows,
+            col_widths=[3 * cm, 3 * cm, 3 * cm, 3.5 * cm, 4.5 * cm],
+        ))
+    else:
+        story.append(Paragraph("<i>Aucun encaissement sur la période.</i>", ss["AlbBody"]))
+
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(
+        "<font color='#64748B' size='8'>Document généré automatiquement par le portail ALBARKA. "
+        "Confidentiel — usage interne au cabinet et au client concerné.</font>",
+        ss["AlbBody"],
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def _number_fmt(v) -> str:
+    try:
+        return f"{float(v):,.0f}".replace(",", " ")
+    except (TypeError, ValueError):
+        return "—"

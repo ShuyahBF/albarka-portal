@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Sprout, ArrowRight, Mail, Lock, KeyRound } from "lucide-react";
 import { toast } from "sonner";
@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
-import { extractError } from "@/lib/api";
+import { apiClient, extractError } from "@/lib/api";
 
 export default function Login() {
   const [step, setStep] = useState("credentials"); // credentials | otp
@@ -16,14 +16,48 @@ export default function Login() {
   const [session, setSession] = useState(null); // { session_token, dev_otp, message }
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
+  // reCAPTCHA v2 — chargé dynamiquement uniquement si activé côté paramètres admin
+  // (voir albarka_recaptcha.py / GET /auth/captcha-config).
+  const [captchaCfg, setCaptchaCfg] = useState({ enabled: false, site_key: null });
+  const [captchaToken, setCaptchaToken] = useState(null);
+  const captchaRef = useRef(null);
   const { loginStart, loginVerify, isStaff } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    apiClient.get("/auth/captcha-config").then(({ data }) => setCaptchaCfg(data)).catch(() => {});
+  }, []);
+
+  // Injecte le script Google reCAPTCHA et affiche le widget une fois la clé
+  // de site connue — no-op tant que le captcha est désactivé côté paramètres.
+  useEffect(() => {
+    if (!captchaCfg.enabled || !captchaCfg.site_key) return;
+    const renderWidget = () => {
+      try {
+        window.grecaptcha?.render(captchaRef.current, {
+          sitekey: captchaCfg.site_key,
+          callback: setCaptchaToken,
+        });
+      } catch { /* déjà rendu */ }
+    };
+    if (document.getElementById("recaptcha-script")) {
+      window.grecaptcha?.ready(renderWidget);
+      return;
+    }
+    const s = document.createElement("script");
+    s.id = "recaptcha-script";
+    s.src = "https://www.google.com/recaptcha/api.js?render=explicit";
+    s.async = true;
+    s.defer = true;
+    s.onload = () => window.grecaptcha?.ready(renderWidget);
+    document.head.appendChild(s);
+  }, [captchaCfg]);
 
   const submitCredentials = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const data = await loginStart(email, password);
+      const data = await loginStart(email, password, captchaToken);
       setSession(data);
       setStep("otp");
       toast.success(data.message);
@@ -149,9 +183,12 @@ export default function Login() {
                   />
                 </div>
               </div>
+              {captchaCfg.enabled && captchaCfg.site_key && (
+                <div ref={captchaRef} data-testid="recaptcha-widget" />
+              )}
               <Button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (captchaCfg.enabled && !captchaToken)}
                 className="w-full h-11 bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
                 data-testid="login-submit-btn"
               >

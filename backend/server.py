@@ -27,7 +27,9 @@ from albarka_dashboard import router as dashboard_router  # noqa: E402
 from albarka_documents import router as documents_router  # noqa: E402
 from albarka_echeances import router as echeances_router  # noqa: E402
 from albarka_missions import router as missions_router  # noqa: E402
+from albarka_myaccount import router as myaccount_router  # noqa: E402
 from albarka_ohada import router as ohada_router  # noqa: E402
+from albarka_payments import router as payments_router, webhook_router as payments_webhook_router  # noqa: E402
 from albarka_phase_c import (  # noqa: E402
     chat_router,
     billing_router,
@@ -65,6 +67,9 @@ api_router.include_router(dashboard_router)
 api_router.include_router(documents_router)
 api_router.include_router(echeances_router)
 api_router.include_router(missions_router)
+api_router.include_router(myaccount_router)
+api_router.include_router(payments_router)
+api_router.include_router(payments_webhook_router)
 api_router.include_router(reports_router)
 api_router.include_router(reports_mgmt_router)
 api_router.include_router(migrate_router)

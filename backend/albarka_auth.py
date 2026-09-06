@@ -20,6 +20,7 @@ from albarka_models import (
     OtpVerifyRequest,
     User,
 )
+from albarka_recaptcha import get_captcha_config, verify_recaptcha
 from db import db
 
 logger = logging.getLogger("albarka.auth")
@@ -129,6 +130,10 @@ async def login(payload: LoginRequest):
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Compte désactivé")
 
+    captcha = await verify_recaptcha(payload.captcha_token)
+    if not captcha["success"]:
+        raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
+
     code = generate_otp()
     session_token = generate_session_token()
     expires_at = (datetime.now(timezone.utc) + timedelta(minutes=OTP_EXPIRE_MINUTES)).isoformat()
@@ -189,3 +194,9 @@ async def verify_otp(payload: OtpVerifyRequest):
 @router.get("/me", response_model=User)
 async def me(user: dict = Depends(get_current_user)):
     return User(**user)
+
+
+@router.get("/captcha-config")
+async def captcha_config():
+    """Configuration publique reCAPTCHA pour la page de connexion (pas d'auth requise)."""
+    return await get_captcha_config()

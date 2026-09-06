@@ -19,6 +19,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from albarka_models import whatsapp_number_of
+
 logger = logging.getLogger("albarka.notifications")
 
 EMAIL_BASE_URL = "https://integrations.emergentagent.com"
@@ -530,10 +532,12 @@ async def notify_echeance(user: dict, echeance: dict, days_left: int) -> dict:
         )
         email_id = await send_email(to=list(email_recipients), subject=subject, html=html)
 
-    # WhatsApp: main user's phone + WA-opted contacts
+    # WhatsApp: main user's phone (numéro WhatsApp dédié si renseigné, sinon
+    # téléphone — voir whatsapp_number_of() dans albarka_models.py) + contacts WA-opt-in
     wa_phones: set = set()
-    if user.get("is_active", True) and user.get("can_receive_notifications") is not False and (user.get("phone") or "").startswith("+"):
-        wa_phones.add(user["phone"])
+    _user_wa_phone = whatsapp_number_of(user) or ""
+    if user.get("is_active", True) and user.get("can_receive_notifications") is not False and _user_wa_phone.startswith("+"):
+        wa_phones.add(_user_wa_phone)
     for c in await notifiable_contacts_for(user["id"], channel="whatsapp"):
         if (c.get("phone") or "").startswith("+"):
             wa_phones.add(c["phone"])
