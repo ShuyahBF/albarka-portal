@@ -68,7 +68,7 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "administrateur", "comptable", "secretariat"] },
   { to: "/admin/comptabilite", label: "Comptabilité OHADA", icon: BookOpen,
     roles: ["superviseur", "direction", "administrateur", "comptable", "aide_comptable", "fiscaliste"] },
-  { to: "/admin/messagerie", label: "Messagerie", icon: Send,
+  { to: "/admin/messagerie", label: "Diffusion", icon: Send,
     roles: ["superviseur", "direction", "administrateur", "communication"] },
   { to: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle,
     roles: ["superviseur", "direction", "administrateur", "communication"] },
@@ -218,8 +218,8 @@ export default function PortalLayout({ admin = false }) {
           <Outlet />
         </main>
       </div>
-      {/* Point 1 — Chat bubble flottant global (admin + client) */}
-      <ChatBubble />
+      {/* Chat interne — strictement réservé aux collaborateurs, jamais aux clients */}
+      {admin && <ChatBubble />}
     </div>
   );
 }

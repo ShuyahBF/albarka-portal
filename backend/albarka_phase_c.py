@@ -14,22 +14,32 @@ from __future__ import annotations
 
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from albarka_auth import get_current_user, require_roles, require_staff
-from albarka_models import is_client, tenant_id_of
+from albarka_models import CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES
 from db import db, serialize, serialize_many
 
 logger = logging.getLogger("albarka.phase_c")
 
 # ==========================================================================
 # 8a — Chat interne
+#
+# Strictement réservé aux collaborateurs entre eux (mission, déplacement,
+# extra-muros…) : jamais accessible aux clients, même pour une discussion
+# qui les concerne — leur canal reste les Conversations WhatsApp. Organisé
+# en fils nommés par sujet/mission, créables à la volée par n'importe quel
+# collaborateur (pas de fil imposé, pas de notion de propriétaire de fil).
 # ==========================================================================
 chat_router = APIRouter(prefix="/chat", tags=["Chat interne"])
+
+
+class ChatThreadCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=120)
 
 
 class ChatMessageCreate(BaseModel):
@@ -37,21 +47,64 @@ class ChatMessageCreate(BaseModel):
     body: str = Field(..., min_length=1, max_length=4000)
 
 
-async def _thread_visible(user: dict, thread_id: str) -> bool:
-    """Client peut lire son propre thread `client:{tenant_id}` uniquement."""
-    if not is_client(user):
-        return True
-    return thread_id == f"client:{tenant_id_of(user)}"
+async def _get_thread_or_404(thread_id: str) -> dict:
+    thread = await db.chat_threads.find_one({"id": thread_id}, {"_id": 0})
+    if not thread:
+        raise HTTPException(status_code=404, detail="Fil introuvable")
+    return thread
+
+
+@chat_router.post("/threads")
+async def create_chat_thread(payload: ChatThreadCreate, user: dict = Depends(require_roles(CHAT_THREAD_CREATE_ROLES))):
+    doc = {
+        "id": secrets.token_urlsafe(12),
+        "title": payload.title.strip(),
+        "created_by": user["id"],
+        "created_by_name": user.get("full_name") or user.get("email"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.chat_threads.insert_one(doc.copy())
+    return serialize(doc)
+
+
+@chat_router.get("/threads")
+async def list_chat_threads(user: dict = Depends(require_staff())):
+    """Tous les fils (même sans message, pour qu'un fil tout juste créé
+    apparaisse immédiatement), triés par activité la plus récente."""
+    threads = await db.chat_threads.find({}, {"_id": 0}).to_list(500)
+    last_by_thread = {
+        t["_id"]: t async for t in db.chat_messages.aggregate([
+            {"$sort": {"created_at": -1}},
+            {"$group": {
+                "_id": "$thread_id",
+                "last_at": {"$first": "$created_at"},
+                "last_author": {"$first": "$author_name"},
+                "last_body": {"$first": "$body"},
+                "count": {"$sum": 1},
+            }},
+        ])
+    }
+    result = []
+    for t in threads:
+        last = last_by_thread.get(t["id"])
+        result.append({
+            "thread_id": t["id"], "title": t["title"],
+            "last_at": last["last_at"] if last else t["created_at"],
+            "last_author": last["last_author"] if last else None,
+            "last_body": (last["last_body"][:120] if last else ""),
+            "count": last["count"] if last else 0,
+        })
+    result.sort(key=lambda r: r["last_at"] or "", reverse=True)
+    return result
 
 
 @chat_router.get("/messages")
 async def list_chat_messages(
     thread_id: str,
     limit: int = 200,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_staff()),
 ):
-    if not await _thread_visible(user, thread_id):
-        raise HTTPException(status_code=403, detail="Accès refusé")
+    await _get_thread_or_404(thread_id)
     items = await db.chat_messages.find(
         {"thread_id": thread_id}, {"_id": 0},
     ).sort("created_at", 1).to_list(min(max(limit, 1), 500))
@@ -60,17 +113,15 @@ async def list_chat_messages(
 
 @chat_router.post("/messages")
 async def post_chat_message(
-    payload: ChatMessageCreate, user: dict = Depends(get_current_user),
+    payload: ChatMessageCreate, user: dict = Depends(require_staff()),
 ):
-    if not await _thread_visible(user, payload.thread_id):
-        raise HTTPException(status_code=403, detail="Accès refusé")
+    await _get_thread_or_404(payload.thread_id)
     doc = {
         "id": secrets.token_urlsafe(12),
         "thread_id": payload.thread_id,
         "body": payload.body,
         "author_id": user["id"],
         "author_name": user.get("full_name") or user.get("email"),
-        "author_is_client": is_client(user),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.chat_messages.insert_one(doc.copy())
@@ -79,28 +130,6 @@ async def post_chat_message(
         entity_id=payload.thread_id, meta={"len": len(payload.body)},
     )
     return serialize(doc)
-
-
-@chat_router.get("/threads")
-async def list_chat_threads(user: dict = Depends(require_staff())):
-    """Liste distincts des thread_id + dernier message + auteur."""
-    threads = await db.chat_messages.aggregate([
-        {"$sort": {"created_at": -1}},
-        {"$group": {
-            "_id": "$thread_id",
-            "last_at": {"$first": "$created_at"},
-            "last_author": {"$first": "$author_name"},
-            "last_body": {"$first": "$body"},
-            "count": {"$sum": 1},
-        }},
-        {"$sort": {"last_at": -1}},
-        {"$limit": 200},
-    ]).to_list(200)
-    return [{
-        "thread_id": t["_id"], "last_at": t["last_at"],
-        "last_author": t["last_author"], "last_body": t["last_body"][:120],
-        "count": t["count"],
-    } for t in threads]
 
 
 # ==========================================================================
@@ -260,13 +289,39 @@ async def create_payment(payload: PaymentCreate, user: dict = Depends(require_st
     return serialize(payment)
 
 
+def _is_caisse_date_privileged(user: dict) -> bool:
+    return bool(set(user.get("roles") or []) & set(CAISSE_DATE_RANGE_ROLES))
+
+
+def _payments_date_bounds(user: dict, date_from: Optional[str], date_to: Optional[str]) -> tuple[str, str]:
+    """Renvoie (borne basse incluse, borne haute exclue) en ISO datetime.
+
+    Seuls Administrateur/DG/Superviseur peuvent choisir une période — tout
+    autre collaborateur est forcé sur la journée en cours côté serveur,
+    même s'il tente de passer ses propres date_from/date_to (l'UI ne lui
+    présente pas le sélecteur, mais l'API doit refuser aussi)."""
+    today = date.today()
+    if not _is_caisse_date_privileged(user):
+        date_from = date_to = today.isoformat()
+    else:
+        date_from = date_from or today.isoformat()
+        date_to = date_to or today.isoformat()
+    low = f"{date_from}T00:00:00"
+    high_date = date.fromisoformat(date_to) + timedelta(days=1)
+    high = f"{high_date.isoformat()}T00:00:00"
+    return low, high
+
+
 @billing_router.get("/payments")
 async def list_payments(
     tenant_id: Optional[str] = None,
     invoice_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
     user: dict = Depends(require_staff()),
 ):
-    q = {}
+    low, high = _payments_date_bounds(user, date_from, date_to)
+    q: dict = {"paid_at": {"$gte": low, "$lt": high}}
     if tenant_id: q["tenant_id"] = tenant_id
     if invoice_id: q["invoice_id"] = invoice_id
     items = await db.payments.find(q, {"_id": 0}).sort("paid_at", -1).to_list(1000)
@@ -274,18 +329,40 @@ async def list_payments(
 
 
 @billing_router.get("/summary")
-async def billing_summary(user: dict = Depends(require_staff())):
-    """Agrégat rapide : total facturé, total payé, impayé."""
-    invoices = await db.invoices.find({}, {"_id": 0, "total": 1, "paid_amount": 1, "status": 1}).to_list(2000)
+async def billing_summary(
+    tenant_id: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    user: dict = Depends(require_staff()),
+):
+    """Agrégat rapide : total facturé / impayé (toutes dates confondues —
+    les factures restent visibles sans restriction de période pour tous les
+    collaborateurs) et total encaissé (carte "Encaissement", qui reflète
+    strictement les encaissements visibles par l'utilisateur : journée en
+    cours pour un collaborateur ordinaire, période choisie pour
+    Administrateur/DG/Superviseur — voir _payments_date_bounds)."""
+    inv_q: dict = {}
+    if tenant_id: inv_q["tenant_id"] = tenant_id
+    invoices = await db.invoices.find(inv_q, {"_id": 0, "total": 1, "paid_amount": 1, "status": 1}).to_list(2000)
     total = sum(float(i.get("total", 0)) for i in invoices)
-    paid = sum(float(i.get("paid_amount", 0)) for i in invoices)
+    outstanding = sum(float(i.get("total", 0)) - float(i.get("paid_amount", 0)) for i in invoices)
     unpaid_count = sum(1 for i in invoices if i.get("status") != "paid")
+
+    low, high = _payments_date_bounds(user, date_from, date_to)
+    pay_q: dict = {"paid_at": {"$gte": low, "$lt": high}}
+    if tenant_id: pay_q["tenant_id"] = tenant_id
+    payments = await db.payments.find(pay_q, {"_id": 0, "amount": 1}).to_list(5000)
+    paid = sum(float(p.get("amount", 0)) for p in payments)
+
     return {
         "invoice_count": len(invoices),
         "total_billed": round(total, 2),
         "total_paid": round(paid, 2),
-        "outstanding": round(total - paid, 2),
+        "outstanding": round(outstanding, 2),
         "unpaid_count": unpaid_count,
+        "date_range_editable": _is_caisse_date_privileged(user),
+        "date_from": low[:10],
+        "date_to": (date.fromisoformat(high[:10]) - timedelta(days=1)).isoformat(),
     }
 
 

@@ -61,6 +61,17 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # WhatsApp inbox (Partie 2.D)
     "wa_webhook_verify_token": "",
     "wa_voice_transcribe_enabled": True,
+    # RGPD — masquage des numéros de téléphone client pour les collaborateurs
+    # non-privilégiés (voir albarka_clients.py:_apply_rgpd_masking). Activer
+    # ou désactiver ce réglage est réservé au rôle "administrateur" seul —
+    # même le superviseur ne peut pas le changer, voir update_settings ci-dessous.
+    "rgpd_masking_enabled": True,
+    # Filigrane + QR sur les documents envoyés par WhatsApp (voir albarka_wa_stamp.py).
+    # Les deux s'activent indépendamment. wa_watermark_text accepte {cabinet} et {date}.
+    "wa_watermark_enabled": False,
+    "wa_watermark_text": "{cabinet} — {date}",
+    "wa_qr_enabled": False,
+    "wa_qr_content": "",
 }
 
 
@@ -131,6 +142,13 @@ class SettingsUpdate(BaseModel):
     # Partie 2.D — webhook WhatsApp entrant
     wa_webhook_verify_token: Optional[str] = Field(None, max_length=200)
     wa_voice_transcribe_enabled: Optional[bool] = None
+    # RGPD — administrateur uniquement, voir update_settings
+    rgpd_masking_enabled: Optional[bool] = None
+    # Filigrane/QR WhatsApp
+    wa_watermark_enabled: Optional[bool] = None
+    wa_watermark_text: Optional[str] = Field(None, max_length=120)
+    wa_qr_enabled: Optional[bool] = None
+    wa_qr_content: Optional[str] = Field(None, max_length=500)
 
 
 @router.get("/settings")
@@ -141,6 +159,10 @@ async def get_settings(user: dict = Depends(require_roles(_ADMIN_ROLES))):
 @router.put("/settings")
 async def update_settings(payload: SettingsUpdate, user: dict = Depends(require_roles(_ADMIN_ROLES))):
     changes = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    # L'activation/désactivation du RGPD est réservée au rôle "administrateur"
+    # littéral — contrairement à require_roles, pas de passe-droit superviseur ici.
+    if "rgpd_masking_enabled" in changes and "administrateur" not in (user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="Seul un compte Administrateur peut activer/désactiver le RGPD")
     # Never persist the masked sentinel back.
     for k in SENSITIVE_FIELDS:
         if changes.get(k) == "********":

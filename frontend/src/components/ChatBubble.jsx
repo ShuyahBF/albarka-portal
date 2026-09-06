@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MessageSquare, X, Send, Users, Mic, Square, Search, Camera, Loader2, Image as ImageIcon } from "lucide-react";
+import { MessageSquare, X, Send, Users, Mic, Square, Search, Paperclip, Loader2, Plus, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient, extractError, API } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -9,58 +9,52 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const LS_KEY = "albarka:chat:seen_at";
 
+// Doit rester identique à CHAT_THREAD_CREATE_ROLES côté backend (albarka_models.py).
+const CHAT_THREAD_CREATE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
+
 /**
- * ChatBubble — bulle flottante globale (admin + client).
+ * ChatBubble — bulle flottante du Chat interne.
  *
- * Partie 1 :
+ * Strictement réservé aux collaborateurs entre eux (jamais monté pour un
+ * client, voir PortalLayout.jsx). Organisé en fils nommés par sujet/mission,
+ * créables à la volée.
+ *
  *  - A. Note vocale → texte (bouton micro, MediaRecorder, POST /chat/transcribe)
  *  - B. Recherche plein texte (Ctrl/Cmd+K → GET /chat/search)
  *  - C. Plein écran redimensionnable sur mobile (<768px)
- *  - D. Photo (bouton camera, POST /chat/messages/photo)
- * Polling ramené de 30s à 10s.
+ *  - D. Pièce jointe : photo ou document (POST /chat/messages/file)
+ * Polling toutes les 10s.
  */
 export default function ChatBubble() {
-  const { user, isClient } = useAuth();
+  const { user } = useAuth();
+  const canCreateThread = (user?.roles || []).some((r) => CHAT_THREAD_CREATE_ROLES.includes(r));
   const [open, setOpen] = useState(false);
   const [threads, setThreads] = useState([]);
-  const [clients, setClients] = useState([]);
   const [activeThread, setActiveThread] = useState(null);
   const [messages, setMessages] = useState([]);
   const [body, setBody] = useState("");
-  const [newTenantId, setNewTenantId] = useState("");
+  const [newThreadTitle, setNewThreadTitle] = useState("");
+  const [creatingThread, setCreatingThread] = useState(false);
   const [seenAt, setSeenAt] = useState(() => localStorage.getItem(LS_KEY) || "1970-01-01");
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [searchResults, setSearchResults] = useState([]);
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
   const scrollRef = useRef(null);
   const mediaRef = useRef(null);
   const chunksRef = useRef([]);
   const fileInputRef = useRef(null);
   const messageRefs = useRef({});
 
-  const clientName = (threadId) => {
-    if (!threadId) return "";
-    const id = threadId.startsWith("client:") ? threadId.slice(7) : threadId;
-    const c = clients.find((x) => x.id === id);
-    return c ? `${c.full_name}${c.company ? ` — ${c.company}` : ""}` : id;
-  };
+  const threadTitle = (threadId) => threads.find((t) => t.thread_id === threadId)?.title || threadId;
 
   const loadThreads = async () => {
     if (!user) return;
     try {
-      if (isClient) {
-        setThreads([{ thread_id: `client:${user.id}`, last_at: null, last_body: "", count: 0 }]);
-        if (!activeThread) setActiveThread(`client:${user.id}`);
-      } else {
-        const [{ data: t }, { data: c }] = await Promise.all([
-          apiClient.get("/chat/threads"),
-          apiClient.get("/clients"),
-        ]);
-        setThreads(t); setClients(c);
-      }
+      const { data } = await apiClient.get("/chat/threads");
+      setThreads(data);
     } catch (err) { /* silent */ }
   };
 
@@ -99,20 +93,18 @@ export default function ChatBubble() {
     const t = setTimeout(async () => {
       try {
         const params = { q: searchTerm.trim() };
-        if (!isClient && activeThread) params.thread_id = activeThread;
+        if (activeThread) params.thread_id = activeThread;
         const { data } = await apiClient.get("/chat/search", { params });
         setSearchResults(data);
       } catch (err) { /* silent */ }
     }, 250);
     return () => clearTimeout(t);
-  }, [searchTerm, searchOpen, activeThread, isClient]);
+  }, [searchTerm, searchOpen, activeThread]);
 
-  const unreadCount = useMemo(() => {
-    if (isClient) {
-      return messages.filter((m) => m.author_is_client === false && (m.created_at || "") > seenAt).length;
-    }
-    return threads.reduce((n, t) => ((t.last_at || "") > seenAt ? n + 1 : n), 0);
-  }, [threads, messages, seenAt, isClient]);
+  const unreadCount = useMemo(
+    () => threads.reduce((n, t) => ((t.last_at || "") > seenAt ? n + 1 : n), 0),
+    [threads, seenAt],
+  );
 
   const markSeen = () => {
     const now = new Date().toISOString();
@@ -132,15 +124,19 @@ export default function ChatBubble() {
     } catch (err) { toast.error(extractError(err)); }
   };
 
-  const startThread = () => {
-    if (!newTenantId) return;
-    const tid = `client:${newTenantId}`;
-    setActiveThread(tid);
-    setThreads((prev) => prev.some((t) => t.thread_id === tid) ? prev : [{ thread_id: tid, last_at: null, last_body: "(nouveau fil)", count: 0 }, ...prev]);
-    setNewTenantId("");
+  const createThread = async () => {
+    if (!newThreadTitle.trim()) return;
+    setCreatingThread(true);
+    try {
+      const { data } = await apiClient.post("/chat/threads", { title: newThreadTitle.trim() });
+      setNewThreadTitle("");
+      await loadThreads();
+      setActiveThread(data.id);
+    } catch (err) { toast.error(extractError(err, "Impossible de créer le fil")); }
+    finally { setCreatingThread(false); }
   };
 
-  // --- Partie 1.A — Note vocale ---
+  // --- Partie A — Note vocale ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -173,27 +169,27 @@ export default function ChatBubble() {
     setRecording(false);
   };
 
-  // --- Partie 1.D — Photo ---
-  const pickPhoto = () => fileInputRef.current?.click();
-  const uploadPhoto = async (file) => {
+  // --- Partie D — Pièce jointe (photo ou document) ---
+  const pickFile = () => fileInputRef.current?.click();
+  const uploadFile = async (file) => {
     if (!file || !activeThread) return;
-    if (file.size > 10 * 1024 * 1024) { toast.error("Photo trop volumineuse (max 10 Mo)"); return; }
-    setUploadingPhoto(true);
+    if (file.size > 10 * 1024 * 1024) { toast.error("Fichier trop volumineux (max 10 Mo)"); return; }
+    setUploadingFile(true);
     try {
       const fd = new FormData();
       fd.append("thread_id", activeThread);
       fd.append("caption", body);
-      fd.append("photo", file);
-      await apiClient.post("/chat/messages/photo", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      fd.append("file", file);
+      await apiClient.post("/chat/messages/file", fd, { headers: { "Content-Type": "multipart/form-data" } });
       setBody("");
       await loadMessages();
     } catch (err) { toast.error(extractError(err)); }
-    finally { setUploadingPhoto(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
+    finally { setUploadingFile(false); if (fileInputRef.current) fileInputRef.current.value = ""; }
   };
 
   if (!user) return null;
 
-  // Panel — plein écran mobile, bulle fixe desktop (Partie 1.C)
+  // Panel — plein écran mobile, bulle fixe desktop (Partie C)
   const panelClasses = "fixed z-50 bg-white shadow-2xl border border-border flex flex-col md:bottom-6 md:right-6 md:w-[400px] md:h-[560px] md:max-h-[85vh] md:rounded-xl inset-0 md:inset-auto";
 
   return (
@@ -219,7 +215,7 @@ export default function ChatBubble() {
             <div className="flex items-center gap-2 min-w-0">
               <MessageSquare className="w-4 h-4 shrink-0" />
               <span className="text-sm font-medium truncate">
-                {activeThread ? (isClient ? "Mon cabinet" : clientName(activeThread)) : "Chat interne"}
+                {activeThread ? threadTitle(activeThread) : "Chat interne"}
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -263,30 +259,44 @@ export default function ChatBubble() {
             </div>
           )}
 
-          {!isClient && threads.length > 0 && (
+          {threads.length > 0 && (
             <div className="p-2 border-b border-border flex items-center gap-2 bg-slate-50">
               <Users className="w-3 h-3 text-slate-500 shrink-0" />
               <select className="flex-1 h-7 text-xs bg-white rounded border border-input px-1" value={activeThread || ""} onChange={(e) => setActiveThread(e.target.value)} data-testid="chat-bubble-thread-select">
                 <option value="">— Choisir un fil —</option>
-                {threads.map((t) => (<option key={t.thread_id} value={t.thread_id}>{clientName(t.thread_id)}</option>))}
+                {threads.map((t) => (<option key={t.thread_id} value={t.thread_id}>{t.title}</option>))}
               </select>
             </div>
           )}
-          {!isClient && (
+          {canCreateThread && (
             <div className="p-2 border-b border-border flex gap-1 items-center">
-              <select className="flex-1 h-7 text-xs bg-white rounded border border-input px-1" value={newTenantId} onChange={(e) => setNewTenantId(e.target.value)} data-testid="chat-bubble-new-tenant-select">
-                <option value="">— Nouveau fil client —</option>
-                {clients.map((c) => (<option key={c.id} value={c.id}>{c.full_name}</option>))}
-              </select>
-              <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={startThread} data-testid="chat-bubble-start-thread-btn">Ouvrir</Button>
+              <Input
+                value={newThreadTitle}
+                onChange={(e) => setNewThreadTitle(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createThread(); } }}
+                placeholder="Nouveau fil… (ex. Mission Traoré BTP)"
+                className="flex-1 h-7 text-xs"
+                data-testid="chat-bubble-new-thread-input"
+              />
+              <Button
+                size="sm" variant="outline" className="h-7 px-2 text-xs"
+                onClick={createThread} disabled={!newThreadTitle.trim() || creatingThread}
+                data-testid="chat-bubble-create-thread-btn"
+              >
+                {creatingThread ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+              </Button>
             </div>
           )}
 
           <div ref={scrollRef} className="flex-1 p-3 overflow-y-auto space-y-2 bg-slate-50" data-testid="chat-bubble-messages">
-            {!activeThread && <div className="text-xs text-muted-foreground text-center py-10">Sélectionnez un fil pour commencer.</div>}
+            {!activeThread && (
+              <div className="text-xs text-muted-foreground text-center py-10">
+                {canCreateThread ? "Sélectionnez un fil ou créez-en un pour commencer." : "Sélectionnez un fil pour commencer."}
+              </div>
+            )}
             {activeThread && messages.length === 0 && <div className="text-xs text-muted-foreground text-center py-10">Aucun message. Écrivez le premier.</div>}
             {messages.map((m) => {
-              const mine = (m.author_is_client && isClient) || (!m.author_is_client && !isClient);
+              const mine = m.author_id === user.id;
               return (
                 <div key={m.id} ref={(el) => (messageRefs.current[m.id] = el)} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[80%] p-2 rounded-lg text-sm ${mine ? "bg-[#0F6B4A] text-white" : "bg-white border border-border"}`}>
@@ -295,6 +305,16 @@ export default function ChatBubble() {
                     </div>
                     {m.media_kind === "image" && m.media_url && (
                       <img src={m.media_url.startsWith("http") ? m.media_url : `${API}${m.media_url}`} alt="" className="max-w-full rounded mb-1" style={{maxHeight: 200}} />
+                    )}
+                    {m.media_kind === "file" && m.media_url && (
+                      <a
+                        href={m.media_url.startsWith("http") ? m.media_url : `${API}${m.media_url}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className={`flex items-center gap-1.5 mb-1 p-1.5 rounded border text-xs ${mine ? "bg-white/10 border-white/20" : "bg-slate-50 border-slate-200"}`}
+                      >
+                        <FileText className="w-4 h-4 shrink-0" />
+                        <span className="truncate underline">{m.media_filename || "Document"}</span>
+                      </a>
                     )}
                     {m.body && <div className="whitespace-pre-wrap">{m.body}</div>}
                   </div>
@@ -307,14 +327,18 @@ export default function ChatBubble() {
             <div className="p-2 border-t border-border flex gap-2 bg-white md:rounded-b-xl">
               <div className="flex flex-col gap-1">
                 <button
-                  onClick={pickPhoto}
-                  disabled={uploadingPhoto}
+                  onClick={pickFile}
+                  disabled={uploadingFile}
                   className="h-8 w-8 rounded bg-slate-100 hover:bg-slate-200 flex items-center justify-center"
-                  data-testid="chat-photo-btn" title="Envoyer une photo"
+                  data-testid="chat-file-btn" title="Envoyer un fichier (photo, PDF, Word, Excel, zip)"
                 >
-                  {uploadingPhoto ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                  {uploadingFile ? <Loader2 className="w-4 h-4 animate-spin" /> : <Paperclip className="w-4 h-4" />}
                 </button>
-                <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => uploadPhoto(e.target.files?.[0])} data-testid="chat-photo-input" />
+                <input
+                  ref={fileInputRef} type="file"
+                  accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.zip"
+                  className="hidden" onChange={(e) => uploadFile(e.target.files?.[0])} data-testid="chat-file-input"
+                />
                 <button
                   onClick={recording ? stopRecording : startRecording}
                   disabled={transcribing}

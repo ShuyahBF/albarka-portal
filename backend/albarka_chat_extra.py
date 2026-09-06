@@ -1,9 +1,13 @@
-"""Partie 1 — Extensions du chat interne (transcribe, search, photo).
+"""Partie 1 — Extensions du chat interne (transcribe, search, pièce jointe).
 
 Le module `albarka_phase_c.chat_router` reste le socle. Ce fichier ajoute
 trois endpoints supplémentaires (POST /chat/transcribe, GET /chat/search,
-POST /chat/messages/photo) et une fonction publique `transcribe_audio_bytes`
+POST /chat/messages/file) et une fonction publique `transcribe_audio_bytes`
 réutilisée aussi par le webhook WhatsApp entrant (Partie 2.D).
+
+Chat interne = collaborateurs uniquement (voir albarka_phase_c.py) : tous
+les endpoints ici sont donc protégés par `require_staff()`, jamais par
+`get_current_user` seul.
 """
 from __future__ import annotations
 
@@ -22,7 +26,7 @@ from fastapi import (
 
 from albarka_admin_settings import get_settings_doc
 from albarka_auth import get_current_user, require_staff
-from albarka_models import is_client, tenant_id_of
+from albarka_phase_c import _get_thread_or_404
 from db import db, serialize, serialize_many
 
 logger = logging.getLogger("albarka.chat_extra")
@@ -31,8 +35,21 @@ logger = logging.getLogger("albarka.chat_extra")
 ALLOWED_AUDIO_EXT = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm", ".ogg"}
 AUDIO_SIZE_CAP = 25 * 1024 * 1024  # 25 Mo
 
+# Pièces jointes du chat interne : un collaborateur en déplacement doit
+# pouvoir envoyer un dossier zippé ou des pièces collectées chez un client
+# (PDF, scans, tableurs), pas seulement des photos.
 ALLOWED_IMAGE_MIME = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic", "image/heif"}
-IMAGE_SIZE_CAP = 10 * 1024 * 1024  # 10 Mo
+ALLOWED_DOC_MIME = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/zip",
+    "application/x-zip-compressed",
+}
+ALLOWED_ATTACHMENT_MIME = ALLOWED_IMAGE_MIME | ALLOWED_DOC_MIME
+ATTACHMENT_SIZE_CAP = 10 * 1024 * 1024  # 10 Mo — y compris pour les zips
 
 router = APIRouter(prefix="/chat", tags=["Chat interne"])
 
@@ -88,7 +105,7 @@ async def transcribe_audio_bytes(
 async def transcribe_endpoint(
     audio: UploadFile = File(...),
     language: str = Form("fr"),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_staff()),
 ):
     """Partie 1.A — transcription note vocale (audio uniquement, jeté après).
 
@@ -122,63 +139,67 @@ async def chat_search(
     q: str,
     thread_id: Optional[str] = None,
     limit: int = 30,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_staff()),
 ):
     if not q or not q.strip():
         raise HTTPException(status_code=400, detail="Terme de recherche requis")
     query: dict = {"body": {"$regex": q.strip(), "$options": "i"}}
-    # Cloisonnement client : uniquement son propre thread
-    if is_client(user):
-        my_thread = f"client:{tenant_id_of(user)}"
-        query["thread_id"] = my_thread
-    elif thread_id:
+    if thread_id:
         query["thread_id"] = thread_id
     items = await db.chat_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 100))
     return serialize_many(items)
 
 
 # =====================================================================
-# Partie 1.D — Pièce jointe photo (upload R2)
+# Partie 1.D — Pièce jointe (upload R2) : photo ou document (PDF, Word,
+# Excel, zip) — un collaborateur en déplacement doit pouvoir transmettre
+# n'importe quelle pièce collectée chez un client, pas seulement des photos.
 # =====================================================================
-@router.post("/messages/photo")
-async def post_photo_message(
+_EXT_BY_MIME = {
+    "image/png": ".png", "image/webp": ".webp",
+    "image/heic": ".heic", "image/heif": ".heif",
+    "application/pdf": ".pdf",
+    "application/msword": ".doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.ms-excel": ".xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/zip": ".zip",
+    "application/x-zip-compressed": ".zip",
+}
+
+
+@router.post("/messages/file")
+async def post_file_message(
     thread_id: str = Form(...),
     caption: str = Form(""),
-    photo: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
+    file: UploadFile = File(...),
+    user: dict = Depends(require_staff()),
 ):
-    # Cloisonnement client
-    if is_client(user):
-        my_thread = f"client:{tenant_id_of(user)}"
-        if thread_id != my_thread:
-            raise HTTPException(status_code=403, detail="Accès refusé")
-    mime = (photo.content_type or "").lower()
-    if mime not in ALLOWED_IMAGE_MIME:
-        raise HTTPException(status_code=400, detail=f"Type d'image non pris en charge : {mime or 'inconnu'}")
-    blob = await photo.read()
+    await _get_thread_or_404(thread_id)
+    mime = (file.content_type or "").lower()
+    if mime not in ALLOWED_ATTACHMENT_MIME:
+        raise HTTPException(status_code=400, detail=f"Type de fichier non pris en charge : {mime or 'inconnu'}")
+    blob = await file.read()
     if not blob:
-        raise HTTPException(status_code=400, detail="Image vide")
-    if len(blob) > IMAGE_SIZE_CAP:
-        raise HTTPException(status_code=413, detail="Image trop volumineuse (max 10 Mo)")
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    if len(blob) > ATTACHMENT_SIZE_CAP:
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 10 Mo)")
     # Storage R2 (module existant)
     from storage_r2 import put_object
-    ext = ".jpg"
-    if "png" in mime: ext = ".png"
-    elif "webp" in mime: ext = ".webp"
-    elif "heic" in mime or "heif" in mime: ext = ".heic"
+    ext = _EXT_BY_MIME.get(mime, ".jpg")
+    original_name = file.filename or f"fichier{ext}"
     storage_path = f"albarka/chat/{thread_id}/{secrets.token_urlsafe(10)}{ext}"
     await put_object(storage_path, blob, mime)
-    # URL de service via endpoint dédié
     doc = {
         "id": secrets.token_urlsafe(12),
         "thread_id": thread_id,
         "body": caption[:2000],
         "author_id": user["id"],
         "author_name": user.get("full_name") or user.get("email"),
-        "author_is_client": is_client(user),
-        "media_kind": "image",
+        "media_kind": "image" if mime in ALLOWED_IMAGE_MIME else "file",
         "media_mime": mime,
         "media_size": len(blob),
+        "media_filename": original_name,
         "media_url": f"/api/chat/media/{storage_path}",
         "media_storage_path": storage_path,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -188,13 +209,10 @@ async def post_photo_message(
 
 
 @router.get("/media/{path:path}")
-async def get_chat_media(path: str, user: dict = Depends(get_current_user)):
-    """Sert un media chat depuis R2 avec ACL : client → uniquement médias de son thread."""
+async def get_chat_media(path: str, user: dict = Depends(require_staff())):
+    """Sert un media chat depuis R2 — chat interne = staff uniquement."""
     from fastapi.responses import Response
     from storage_r2 import get_object
-    # Autorisation
-    if is_client(user) and f"/{tenant_id_of(user)}/" not in f"/{path}/" and not path.startswith(f"albarka/chat/client:{tenant_id_of(user)}/"):
-        raise HTTPException(status_code=403, detail="Accès refusé")
     try:
         blob, mime = await get_object(path)
     except Exception:

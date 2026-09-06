@@ -8,11 +8,30 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-from albarka_auth import get_current_user, hash_password, require_staff
-from albarka_models import ALBARKA_ROLES, User
+from albarka_auth import get_current_user, hash_password, require_roles, require_staff
+from albarka_admin_settings import get_settings_doc
+from albarka_models import ALBARKA_ROLES, CLIENT_MANAGE_ROLES, VERIFY_PHONE_ROLES, User, is_client
 from db import db, serialize, serialize_many
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
+
+
+def _mask_phone(phone: Optional[str]) -> Optional[str]:
+    """RGPD : ne laisse apparaître que l'indicatif et les 2 derniers chiffres."""
+    if not phone or len(phone) < 5:
+        return phone
+    return phone[:4] + "••••" + phone[-2:]
+
+
+async def _apply_rgpd_masking(docs: List[dict], viewer: dict) -> List[dict]:
+    if set(viewer.get("roles") or []) & set(CLIENT_MANAGE_ROLES):
+        return docs
+    settings = await get_settings_doc()
+    if not settings.get("rgpd_masking_enabled", True):
+        return docs
+    for d in docs:
+        d["phone"] = _mask_phone(d.get("phone"))
+    return docs
 
 
 class ClientCreate(BaseModel):
@@ -78,7 +97,7 @@ async def list_clients(user: dict = Depends(require_staff())):
     docs = await db.users.find(
         {"roles": "client"}, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
-    return serialize_many(docs)
+    return serialize_many(await _apply_rgpd_masking(docs, user))
 
 
 @router.get("/staff")
@@ -90,7 +109,7 @@ async def list_staff(user: dict = Depends(require_staff())):
 
 
 @router.post("")
-async def create_client(payload: ClientCreate, user: dict = Depends(require_staff())):
+async def create_client(payload: ClientCreate, user: dict = Depends(require_roles(CLIENT_MANAGE_ROLES))):
     existing = await db.users.find_one({"email": payload.email.lower()})
     if existing:
         raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà")
@@ -149,6 +168,8 @@ async def get_client(user_id: str, user: dict = Depends(require_staff())):
     doc = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if is_client(doc):
+        (await _apply_rgpd_masking([doc], user))
     return serialize(doc)
 
 
@@ -157,10 +178,17 @@ async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(
     update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if not update:
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "roles": 1})
+    if not target:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    # La restriction "création/modification de clients" ne s'applique qu'aux
+    # comptes clients — modifier un collaborateur reste géré séparément
+    # (voir AdminStaff.jsx, qui limite déjà sa propre UI à admin/superviseur/direction).
+    if is_client(target) and not set(user.get("roles") or []) & set(CLIENT_MANAGE_ROLES):
+        raise HTTPException(status_code=403, detail="Action réservée aux rôles autorisés")
     # Point 10 — seul un `administrateur` peut attribuer/retirer le rôle `administrateur`.
     if "roles" in update:
-        target = await db.users.find_one({"id": user_id}, {"_id": 0, "roles": 1})
-        current_roles = set(target.get("roles") or []) if target else set()
+        current_roles = set(target.get("roles") or [])
         new_roles = set(update["roles"])
         touches_admin = ("administrateur" in current_roles) != ("administrateur" in new_roles)
         if touches_admin and not _is_admin(user):
@@ -169,6 +197,24 @@ async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(
                 detail="Seul un compte Administrateur peut attribuer ou retirer le rôle Administrateur",
             )
     res = await db.users.update_one({"id": user_id}, {"$set": update})
+    if not res.matched_count:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    doc = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    return serialize(doc)
+
+
+class VerifyPhonePayload(BaseModel):
+    verified: bool = True
+
+
+@router.patch("/{user_id}/verify-phone")
+async def verify_client_phone(
+    user_id: str, payload: VerifyPhonePayload, user: dict = Depends(require_roles(VERIFY_PHONE_ROLES)),
+):
+    """Atteste (ou révoque) qu'un numéro client est de confiance — condition
+    d'accès à l'action "Envoyer par WhatsApp" pour le rôle Communication
+    seul (voir _can_send_whatsapp dans albarka_documents.py)."""
+    res = await db.users.update_one({"id": user_id}, {"$set": {"phone_verified": payload.verified}})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     doc = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})

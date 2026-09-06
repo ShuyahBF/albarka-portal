@@ -44,9 +44,11 @@ const STATUS_TONE = {
   erreur_analyse: "bg-red-100 text-red-700",
 };
 
-// Doit rester identique à SENSITIVE_DOC_ROLES côté backend (albarka_documents.py) :
-// rôle "telechargement" cumulable, accordé en plus du métier principal.
-const SENSITIVE_DOC_ROLES = ["superviseur", "direction", "administrateur", "telechargement"];
+// Doivent rester identiques aux listes équivalentes côté backend
+// (albarka_models.py DOCS_PRIVILEGED_ROLES/DOCS_DELETE_ROLES, albarka_documents.py DOWNLOAD_ROLES).
+const DOCS_PRIVILEGED_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
+const DOCS_DELETE_ROLES = ["administrateur", "superviseur", "dg", "direction"];
+const DOWNLOAD_ROLES = [...DOCS_PRIVILEGED_ROLES, "telechargement"];
 
 export default function Documents({ tenantIdOverride = null, hideUpload = false }) {
   const [docs, setDocs] = useState([]);
@@ -59,9 +61,13 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
   const { isClient, user } = useAuth();
   const [tenantId, setTenantId] = useState(tenantIdOverride || "");
 
-  // Côté staff uniquement : le client garde son accès Download inchangé sur
-  // ses propres pièces, cette restriction ne s'applique qu'à /admin/documents.
-  const canManageSensitive = !isClient && (user?.roles || []).some((r) => SENSITIVE_DOC_ROLES.includes(r));
+  // Côté staff uniquement : le client garde son accès Download/Delete inchangé
+  // sur ses propres pièces, ces restrictions ne s'appliquent qu'à /admin/documents.
+  const myRoles = user?.roles || [];
+  const isPrivileged = !isClient && myRoles.some((r) => DOCS_PRIVILEGED_ROLES.includes(r));
+  const canDownload = !isClient && myRoles.some((r) => DOWNLOAD_ROLES.includes(r));
+  const canDelete = !isClient && myRoles.some((r) => DOCS_DELETE_ROLES.includes(r));
+  const canSendWhatsapp = (doc) => isPrivileged || (myRoles.includes("communication") && doc.client_phone_verified);
 
   const load = async () => {
     setLoading(true);
@@ -164,7 +170,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
   };
 
   const sendDocByEmail = async (doc) => {
-    const owner = doc.client_name || doc.client_company || "le client";
+    const owner = doc.client_company || doc.client_name || "le client";
     if (!window.confirm(`Envoyer "${doc.original_filename}" par email à ${owner} ?`)) return;
     try {
       await apiClient.post(`/documents/${doc.id}/send-email`, {});
@@ -175,7 +181,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
   };
 
   const sendDocByWhatsapp = async (doc) => {
-    const owner = doc.client_name || doc.client_company || "le client";
+    const owner = doc.client_company || doc.client_name || "le client";
     if (!window.confirm(`Envoyer "${doc.original_filename}" par WhatsApp à ${owner} ?`)) return;
     try {
       await apiClient.post(`/documents/${doc.id}/send-whatsapp`, {});
@@ -257,7 +263,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
             <TableRow>
               <TableHead className="w-12"></TableHead>
               <TableHead>Fichier</TableHead>
-              {!isClient && <TableHead>Client</TableHead>}
+              {!isClient && <TableHead>Entreprise</TableHead>}
               <TableHead>Type</TableHead>
               <TableHead>Taille</TableHead>
               <TableHead>Déposé le</TableHead>
@@ -294,7 +300,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                   </TableCell>
                   {!isClient && (
                     <TableCell className="text-sm">
-                      {d.client_name || d.client_company || "—"}
+                      {d.client_company || d.client_name || "—"}
                     </TableCell>
                   )}
                   <TableCell className={`text-sm ${!isClient ? "uppercase" : ""}`}>{d.kind?.replaceAll("_", " ")}</TableCell>
@@ -322,18 +328,20 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                         <Button variant="ghost" size="sm" onClick={() => sendDocByEmail(d)} data-testid={`send-email-doc-${d.id}`} title="Envoyer par email">
                           <Mail className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => sendDocByWhatsapp(d)} data-testid={`send-wa-doc-${d.id}`} title="Envoyer par WhatsApp">
-                          <MessageCircle className="w-4 h-4" />
-                        </Button>
-                        {canManageSensitive && (
-                          <>
-                            <Button variant="ghost" size="sm" onClick={() => downloadDoc(d)} data-testid={`download-doc-${d.id}`} title="Télécharger">
-                              <Download className="w-4 h-4" />
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={() => deleteDoc(d)} data-testid={`delete-doc-${d.id}`} title="Supprimer">
-                              <Trash2 className="w-4 h-4 text-red-600" />
-                            </Button>
-                          </>
+                        {canSendWhatsapp(d) && (
+                          <Button variant="ghost" size="sm" onClick={() => sendDocByWhatsapp(d)} data-testid={`send-wa-doc-${d.id}`} title="Envoyer par WhatsApp">
+                            <MessageCircle className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {canDownload && (
+                          <Button variant="ghost" size="sm" onClick={() => downloadDoc(d)} data-testid={`download-doc-${d.id}`} title="Télécharger">
+                            <Download className="w-4 h-4" />
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button variant="ghost" size="sm" onClick={() => deleteDoc(d)} data-testid={`delete-doc-${d.id}`} title="Supprimer">
+                            <Trash2 className="w-4 h-4 text-red-600" />
+                          </Button>
                         )}
                       </>
                     )}

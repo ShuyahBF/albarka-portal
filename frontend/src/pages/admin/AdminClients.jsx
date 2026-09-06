@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Copy, Pencil } from "lucide-react";
+import { Plus, Copy, Pencil, ShieldCheck } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Link } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
+
+// Doivent rester identiques aux listes équivalentes côté backend (albarka_models.py).
+const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
+const VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"];
 
 const emptyForm = () => ({
   email: "", full_name: "", company: "", phone: "", password: "",
@@ -20,6 +25,10 @@ const emptyForm = () => ({
 });
 
 export default function AdminClients() {
+  const { user } = useAuth();
+  const myRoles = user?.roles || [];
+  const canManage = myRoles.some((r) => CLIENT_MANAGE_ROLES.includes(r));
+  const canVerifyPhone = myRoles.some((r) => VERIFY_PHONE_ROLES.includes(r));
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -99,6 +108,16 @@ export default function AdminClients() {
     toast.success("ID copié");
   };
 
+  const toggleVerified = async (c) => {
+    try {
+      await apiClient.patch(`/clients/${c.id}/verify-phone`, { verified: !c.phone_verified });
+      toast.success(c.phone_verified ? "Numéro marqué non vérifié" : "Numéro attesté vérifié");
+      await load();
+    } catch (err) {
+      toast.error(extractError(err));
+    }
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-clients-page">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -107,6 +126,7 @@ export default function AdminClients() {
           <h1 className="font-display text-3xl md:text-4xl text-foreground">Clients</h1>
           <p className="text-muted-foreground mt-1">Gérez les comptes des entreprises accompagnées.</p>
         </div>
+        {canManage && (
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
           <DialogTrigger asChild>
             <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-client-btn" onClick={openNew}>
@@ -161,6 +181,7 @@ export default function AdminClients() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        )}
       </div>
 
       <div className="albarka-card overflow-hidden">
@@ -171,20 +192,34 @@ export default function AdminClients() {
               <TableHead>Email</TableHead>
               <TableHead>Entreprise</TableHead>
               <TableHead>Téléphone</TableHead>
+              {canVerifyPhone && <TableHead>Vérifié</TableHead>}
               <TableHead>Statut</TableHead>
               <TableHead>ID (tenant)</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && items.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={canVerifyPhone ? 8 : 7} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+            {!loading && items.length === 0 && <TableRow><TableCell colSpan={canVerifyPhone ? 8 : 7} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
             {items.map((c) => (
               <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">{c.full_name}</TableCell>
                 <TableCell className="text-sm">{c.email}</TableCell>
                 <TableCell className="text-sm">{c.company || "—"}</TableCell>
                 <TableCell className="text-sm">{c.phone || "—"}</TableCell>
+                {canVerifyPhone && (
+                  <TableCell>
+                    <button
+                      onClick={() => toggleVerified(c)}
+                      className={`flex items-center gap-1 text-xs ${c.phone_verified ? "text-emerald-700" : "text-muted-foreground"}`}
+                      title={c.phone_verified ? "Numéro attesté vérifié — cliquer pour révoquer" : "Attester que ce numéro est vérifié"}
+                      data-testid={`verify-phone-${c.id}`}
+                    >
+                      <ShieldCheck className={`w-4 h-4 ${c.phone_verified ? "fill-emerald-100" : ""}`} />
+                      {c.phone_verified ? "Vérifié" : "Non vérifié"}
+                    </button>
+                  </TableCell>
+                )}
                 <TableCell>
                   {c.is_active === false
                     ? <span className="albarka-chip bg-slate-100 text-slate-500">Inactif</span>
@@ -196,9 +231,11 @@ export default function AdminClients() {
                   </button>
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
-                  <Button variant="ghost" size="sm" onClick={() => openEdit(c)} title="Modifier" data-testid={`edit-client-${c.id}`}>
-                    <Pencil className="w-4 h-4" />
-                  </Button>
+                  {canManage && (
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(c)} title="Modifier" data-testid={`edit-client-${c.id}`}>
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                  )}
                   <Link to={`/admin/clients/${c.id}`}>
                     <Button variant="outline" size="sm" data-testid={`view-client-${c.id}`}>Ouvrir</Button>
                   </Link>

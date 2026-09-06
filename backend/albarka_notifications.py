@@ -325,10 +325,18 @@ async def _wa_upload_media(*, pdf_bytes: bytes, filename: str, content_type: str
     `content_type` par défaut à "application/pdf" pour ne pas changer le
     comportement des appelants historiques (rapports, toujours des PDF) ;
     les pièces client de type image/Office doivent passer leur vrai type MIME,
-    sinon Meta reçoit un contenu mal étiqueté."""
+    sinon Meta reçoit un contenu mal étiqueté.
+
+    Point de passage unique de tout envoi de document WhatsApp (pièces
+    client comme rapports signés) : c'est ici, juste avant l'upload, que le
+    filigrane/QR paramétrable par l'administrateur est apposé — sur une
+    copie en mémoire seulement, jamais sur le fichier source (voir
+    albarka_wa_stamp.stamp_for_whatsapp)."""
     cfg = await _get_wa_config()
     if not cfg:
         return None
+    from albarka_wa_stamp import stamp_for_whatsapp
+    pdf_bytes = await stamp_for_whatsapp(pdf_bytes, content_type)
     url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/media"
     try:
         async with httpx.AsyncClient(timeout=60) as client:

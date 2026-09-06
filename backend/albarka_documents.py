@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from albarka_ai import analyze_document
 from albarka_auth import get_current_user, require_staff
-from albarka_models import DOCUMENT_KINDS, is_client, tenant_id_of
+from albarka_models import DOCS_DELETE_ROLES, DOCS_PRIVILEGED_ROLES, DOCUMENT_KINDS, is_client, tenant_id_of
 from albarka_notifications import notify_upload, send_email
 from albarka_storage import get_object, guess_content_type, presigned_url, save_and_log, storage_mode
 from db import db, serialize, serialize_many
@@ -27,23 +27,43 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 Mo
 ALLOWED_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "webp", "doc", "docx", "xls", "xlsx", "txt", "csv"}
 
 # Rôle "telechargement" : cumulable, accordé en plus du métier principal pour
-# autoriser le téléchargement (et, par défaut le même niveau de sensibilité,
-# la suppression) des pièces sans dépendre du rôle hiérarchique.
-SENSITIVE_DOC_ROLES = ["superviseur", "direction", "administrateur", "telechargement"]
+# autoriser le téléchargement des pièces sans dépendre du rôle hiérarchique.
+# DOCS_PRIVILEGED_ROLES/DOCS_DELETE_ROLES (albarka_models.py) sont partagés
+# avec le Chat interne et le module Clients — ne pas dupliquer ces listes.
+DOWNLOAD_ROLES = [*DOCS_PRIVILEGED_ROLES, "telechargement"]
 
 
-def _has_sensitive_doc_access(user: dict) -> bool:
-    return bool(set(user.get("roles") or []) & set(SENSITIVE_DOC_ROLES))
+def _has_download_access(user: dict) -> bool:
+    return bool(set(user.get("roles") or []) & set(DOWNLOAD_ROLES))
 
 
-def _require_sensitive_doc_access(user: dict) -> None:
+def _require_download_access(user: dict) -> None:
     """Le client garde toujours accès à ses propres pièces ; côté staff,
-    seuls les rôles SENSITIVE_DOC_ROLES peuvent télécharger/supprimer celles
-    des clients."""
+    seuls DOWNLOAD_ROLES peuvent télécharger celles des clients."""
     if is_client(user):
         return
-    if not _has_sensitive_doc_access(user):
+    if not _has_download_access(user):
         raise HTTPException(status_code=403, detail="Action réservée aux rôles autorisés")
+
+
+def _require_delete_access(user: dict) -> None:
+    """Suppression plus sensible que le téléchargement : jamais le rôle
+    "telechargement" seul, jamais "secretariat" seul — voir DOCS_DELETE_ROLES."""
+    if is_client(user):
+        return
+    if not set(user.get("roles") or []) & set(DOCS_DELETE_ROLES):
+        raise HTTPException(status_code=403, detail="Action réservée aux rôles autorisés")
+
+
+def _can_send_whatsapp(user: dict, owner: dict) -> bool:
+    """Un collaborateur privilégié (DOCS_PRIVILEGED_ROLES) peut toujours
+    envoyer. Les autres ne le peuvent que s'ils portent le rôle
+    "communication" ET que le numéro du client est attesté "vérifié" —
+    voir albarka_clients.py pour l'endpoint qui pose ce statut."""
+    roles = set(user.get("roles") or [])
+    if roles & set(DOCS_PRIVILEGED_ROLES):
+        return True
+    return "communication" in roles and bool(owner.get("phone_verified"))
 
 
 def _ext_of(filename: str) -> str:
@@ -158,17 +178,19 @@ async def list_documents(tenant_id: Optional[str] = None, user: dict = Depends(g
     docs = serialize_many(docs)
 
     # Vue staff : résout le propriétaire (client) de chaque pièce en une seule
-    # requête groupée, pour affichage dans la colonne "Client" du tableau.
+    # requête groupée, pour affichage dans la colonne "Entreprise" du tableau
+    # et pour déterminer si l'action WhatsApp est proposée (numéro vérifié).
     if not is_client(user) and docs:
         tenant_ids = sorted({d["tenant_id"] for d in docs if d.get("tenant_id")})
         clients = await db.users.find(
-            {"id": {"$in": tenant_ids}}, {"_id": 0, "id": 1, "full_name": 1, "company": 1},
+            {"id": {"$in": tenant_ids}}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "phone_verified": 1},
         ).to_list(len(tenant_ids))
         by_id = {c["id"]: c for c in clients}
         for d in docs:
             c = by_id.get(d.get("tenant_id"))
             d["client_name"] = (c or {}).get("full_name")
             d["client_company"] = (c or {}).get("company")
+            d["client_phone_verified"] = bool((c or {}).get("phone_verified"))
 
     return docs
 
@@ -193,7 +215,7 @@ async def get_document(document_id: str, user: dict = Depends(get_current_user))
 @router.get("/{document_id}/download-url")
 async def get_download_url(document_id: str, user: dict = Depends(get_current_user)):
     doc = await _get_owned_document(document_id, user)
-    _require_sensitive_doc_access(user)
+    _require_download_access(user)
     url = await presigned_url(doc["storage_path"], expires_in=300)
     if url:
         return {"url": url, "expires_in": 300, "mode": "r2"}
@@ -204,7 +226,7 @@ async def get_download_url(document_id: str, user: dict = Depends(get_current_us
 @router.get("/{document_id}/download")
 async def download_document(document_id: str, user: dict = Depends(get_current_user)):
     doc = await _get_owned_document(document_id, user)
-    _require_sensitive_doc_access(user)
+    _require_download_access(user)
     data, ct = await get_object(doc["storage_path"])
     filename = doc.get("original_filename") or "document"
     return Response(
@@ -217,10 +239,7 @@ async def download_document(document_id: str, user: dict = Depends(get_current_u
 @router.delete("/{document_id}")
 async def delete_document(document_id: str, user: dict = Depends(get_current_user)):
     doc = await _get_owned_document(document_id, user)
-    # Même niveau de sensibilité que le téléchargement : n'importe quel
-    # collaborateur pouvait jusqu'ici supprimer la pièce de n'importe quel
-    # client, ce qui est tout aussi risqué que le téléchargement non restreint.
-    _require_sensitive_doc_access(user)
+    _require_delete_access(user)
     await db.documents.delete_one({"id": document_id})
     await db.document_syntheses.delete_one({"document_id": document_id})
     return {"ok": True, "id": document_id}
@@ -307,6 +326,12 @@ async def send_document_whatsapp(
     )
 
     doc, owner = await _fetch_document_and_owner(document_id)
+    if not _can_send_whatsapp(user, owner):
+        raise HTTPException(
+            status_code=403,
+            detail="Envoi WhatsApp réservé au rôle Communication sur un numéro attesté vérifié "
+                   "(ou aux rôles superviseur/direction/DG/administrateur/secrétariat)",
+        )
     phone = (payload.to or owner.get("phone") or "").strip()
     if not phone.startswith("+"):
         raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…)")

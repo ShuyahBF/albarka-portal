@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Receipt, Wallet } from "lucide-react";
+import { Plus, Receipt, Wallet, X } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,8 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import EntitySelect from "@/components/EntitySelect";
+import { useAuth } from "@/contexts/AuthContext";
+
+// Doit rester identique à CAISSE_DATE_RANGE_ROLES côté backend (albarka_models.py).
+const CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"];
 
 export default function AdminBilling() {
+  const { user } = useAuth();
+  const canPickDateRange = (user?.roles || []).some((r) => CAISSE_DATE_RANGE_ROLES.includes(r));
+
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -20,18 +27,30 @@ export default function AdminBilling() {
   const [payTarget, setPayTarget] = useState(null);
   const [invForm, setInvForm] = useState({ tenant_id: "", title: "", label: "", quantity: 1, unit_price: "", tax_rate: 18, document_type: "facture" });
   const [payForm, setPayForm] = useState({ amount: "", method: "cash", reference: "" });
+  const [filterTenantId, setFilterTenantId] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
   const load = async () => {
     try {
+      const params = { tenant_id: filterTenantId || undefined };
+      const dateParams = canPickDateRange
+        ? { date_from: dateFrom || undefined, date_to: dateTo || undefined }
+        : {};
       const [{ data: inv }, { data: pay }, { data: sum }] = await Promise.all([
-        apiClient.get("/billing/invoices"),
-        apiClient.get("/billing/payments"),
-        apiClient.get("/billing/summary"),
+        apiClient.get("/billing/invoices", { params }),
+        apiClient.get("/billing/payments", { params: { ...params, ...dateParams } }),
+        apiClient.get("/billing/summary", { params: { ...params, ...dateParams } }),
       ]);
       setInvoices(inv); setPayments(pay); setSummary(sum);
+      // Reflète la période réellement appliquée par le serveur (utile pour
+      // les non-privilégiés, forcés sur "aujourd'hui" même sans sélecteur).
+      if (sum) { setDateFrom(sum.date_from); setDateTo(sum.date_to); }
     } catch (err) { toast.error(extractError(err)); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [filterTenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const applyDateRange = () => load();
 
   const submitInvoice = async () => {
     if (!invForm.tenant_id || !invForm.title || !invForm.label || !invForm.unit_price) {
@@ -72,11 +91,51 @@ export default function AdminBilling() {
         <p className="text-muted-foreground mt-1">Factures clients et encaissements.</p>
       </div>
 
+      <div className="flex flex-wrap items-end gap-3" data-testid="billing-filters">
+        <div className="w-full sm:w-64">
+          <Label className="text-xs">Filtrer par client (entreprise)</Label>
+          <div className="flex items-center gap-1 mt-1">
+            <EntitySelect
+              value={filterTenantId}
+              onChange={setFilterTenantId}
+              placeholder="Tous les clients"
+              testId="billing-tenant-filter"
+            />
+            {filterTenantId && (
+              <Button variant="ghost" size="sm" className="px-2" onClick={() => setFilterTenantId("")} data-testid="billing-tenant-filter-clear">
+                <X className="w-4 h-4" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {canPickDateRange ? (
+          <div className="flex items-end gap-2" data-testid="billing-date-range">
+            <div>
+              <Label className="text-xs">Du</Label>
+              <Input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="h-10" data-testid="billing-date-from" />
+            </div>
+            <div>
+              <Label className="text-xs">Au</Label>
+              <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" data-testid="billing-date-to" />
+            </div>
+            <Button variant="outline" onClick={applyDateRange} data-testid="billing-date-apply-btn">Appliquer</Button>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground pb-2" data-testid="billing-date-fixed">
+            Encaissements du jour ({dateFrom || "…"})
+          </div>
+        )}
+      </div>
+
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="billing-summary">
           <div className="albarka-card p-4"><div className="text-xs text-muted-foreground">Factures</div><div className="text-2xl font-display">{summary.invoice_count}</div></div>
           <div className="albarka-card p-4"><div className="text-xs text-muted-foreground">Facturé</div><div className="text-2xl font-display">{Number(summary.total_billed).toLocaleString()}</div></div>
-          <div className="albarka-card p-4"><div className="text-xs text-muted-foreground">Encaissé</div><div className="text-2xl font-display text-emerald-700">{Number(summary.total_paid).toLocaleString()}</div></div>
+          <div className="albarka-card p-4">
+            <div className="text-xs text-muted-foreground">Encaissé {canPickDateRange ? `(${summary.date_from} → ${summary.date_to})` : "(aujourd'hui)"}</div>
+            <div className="text-2xl font-display text-emerald-700">{Number(summary.total_paid).toLocaleString()}</div>
+          </div>
           <div className="albarka-card p-4"><div className="text-xs text-muted-foreground">Reste dû</div><div className="text-2xl font-display text-amber-700">{Number(summary.outstanding).toLocaleString()}</div></div>
         </div>
       )}

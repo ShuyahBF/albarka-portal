@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 ALBARKA_ROLES = [
     "superviseur",
     "direction",
+    "dg",
     "administrateur",
     "secretariat",
     "fiscaliste",
@@ -25,6 +26,17 @@ ALBARKA_ROLES = [
     "client",
 ]
 STAFF_ROLES = [r for r in ALBARKA_ROLES if r != "client"]
+
+# Groupes de rôles privilégiés utilisés par plusieurs modules — centralisés
+# ici pour éviter que chacun maintienne sa propre liste (source de dérive).
+# Chaque groupe correspond à une règle métier précise, volontairement pas
+# identique aux autres (ex. la Caisse exclut "direction" et "secretariat").
+DOCS_PRIVILEGED_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"]
+DOCS_DELETE_ROLES = ["administrateur", "superviseur", "dg", "direction"]  # jamais secretariat
+VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"]
+CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"]
+CLIENT_MANAGE_ROLES = DOCS_PRIVILEGED_ROLES
+CHAT_THREAD_CREATE_ROLES = DOCS_PRIVILEGED_ROLES
 
 MISSION_TYPES = [
     "tenue_comptable",
@@ -91,6 +103,10 @@ class User(BaseModel):
     roles: List[str] = Field(default_factory=lambda: ["client"])
     company: Optional[str] = None
     phone: Optional[str] = None
+    # Attesté par un collaborateur habilité (voir albarka_clients.py) — numéro
+    # de confiance, condition d'accès à l'action "Envoyer par WhatsApp" pour
+    # un collaborateur non-privilégié du rôle "communication".
+    phone_verified: bool = False
     is_active: bool = True
     created_at: str = Field(default_factory=_now_iso)
     last_login: Optional[str] = None

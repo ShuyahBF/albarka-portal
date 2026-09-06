@@ -10,10 +10,13 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import CertificatesPanel from "@/pages/admin/CertificatesPanel";
 import BrandingPanel from "@/pages/admin/BrandingPanel";
+import { useAuth } from "@/contexts/AuthContext";
 
 const FIELDS_TABS = ["cabinet", "whatsapp", "notifications", "rapports"];
 
 export default function AdminSettings() {
+  const { user } = useAuth();
+  const isAdministrateur = (user?.roles || []).includes("administrateur");
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -166,6 +169,42 @@ export default function AdminSettings() {
               <Save className="w-4 h-4 mr-2" />
               Enregistrer
             </Button>
+
+            <div className="border-t pt-4 mt-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-semibold">RGPD — masquer les numéros clients</div>
+                  <div className="text-sm text-muted-foreground max-w-md">
+                    Une fois activé, seuls Administrateur/Superviseur/DG/Direction/Secrétariat
+                    voient les numéros de téléphone et WhatsApp des clients en clair — les autres
+                    collaborateurs les voient masqués. Réservé au rôle Administrateur.
+                  </div>
+                </div>
+                <Switch
+                  checked={!!settings.rgpd_masking_enabled}
+                  onCheckedChange={(v) => setSettings({ ...settings, rgpd_masking_enabled: v })}
+                  disabled={!isAdministrateur}
+                  data-testid="rgpd-masking-switch"
+                />
+              </div>
+              {!isAdministrateur && (
+                <div className="text-xs text-amber-700 mt-2">
+                  Seul un compte Administrateur peut modifier ce réglage.
+                </div>
+              )}
+              {isAdministrateur && (
+                <Button
+                  onClick={() => save({ rgpd_masking_enabled: settings.rgpd_masking_enabled })}
+                  disabled={saving}
+                  variant="outline"
+                  className="mt-3"
+                  data-testid="save-rgpd-btn"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Enregistrer le RGPD
+                </Button>
+              )}
+            </div>
           </div>
         </TabsContent>
 
@@ -222,6 +261,67 @@ export default function AdminSettings() {
               >
                 <Save className="w-4 h-4 mr-2" />
                 Enregistrer
+              </Button>
+            </div>
+
+            <div className="border-t pt-4 mt-4 space-y-4">
+              <div className="text-sm font-semibold">Filigrane &amp; QR code sur les documents envoyés</div>
+              <div className="text-xs text-muted-foreground -mt-2">
+                Appliqué sur une copie temporaire juste avant l'envoi (photo ou PDF) — le fichier
+                d'origine stocké n'est jamais modifié. Les deux réglages s'activent indépendamment.
+              </div>
+
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="font-medium">Filigrane texte</div>
+                  <div className="text-sm text-muted-foreground">Variables disponibles : {"{cabinet}"} et {"{date}"}.</div>
+                </div>
+                <Switch
+                  checked={!!settings.wa_watermark_enabled}
+                  onCheckedChange={(v) => setSettings({ ...settings, wa_watermark_enabled: v })}
+                  data-testid="wa-watermark-switch"
+                />
+              </div>
+              <Input
+                value={settings.wa_watermark_text || ""}
+                onChange={(e) => setSettings({ ...settings, wa_watermark_text: e.target.value })}
+                placeholder="{cabinet} — {date}"
+                disabled={!settings.wa_watermark_enabled}
+                data-testid="wa-watermark-text-input"
+              />
+
+              <div className="flex items-start justify-between pt-2">
+                <div>
+                  <div className="font-medium">QR code</div>
+                  <div className="text-sm text-muted-foreground">Contenu fixe encodé (lien du cabinet, numéro, etc.).</div>
+                </div>
+                <Switch
+                  checked={!!settings.wa_qr_enabled}
+                  onCheckedChange={(v) => setSettings({ ...settings, wa_qr_enabled: v })}
+                  data-testid="wa-qr-switch"
+                />
+              </div>
+              <Input
+                value={settings.wa_qr_content || ""}
+                onChange={(e) => setSettings({ ...settings, wa_qr_content: e.target.value })}
+                placeholder="https://albarka-bf.com"
+                disabled={!settings.wa_qr_enabled}
+                data-testid="wa-qr-content-input"
+              />
+
+              <Button
+                onClick={() => save({
+                  wa_watermark_enabled: settings.wa_watermark_enabled,
+                  wa_watermark_text: settings.wa_watermark_text,
+                  wa_qr_enabled: settings.wa_qr_enabled,
+                  wa_qr_content: settings.wa_qr_content,
+                })}
+                disabled={saving}
+                variant="outline"
+                data-testid="save-wa-stamp-btn"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Enregistrer filigrane/QR
               </Button>
             </div>
 

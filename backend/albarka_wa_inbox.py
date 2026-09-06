@@ -277,9 +277,15 @@ async def send_reply(
 ):
     if not phone.startswith("+"):
         raise HTTPException(status_code=400, detail="Numéro attendu au format international (+226…)")
+    contact_id, contact_name = await _resolve_contact(phone)
+    if not contact_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Ce numéro ne correspond à aucun contact ni client enregistré — "
+                   "ajoutez-le d'abord dans le module Contacts avant de lui écrire.",
+        )
     from albarka_notifications import send_whatsapp
     result = await send_whatsapp(to_phone=phone, message=payload.body)
-    contact_id, contact_name = await _resolve_contact(phone)
     doc = {
         "id": secrets.token_urlsafe(12),
         "direction": "outbound",

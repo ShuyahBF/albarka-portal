@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Archive, Send, ScrollText, Trash2 } from "lucide-react";
+import { Plus, Archive, Send, ScrollText, Trash2, Loader2, RefreshCw, Check, X as XIcon } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 
 // -----------------------------------------------------------------------
 // AdminArchives — bibliothèque d'archives (documents référence cabinet).
@@ -99,12 +100,40 @@ export function AdminMessaging() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ subject: "", body: "", scope: "clients", channel: "email" });
+  const [detailsFor, setDetailsFor] = useState(null); // broadcast object
+  const [deliveries, setDeliveries] = useState([]);
+  const [loadingDeliveries, setLoadingDeliveries] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   const load = async () => {
     try { const { data } = await apiClient.get("/messaging/broadcasts"); setItems(data); }
     catch (err) { toast.error(extractError(err)); }
   };
   useEffect(() => { load(); }, []);
+
+  const openDetails = async (b) => {
+    setDetailsFor(b);
+    setLoadingDeliveries(true);
+    try {
+      const { data } = await apiClient.get(`/messaging/broadcasts/${b.id}/deliveries`);
+      setDeliveries(data.deliveries);
+    } catch (err) { toast.error(extractError(err)); }
+    finally { setLoadingDeliveries(false); }
+  };
+
+  const retryFailed = async () => {
+    if (!detailsFor) return;
+    setRetrying(true);
+    try {
+      const { data } = await apiClient.post(`/messaging/broadcasts/${detailsFor.id}/retry-failed`);
+      toast.success(`${data.delivered}/${data.retried} échec(s) renvoyé(s) avec succès`);
+      await openDetails(detailsFor);
+      await load();
+    } catch (err) { toast.error(extractError(err)); }
+    finally { setRetrying(false); }
+  };
+
+  const failedCount = deliveries.filter((d) => !d.success).length;
 
   const submit = async () => {
     if (!form.subject || !form.body) { toast.error("Sujet et message requis"); return; }
@@ -122,7 +151,7 @@ export function AdminMessaging() {
       <div className="flex justify-between items-end">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Communication</div>
-          <h1 className="font-display text-3xl md:text-4xl">Messagerie</h1>
+          <h1 className="font-display text-3xl md:text-4xl">Diffusion</h1>
           <p className="text-muted-foreground mt-1">Diffusion à tous les clients ou collaborateurs.</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
@@ -167,9 +196,9 @@ export function AdminMessaging() {
       </div>
       <div className="albarka-card overflow-hidden">
         <Table>
-          <TableHeader><TableRow><TableHead>Sujet</TableHead><TableHead>Périmètre</TableHead><TableHead>Canal</TableHead><TableHead className="text-center">Envoyés</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Sujet</TableHead><TableHead>Périmètre</TableHead><TableHead>Canal</TableHead><TableHead className="text-center">Envoyés</TableHead><TableHead>Date</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
           <TableBody>
-            {items.length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Aucune diffusion pour le moment.</TableCell></TableRow>}
+            {items.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Aucune diffusion pour le moment.</TableCell></TableRow>}
             {items.map((b) => (
               <TableRow key={b.id}>
                 <TableCell className="font-medium">{b.subject}</TableCell>
@@ -177,11 +206,76 @@ export function AdminMessaging() {
                 <TableCell>{b.channel}</TableCell>
                 <TableCell className="text-center">{b.delivered_count || 0} / {b.recipient_count || 0}</TableCell>
                 <TableCell className="text-xs">{b.created_at?.slice(0, 16).replace("T", " ")}</TableCell>
+                <TableCell className="text-right">
+                  <Button variant="outline" size="sm" onClick={() => openDetails(b)} data-testid={`broadcast-details-btn-${b.id}`}>
+                    Détails
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      <Dialog open={!!detailsFor} onOpenChange={(v) => { if (!v) { setDetailsFor(null); setDeliveries([]); } }}>
+        <DialogContent className="max-w-2xl" data-testid="broadcast-details-dialog">
+          <DialogHeader>
+            <DialogTitle>Diffusion — {detailsFor?.subject}</DialogTitle>
+            <DialogDescription className="text-xs">
+              {detailsFor?.delivered_count || 0} / {detailsFor?.recipient_count || 0} livré(s) avec succès.
+            </DialogDescription>
+          </DialogHeader>
+          {loadingDeliveries ? (
+            <div className="text-center py-8 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Chargement…</div>
+          ) : (
+            <>
+              <div className="max-h-96 overflow-y-auto border border-border rounded-lg">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Destinataire</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead>Erreur</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {deliveries.length === 0 && (
+                      <TableRow><TableCell colSpan={3} className="text-center py-6 text-muted-foreground">Aucun destinataire.</TableCell></TableRow>
+                    )}
+                    {deliveries.map((d) => (
+                      <TableRow key={d.id} data-testid={`delivery-row-${d.id}`}>
+                        <TableCell className="text-sm">{d.recipient_email || d.recipient_phone || d.recipient_id}</TableCell>
+                        <TableCell>
+                          {d.success ? (
+                            <Badge className="bg-emerald-100 text-emerald-800"><Check className="w-3 h-3 mr-1" />Réussi</Badge>
+                          ) : (
+                            <Badge className="bg-red-100 text-red-800"><XIcon className="w-3 h-3 mr-1" />Échoué</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{!d.success ? (d.kind || d.error || "—") : "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              <DialogFooter>
+                {failedCount > 0 && (
+                  <Button
+                    onClick={retryFailed}
+                    disabled={retrying}
+                    variant="outline"
+                    data-testid="broadcast-retry-failed-btn"
+                  >
+                    {retrying ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <RefreshCw className="w-4 h-4 mr-2" />}
+                    Renvoyer aux {failedCount} échec(s)
+                  </Button>
+                )}
+                <Button onClick={() => { setDetailsFor(null); setDeliveries([]); }}>Fermer</Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

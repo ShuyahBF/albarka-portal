@@ -17,6 +17,7 @@ import { useAuth } from "@/contexts/AuthContext";
 const STAFF_ROLES = [
   { value: "superviseur", label: "Superviseur" },
   { value: "direction", label: "Direction" },
+  { value: "dg", label: "Directeur Général" },
   { value: "administrateur", label: "Administrateur" },
   { value: "secretariat", label: "Secrétariat" },
   { value: "fiscaliste", label: "Fiscaliste" },

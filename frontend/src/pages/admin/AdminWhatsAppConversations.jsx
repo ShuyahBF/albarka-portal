@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import {
   MessageCircle, Send, Loader2, Search, RefreshCw, ArrowLeft,
   Image as ImageIcon, Mic, FileText, MapPin, Video, Check, CheckCheck, AlertTriangle,
-  Zap, Plus, Trash2, Pencil, Tag, BellRing, BellOff, BarChart3,
+  Zap, Plus, Trash2, Pencil, Tag, BellRing, BellOff, BarChart3, UserPlus,
 } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,9 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
 
 /**
  * Partie 2.D + 2.E — Centre de conversations WhatsApp.
@@ -102,6 +105,9 @@ export default function AdminWhatsAppConversations() {
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [qrEditing, setQrEditing] = useState(null); // {id?, label, body}
   const [qrSaving, setQrSaving] = useState(false);
+  const [newConvOpen, setNewConvOpen] = useState(false);
+  const [contacts, setContacts] = useState([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
   const scrollRef = useRef(null);
   const lastUnreadTotalRef = useRef(0);
   const firstLoadRef = useRef(true);
@@ -151,6 +157,38 @@ export default function AdminWhatsAppConversations() {
       const { data } = await apiClient.get("/whatsapp/quick-replies");
       setQuickReplies(data);
     } catch { /* silent */ }
+  };
+
+  // Une nouvelle conversation ne peut viser qu'un destinataire déjà connu :
+  // un contact (annuaire client ou cabinet) avec un numéro renseigné et le
+  // canal WhatsApp activé. Un numéro tapé à la volée n'est jamais proposé —
+  // s'il manque, on renvoie vers le module Contacts pour l'y créer d'abord.
+  const loadContacts = async () => {
+    setContactsLoading(true);
+    try {
+      const { data } = await apiClient.get("/contacts");
+      setContacts(
+        (data || []).filter(
+          (c) => (c.phone || "").trim().startsWith("+") && (c.channels || []).includes("whatsapp"),
+        ),
+      );
+    } catch (err) { toast.error(extractError(err, "Impossible de charger les contacts")); }
+    finally { setContactsLoading(false); }
+  };
+
+  const openNewConversation = () => { setNewConvOpen(true); loadContacts(); };
+
+  const startConversation = (contact) => {
+    const phone = contact.phone.trim();
+    setNewConvOpen(false);
+    if (!conversations.some((c) => c.phone === phone)) {
+      setConversations((prev) => [
+        { phone, last_at: null, last_body: "", last_direction: null, last_type: null,
+          contact_name: contact.full_name, count: 0, unread: 0, label: null },
+        ...prev,
+      ]);
+    }
+    setSelectedPhone(phone);
   };
 
   useEffect(() => { loadConversations({ notify: false }); loadQuickReplies(); }, []);
@@ -274,6 +312,14 @@ export default function AdminWhatsAppConversations() {
           <p className="text-sm text-muted-foreground">Messages reçus via le webhook Meta — répondez en texte libre.</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            onClick={openNewConversation}
+            className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
+            data-testid="wa-inbox-new-conversation-btn"
+          >
+            <UserPlus className="w-4 h-4 mr-1" /> Nouvelle conversation
+          </Button>
           <Button
             variant="outline" size="sm"
             onClick={toggleNotif}
@@ -563,6 +609,66 @@ export default function AdminWhatsAppConversations() {
           )}
         </div>
       </div>
+
+      {/* Dialog Nouvelle conversation — un contact existant uniquement */}
+      <Dialog open={newConvOpen} onOpenChange={setNewConvOpen}>
+        <DialogContent data-testid="wa-inbox-new-conv-dialog">
+          <DialogHeader>
+            <DialogTitle>Nouvelle conversation</DialogTitle>
+            <DialogDescription className="text-xs">
+              Choisissez un contact déjà enregistré (client ou cabinet) avec WhatsApp activé.
+              Un nouveau contact se crée d'abord dans le module Contacts.
+            </DialogDescription>
+          </DialogHeader>
+          <Command>
+            <CommandInput placeholder="Rechercher un contact…" data-testid="wa-inbox-new-conv-search" />
+            <CommandList>
+              {contactsLoading ? (
+                <div className="p-4 text-center text-sm text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin inline mr-2" />Chargement…
+                </div>
+              ) : (
+                <>
+                  <CommandEmpty>
+                    <div className="p-2 text-center text-sm text-muted-foreground">
+                      Aucun contact avec WhatsApp activé.
+                      <Button
+                        variant="link" size="sm" className="block mx-auto"
+                        onClick={() => { setNewConvOpen(false); navigate("/admin/contacts"); }}
+                        data-testid="wa-inbox-new-conv-goto-contacts"
+                      >
+                        Créer un contact →
+                      </Button>
+                    </div>
+                  </CommandEmpty>
+                  <CommandGroup>
+                    {contacts.map((c) => (
+                      <CommandItem
+                        key={c.id}
+                        value={`${c.full_name} ${c.organization || ""} ${c.phone}`}
+                        onSelect={() => startConversation(c)}
+                        data-testid={`wa-inbox-new-conv-option-${c.id}`}
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium flex items-center gap-1.5">
+                            {c.full_name}
+                            <Badge variant="secondary" className="text-[9px] uppercase">
+                              {c.scope === "client" ? "Client" : "Cabinet"}
+                            </Badge>
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {c.phone}{c.organization ? ` — ${c.organization}` : ""}
+                          </span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </>
+              )}
+            </CommandList>
+          </Command>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog Quick Reply (create/edit) */}
       <Dialog open={qrDialogOpen} onOpenChange={setQrDialogOpen}>
