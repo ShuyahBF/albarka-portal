@@ -289,43 +289,53 @@ class TestAutoWhatsAppAfterSign:
 
 # =====================================================================
 # Phase C — 8a Chat interne
+#
+# Restructuré : le Chat interne est désormais strictement réservé aux
+# collaborateurs, organisé en fils NOMMÉS créés à la volée (plus de notion
+# de thread "client:{tenant_id}") — voir test_chat_client_access.py pour
+# la couverture complète du blocage client (y compris un ancien thread
+# "client:" préexistant en base). Ce test-ci ne couvre que le nouveau
+# parcours staff : créer un fil, y écrire, le lister.
 # =====================================================================
 class TestChat:
-    def test_staff_and_client_thread(self, superviseur, client1, client2):
+    def test_staff_named_thread_lifecycle(self, superviseur, client1):
         s, _ = superviseur
-        c1, u1 = client1
-        c2, u2 = client2
-        thread = f"client:{u1['id']}"
+        c1, _ = client1
+        title = f"TEST_Fil {TS}"
+        thread_id = None
+        try:
+            created = s.post(f"{API}/chat/threads", json={"title": title}, timeout=60)
+            assert created.status_code == 200, created.text[:300]
+            thread_id = created.json()["id"]
+            assert created.json()["title"] == title
 
-        r = s.post(f"{API}/chat/messages",
-                   json={"thread_id": thread, "body": f"TEST staff msg {TS}"}, timeout=60)
-        assert r.status_code == 200, r.text[:300]
-        assert r.json()["author_is_client"] is False
-        assert "_id" not in r.json()
+            r = s.post(f"{API}/chat/messages",
+                       json={"thread_id": thread_id, "body": f"TEST staff msg {TS}"}, timeout=60)
+            assert r.status_code == 200, r.text[:300]
+            assert "author_is_client" not in r.json()
+            assert "_id" not in r.json()
 
-        r2 = c1.post(f"{API}/chat/messages",
-                     json={"thread_id": thread, "body": f"TEST client msg {TS}"}, timeout=60)
-        assert r2.status_code == 200, r2.text[:300]
-        assert r2.json()["author_is_client"] is True
+            lst = s.get(f"{API}/chat/messages", params={"thread_id": thread_id}, timeout=60)
+            assert lst.status_code == 200
+            bodies = [m["body"] for m in lst.json()]
+            assert f"TEST staff msg {TS}" in bodies
 
-        lst = c1.get(f"{API}/chat/messages", params={"thread_id": thread}, timeout=60)
-        assert lst.status_code == 200
-        bodies = [m["body"] for m in lst.json()]
-        assert f"TEST staff msg {TS}" in bodies and f"TEST client msg {TS}" in bodies
+            # threads est staff only, et le fil créé y apparaît
+            th = s.get(f"{API}/chat/threads", timeout=60)
+            assert th.status_code == 200
+            assert any(t["thread_id"] == thread_id for t in th.json())
 
-        # client2 cannot read/post to client1 thread
-        assert c2.get(f"{API}/chat/messages", params={"thread_id": thread},
-                      timeout=60).status_code == 403
-        assert c2.post(f"{API}/chat/messages",
-                       json={"thread_id": thread, "body": "hack"}, timeout=60).status_code == 403
-
-        # threads is staff only
-        th = s.get(f"{API}/chat/threads", timeout=60)
-        assert th.status_code == 200
-        assert any(t["thread_id"] == thread for t in th.json())
-        assert c1.get(f"{API}/chat/threads", timeout=60).status_code == 403
-
-        run_async(lambda d: d.chat_messages.delete_many({"body": {"$regex": f"TEST .* {TS}"}}))
+            # un client n'a plus du tout accès au module, ni en lecture ni en création
+            assert c1.get(f"{API}/chat/threads", timeout=60).status_code == 403
+            assert c1.post(f"{API}/chat/threads", json={"title": "hack"}, timeout=60).status_code == 403
+            assert c1.get(f"{API}/chat/messages", params={"thread_id": thread_id},
+                          timeout=60).status_code == 403
+            assert c1.post(f"{API}/chat/messages",
+                           json={"thread_id": thread_id, "body": "hack"}, timeout=60).status_code == 403
+        finally:
+            run_async(lambda d: d.chat_messages.delete_many({"body": {"$regex": f"TEST .* {TS}"}}))
+            if thread_id:
+                run_async(lambda d: d.chat_threads.delete_one({"id": thread_id}))
 
 
 # =====================================================================

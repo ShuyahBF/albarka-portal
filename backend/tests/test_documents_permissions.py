@@ -32,25 +32,51 @@ DOC = {
 
 
 # ---------------------------------------------------------------------
-# _require_sensitive_doc_access — cœur de la logique de restriction
+# _require_download_access / _require_delete_access — la restriction
+# unique d'avant ("SENSITIVE_DOC_ROLES") a été scindée en deux règles
+# distinctes : secretariat peut désormais télécharger mais jamais
+# supprimer, et "telechargement" reste cumulable pour le téléchargement
+# seul (jamais pour la suppression). Voir DOCS_PRIVILEGED_ROLES /
+# DOCS_DELETE_ROLES dans albarka_models.py.
 # ---------------------------------------------------------------------
-class TestRequireSensitiveDocAccess:
+class TestRequireDownloadAccess:
     def test_client_always_allowed(self):
-        ad._require_sensitive_doc_access(_user(["client"]))  # ne doit pas lever
+        ad._require_download_access(_user(["client"]))  # ne doit pas lever
 
-    @pytest.mark.parametrize("role", ["superviseur", "direction", "administrateur", "telechargement"])
+    @pytest.mark.parametrize(
+        "role", ["superviseur", "direction", "dg", "administrateur", "secretariat", "telechargement"],
+    )
     def test_staff_with_allowed_role(self, role):
-        ad._require_sensitive_doc_access(_user([role]))  # ne doit pas lever
+        ad._require_download_access(_user([role]))  # ne doit pas lever
 
-    @pytest.mark.parametrize("role", ["comptable", "communication", "secretariat", "aide_comptable"])
+    @pytest.mark.parametrize("role", ["comptable", "communication", "aide_comptable", "rh", "fiscaliste"])
     def test_staff_without_allowed_role_forbidden(self, role):
         with pytest.raises(HTTPException) as exc:
-            ad._require_sensitive_doc_access(_user([role]))
+            ad._require_download_access(_user([role]))
         assert exc.value.status_code == 403
 
     def test_cumulable_role_grants_access_regardless_of_main_profile(self):
         """Le rôle 'telechargement' cumulé à un profil métier quelconque suffit."""
-        ad._require_sensitive_doc_access(_user(["comptable", "telechargement"]))
+        ad._require_download_access(_user(["comptable", "telechargement"]))
+
+
+class TestRequireDeleteAccess:
+    def test_client_always_allowed(self):
+        ad._require_delete_access(_user(["client"]))  # ne doit pas lever
+
+    @pytest.mark.parametrize("role", ["superviseur", "direction", "dg", "administrateur"])
+    def test_staff_with_allowed_role(self, role):
+        ad._require_delete_access(_user([role]))  # ne doit pas lever
+
+    @pytest.mark.parametrize(
+        "role", ["comptable", "communication", "secretariat", "aide_comptable", "telechargement"],
+    )
+    def test_staff_without_allowed_role_forbidden(self, role):
+        """secretariat et telechargement donnent accès au téléchargement mais
+        jamais à la suppression, plus sensible — voir DOCS_DELETE_ROLES."""
+        with pytest.raises(HTTPException) as exc:
+            ad._require_delete_access(_user([role]))
+        assert exc.value.status_code == 403
 
 
 # ---------------------------------------------------------------------
@@ -86,7 +112,7 @@ class TestDownloadEndpointsRoleGate:
         assert result["url"] == "https://r2/signed-url"
 
     def test_client_keeps_access_to_own_document(self):
-        """Le client ne passe jamais par _require_sensitive_doc_access — son
+        """Le client ne passe jamais par _require_download_access — son
         accès est déjà garanti par la vérification d'ownership existante."""
         with self._patched(), \
              patch.object(ad, "presigned_url", new=AsyncMock(return_value="https://r2/signed-url")):
