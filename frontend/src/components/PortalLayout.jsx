@@ -119,18 +119,18 @@ export default function PortalLayout({ admin = false }) {
       {/* Sidebar */}
       <aside
         data-testid="portal-sidebar"
-        className={`fixed md:sticky top-0 z-40 h-screen w-64 bg-[#0B1912] text-white flex-shrink-0 flex flex-col transition-transform md:translate-x-0 ${
+        // La hauteur n'est plus donnée par une unité vh/dvh (peu fiable selon les
+        // navigateurs mobiles : sur certains, la sidebar restait plus courte que la
+        // fenêtre visible réelle, laissant un espace en bas). En `fixed` (mobile),
+        // `top-0 bottom-0` ancre le bloc directement aux deux bords de l'écran —
+        // exactement comme le voile de fond `fixed inset-0` juste en dessous, qui
+        // lui s'affichait déjà correctement — donc la hauteur est déduite par le
+        // navigateur, sans dépendre d'aucune unité de viewport. En `md:sticky`
+        // (desktop), on revient à `h-screen`, sans le souci de barre d'adresse
+        // mobile qui rétrécit/agrandit la fenêtre visible.
+        className={`fixed md:sticky top-0 bottom-0 md:bottom-auto md:h-screen z-40 w-64 bg-[#0B1912] text-white flex-shrink-0 flex flex-col transition-transform md:translate-x-0 ${
           openSidebar ? "translate-x-0" : "-translate-x-full"
         }`}
-        // `h-screen` (100vh) se fige à la hauteur visible au chargement : sur mobile,
-        // dès que le contenu de la page devient plus grand que l'écran et que la
-        // barre d'adresse du navigateur se rétracte au scroll, la fenêtre visible
-        // s'agrandit mais la sidebar (fixed) restait bloquée à l'ancienne hauteur,
-        // d'où l'effet de bloc qui ne couvre plus tout l'écran signalé sur mobile.
-        // `100dvh` se recalcule en direct avec la fenêtre visible réelle ; les
-        // navigateurs qui ne le comprennent pas ignorent la déclaration et gardent
-        // le `h-screen` (100vh) ci-dessus comme repli.
-        style={{ height: "100dvh" }}
       >
         <div className="px-5 py-6 border-b border-white/10 flex items-center gap-2.5 shrink-0">
           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#0F6B4A] to-[#E5A24B] flex items-center justify-center">
