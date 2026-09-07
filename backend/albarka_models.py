@@ -38,6 +38,10 @@ DOCS_PRIVILEGED_ROLES = ["administrateur", "superviseur", "dg", "direction", "se
 DOCS_DELETE_ROLES = ["administrateur", "superviseur", "dg", "direction"]  # jamais secretariat
 VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"]
 CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"]
+# Actions PDF sur une facture/reçu/proforma (voir/régénérer/envoyer/supprimer
+# le PDF) — le téléchargement du fichier lui-même reste en plus soumis au
+# rôle cumulable "telechargement" (mêmes conventions que DOWNLOAD_ROLES).
+CAISSE_PDF_ACTION_ROLES = ["administrateur", "superviseur", "direction", "dg", "caissier", "secretariat"]
 CLIENT_MANAGE_ROLES = DOCS_PRIVILEGED_ROLES
 CHAT_THREAD_CREATE_ROLES = DOCS_PRIVILEGED_ROLES
 # Module Paiements (liens PawaPay) — réservé au rôle "caissier" uniquement,

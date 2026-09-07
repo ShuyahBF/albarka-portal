@@ -1,10 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Receipt, Wallet, X } from "lucide-react";
+import {
+  Plus, Receipt, Wallet, X, MoreHorizontal, Eye, RefreshCw,
+  Trash2, Download, Mail, MessageCircle,
+} from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent,
+  DropdownMenuItem, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,10 +21,25 @@ import { useAuth } from "@/contexts/AuthContext";
 
 // Doit rester identique à CAISSE_DATE_RANGE_ROLES côté backend (albarka_models.py).
 const CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"];
+// Doit rester identique à CAISSE_PDF_ACTION_ROLES côté backend (albarka_models.py).
+const CAISSE_PDF_ACTION_ROLES = ["administrateur", "superviseur", "direction", "dg", "caissier", "secretariat"];
+
+const emptyItem = () => ({ label: "", quantity: 1, unit_price: "", tax_rate: 18 });
+
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  return iso.slice(0, 16).replace("T", " ");
+}
 
 export default function AdminBilling() {
   const { user } = useAuth();
-  const canPickDateRange = (user?.roles || []).some((r) => CAISSE_DATE_RANGE_ROLES.includes(r));
+  const roles = user?.roles || [];
+  const canPickDateRange = roles.some((r) => CAISSE_DATE_RANGE_ROLES.includes(r));
+  // Voir/régénérer/envoyer/supprimer le PDF d'un document caisse — le
+  // téléchargement du fichier brut reste en plus soumis au rôle
+  // "telechargement" (voir canDownloadPdf ci-dessous).
+  const canActOnPdf = roles.includes("superviseur") || roles.some((r) => CAISSE_PDF_ACTION_ROLES.includes(r));
+  const canDownloadPdf = roles.includes("telechargement");
 
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -25,7 +47,7 @@ export default function AdminBilling() {
   const [openInv, setOpenInv] = useState(false);
   const [openPay, setOpenPay] = useState(false);
   const [payTarget, setPayTarget] = useState(null);
-  const [invForm, setInvForm] = useState({ tenant_id: "", title: "", label: "", quantity: 1, unit_price: "", tax_rate: 18, document_type: "facture" });
+  const [invForm, setInvForm] = useState({ tenant_id: "", title: "", document_type: "facture", items: [emptyItem()] });
   const [payForm, setPayForm] = useState({ amount: "", method: "cash", reference: "" });
   const [filterTenantId, setFilterTenantId] = useState("");
   // Résout tenant_id -> {company, full_name} pour la colonne Client à
@@ -149,21 +171,76 @@ export default function AdminBilling() {
     } finally { setSending(false); }
   };
 
+  const addItem = () => setInvForm((f) => ({ ...f, items: [...f.items, emptyItem()] }));
+  const removeItem = (idx) => setInvForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+  const updateItem = (idx, patch) => setInvForm((f) => ({
+    ...f, items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
+  }));
+
   const submitInvoice = async () => {
-    if (!invForm.tenant_id || !invForm.title || !invForm.label || !invForm.unit_price) {
-      toast.error("Client, titre, ligne et prix requis"); return;
+    const items = invForm.items.filter((it) => it.label && it.unit_price !== "");
+    if (!invForm.tenant_id || !invForm.title || items.length === 0) {
+      toast.error("Client, titre et au moins une ligne (description + prix) requis"); return;
     }
     try {
       await apiClient.post("/billing/invoices", {
         tenant_id: invForm.tenant_id, title: invForm.title,
         document_type: invForm.document_type,
-        items: [{ label: invForm.label, quantity: Number(invForm.quantity), unit_price: Number(invForm.unit_price), tax_rate: Number(invForm.tax_rate) }],
+        items: items.map((it) => ({
+          label: it.label, quantity: Number(it.quantity) || 1,
+          unit_price: Number(it.unit_price) || 0, tax_rate: Number(it.tax_rate) || 0,
+        })),
       });
       toast.success(`${invForm.document_type === "recu" ? "Reçu" : invForm.document_type === "proforma" ? "Proforma" : "Facture"} créé(e)`);
       setOpenInv(false);
-      setInvForm({ tenant_id: "", title: "", label: "", quantity: 1, unit_price: "", tax_rate: 18, document_type: "facture" });
+      setInvForm({ tenant_id: "", title: "", document_type: "facture", items: [emptyItem()] });
       await load();
     } catch (err) { toast.error(extractError(err)); }
+  };
+
+  // --- Actions PDF par ligne (facture/reçu/proforma) ---------------------
+  const openPdfBlob = async (invoice, { download = false } = {}) => {
+    try {
+      const res = await apiClient.get(`/billing/invoices/${invoice.id}/pdf`, {
+        params: download ? { download: true } : undefined,
+        responseType: "blob",
+      });
+      const url = window.URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      if (download) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${invoice.document_type}_${invoice.number}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+      } else {
+        window.open(url, "_blank");
+      }
+    } catch (err) { toast.error(extractError(err, "Échec de l'ouverture du PDF")); }
+  };
+
+  const regeneratePdf = async (invoice) => {
+    try {
+      await apiClient.post(`/billing/invoices/${invoice.id}/pdf/regenerate`);
+      toast.success("PDF régénéré");
+      await load();
+    } catch (err) { toast.error(extractError(err, "Échec de la régénération")); }
+  };
+
+  const deletePdf = async (invoice) => {
+    try {
+      await apiClient.delete(`/billing/invoices/${invoice.id}/pdf`);
+      toast.success("PDF supprimé (régénérable à tout moment)");
+      await load();
+    } catch (err) { toast.error(extractError(err, "Échec de la suppression")); }
+  };
+
+  const sendPdf = async (invoice, channel) => {
+    try {
+      const { data } = await apiClient.post(`/billing/invoices/${invoice.id}/send`, { channel });
+      toast.success(`Document envoyé (${channel === "whatsapp" ? "WhatsApp" : "email"}) à ${data.to}`);
+    } catch (err) { toast.error(extractError(err, "Échec de l'envoi")); }
   };
 
   const submitPayment = async () => {
@@ -336,11 +413,42 @@ export default function AdminBilling() {
                   </div>
                   <div><Label>Client</Label><EntitySelect value={invForm.tenant_id} onChange={(v) => setInvForm({ ...invForm, tenant_id: v })} testId="invoice-tenant-input" /></div>
                   <div><Label>Titre</Label><Input value={invForm.title} onChange={(e) => setInvForm({ ...invForm, title: e.target.value })} data-testid="invoice-title-input" /></div>
-                  <div><Label>Description ligne</Label><Input value={invForm.label} onChange={(e) => setInvForm({ ...invForm, label: e.target.value })} data-testid="invoice-label-input" /></div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div><Label>Qté</Label><Input type="number" value={invForm.quantity} onChange={(e) => setInvForm({ ...invForm, quantity: e.target.value })} data-testid="invoice-qty-input" /></div>
-                    <div><Label>Prix U.</Label><Input type="number" value={invForm.unit_price} onChange={(e) => setInvForm({ ...invForm, unit_price: e.target.value })} data-testid="invoice-price-input" /></div>
-                    <div><Label>TVA %</Label><Input type="number" value={invForm.tax_rate} onChange={(e) => setInvForm({ ...invForm, tax_rate: e.target.value })} data-testid="invoice-tax-input" /></div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Lignes</Label>
+                      <Button type="button" size="sm" variant="outline" onClick={addItem} data-testid="invoice-add-line-btn">
+                        <Plus className="w-3.5 h-3.5 mr-1" />Ajouter une ligne
+                      </Button>
+                    </div>
+                    {invForm.items.map((it, idx) => (
+                      <div key={idx} className="grid grid-cols-12 gap-2 items-end" data-testid={`invoice-line-${idx}`}>
+                        <div className="col-span-5">
+                          {idx === 0 && <Label className="text-[10px]">Description</Label>}
+                          <Input value={it.label} onChange={(e) => updateItem(idx, { label: e.target.value })} data-testid={`invoice-line-label-${idx}`} />
+                        </div>
+                        <div className="col-span-2">
+                          {idx === 0 && <Label className="text-[10px]">Qté</Label>}
+                          <Input type="number" value={it.quantity} onChange={(e) => updateItem(idx, { quantity: e.target.value })} data-testid={`invoice-line-qty-${idx}`} />
+                        </div>
+                        <div className="col-span-2">
+                          {idx === 0 && <Label className="text-[10px]">Prix U.</Label>}
+                          <Input type="number" value={it.unit_price} onChange={(e) => updateItem(idx, { unit_price: e.target.value })} data-testid={`invoice-line-price-${idx}`} />
+                        </div>
+                        <div className="col-span-2">
+                          {idx === 0 && <Label className="text-[10px]">TVA %</Label>}
+                          <Input type="number" value={it.tax_rate} onChange={(e) => updateItem(idx, { tax_rate: e.target.value })} data-testid={`invoice-line-tax-${idx}`} />
+                        </div>
+                        <div className="col-span-1">
+                          <Button
+                            type="button" variant="ghost" size="sm" className="px-2"
+                            disabled={invForm.items.length <= 1}
+                            onClick={() => removeItem(idx)} data-testid={`invoice-line-remove-${idx}`}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
                 <DialogFooter>
@@ -351,11 +459,20 @@ export default function AdminBilling() {
             </Dialog>
           </div>
           <div className="albarka-card overflow-hidden">
-            <Table>
-              <TableHeader><TableRow><TableHead>Numéro</TableHead><TableHead>Client</TableHead><TableHead>Type</TableHead><TableHead>Titre</TableHead><TableHead className="text-right">Total</TableHead><TableHead className="text-right">Payé</TableHead><TableHead>Statut</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+            <div className="overflow-x-auto">
+            <Table className="w-full">
+              <TableHeader><TableRow>
+                <TableHead>Numéro</TableHead><TableHead>Client</TableHead><TableHead>Type</TableHead><TableHead>Titre</TableHead>
+                <TableHead>Date facture</TableHead><TableHead>Dern. modif.</TableHead>
+                <TableHead className="text-right">Total</TableHead><TableHead className="text-right">Payé</TableHead>
+                <TableHead className="text-right">RAP</TableHead>
+                <TableHead>Statut</TableHead><TableHead className="text-right">Actions</TableHead>
+              </TableRow></TableHeader>
               <TableBody>
-                {invoices.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Aucun document caisse.</TableCell></TableRow>}
-                {invoices.map((i) => (
+                {invoices.length === 0 && <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">Aucun document caisse.</TableCell></TableRow>}
+                {invoices.map((i) => {
+                  const rap = Number(i.total) - Number(i.paid_amount || 0);
+                  return (
                   <TableRow key={i.id}>
                     <TableCell className="font-mono text-xs">{i.number}</TableCell>
                     <TableCell className="text-sm">{clientLabel(i.tenant_id)}</TableCell>
@@ -369,20 +486,65 @@ export default function AdminBilling() {
                       </span>
                     </TableCell>
                     <TableCell>{i.title}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{fmtDateTime(i.created_at)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{fmtDateTime(i.updated_at)}</TableCell>
                     <TableCell className="text-right">{Number(i.total).toLocaleString()} {i.currency}</TableCell>
                     <TableCell className="text-right">{Number(i.paid_amount || 0).toLocaleString()}</TableCell>
+                    <TableCell className="text-right">
+                      {i.document_type === "facture" ? Number(rap).toLocaleString() : "—"}
+                    </TableCell>
                     <TableCell><span className={`albarka-chip ${i.status === "paid" ? "bg-emerald-100 text-emerald-800" : i.status === "partial" ? "bg-amber-100 text-amber-800" : i.status === "proforma" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-700"}`}>
                       {i.status === "paid" ? "Payé" : i.status === "partial" ? "Partiel" : i.status === "proforma" ? "Proforma" : i.status === "unpaid" ? "Impayé" : i.status}
                     </span></TableCell>
                     <TableCell className="text-right">
-                      {i.status !== "paid" && i.status !== "proforma" && (
-                        <Button size="sm" variant="outline" onClick={() => { setPayTarget(i); setOpenPay(true); }} data-testid={`pay-invoice-${i.id}`}>Encaisser</Button>
-                      )}
+                      <div className="flex items-center justify-end gap-1.5">
+                        {i.status !== "paid" && i.status !== "proforma" && (
+                          <Button size="sm" variant="outline" onClick={() => { setPayTarget(i); setOpenPay(true); }} data-testid={`pay-invoice-${i.id}`}>Encaisser</Button>
+                        )}
+                        {canActOnPdf && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button size="sm" variant="ghost" className="px-2" data-testid={`invoice-actions-${i.id}`}>
+                                <MoreHorizontal className="w-4 h-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-52">
+                              <DropdownMenuItem onClick={() => openPdfBlob(i)} data-testid={`invoice-view-pdf-${i.id}`}>
+                                <Eye className="w-4 h-4 mr-2" />Voir le PDF
+                              </DropdownMenuItem>
+                              {canDownloadPdf && (
+                                <DropdownMenuItem onClick={() => openPdfBlob(i, { download: true })} data-testid={`invoice-download-pdf-${i.id}`}>
+                                  <Download className="w-4 h-4 mr-2" />Télécharger
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuItem onClick={() => regeneratePdf(i)} data-testid={`invoice-regenerate-pdf-${i.id}`}>
+                                <RefreshCw className="w-4 h-4 mr-2" />Régénérer le PDF
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => sendPdf(i, "email")} data-testid={`invoice-send-email-${i.id}`}>
+                                <Mail className="w-4 h-4 mr-2" />Envoyer par email
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => sendPdf(i, "whatsapp")} data-testid={`invoice-send-wa-${i.id}`}>
+                                <MessageCircle className="w-4 h-4 mr-2" />Envoyer par WhatsApp
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => deletePdf(i)} disabled={!i.pdf_storage_path}
+                                className="text-red-600 focus:text-red-600" data-testid={`invoice-delete-pdf-${i.id}`}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />Supprimer le PDF
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
+            </div>
           </div>
         </TabsContent>
 

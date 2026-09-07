@@ -27,6 +27,9 @@ from albarka_dashboard import router as dashboard_router  # noqa: E402
 from albarka_documents import router as documents_router  # noqa: E402
 from albarka_echeances import router as echeances_router  # noqa: E402
 from albarka_missions import router as missions_router  # noqa: E402
+from albarka_badges import router as badges_router  # noqa: E402
+from albarka_billing_docs import router as billing_docs_router  # noqa: E402
+from albarka_settings_tests import router as settings_tests_router  # noqa: E402
 from albarka_myaccount import router as myaccount_router  # noqa: E402
 from albarka_ohada import router as ohada_router  # noqa: E402
 from albarka_payments import router as payments_router, webhook_router as payments_webhook_router  # noqa: E402
@@ -79,6 +82,9 @@ api_router.include_router(contracts_router)
 # Phase C — Modules internes
 api_router.include_router(chat_router)
 api_router.include_router(billing_router)
+api_router.include_router(billing_docs_router)
+api_router.include_router(settings_tests_router)
+api_router.include_router(badges_router)
 api_router.include_router(hr_router)
 api_router.include_router(logs_router)
 api_router.include_router(archives_router)

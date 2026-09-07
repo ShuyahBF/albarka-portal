@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -30,8 +30,13 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
+import { apiClient } from "@/lib/api";
 import ChatBubble from "@/components/ChatBubble";
 import PaymentBubble from "@/components/PaymentBubble";
+
+// Actualisation des badges non-lus (WhatsApp/Diffusion) par polling — pas de
+// WebSocket/SSE dans l'application, même convention que ChatBubble.jsx.
+const BADGES_POLL_MS = 15000;
 
 // Doit rester identique à PAYMENTS_ROLES côté backend (albarka_models.py).
 const PAYMENTS_ROLES = ["caissier"];
@@ -78,9 +83,9 @@ const STAFF_MENU = [
   { to: "/admin/paiements", label: "Paiements", icon: CreditCard, roles: PAYMENTS_ROLES },
   { to: "/admin/comptabilite", label: "Comptabilité OHADA", icon: BookOpen,
     roles: ["superviseur", "direction", "administrateur", "comptable", "aide_comptable", "fiscaliste"] },
-  { to: "/admin/messagerie", label: "Diffusion", icon: Send,
+  { to: "/admin/messagerie", label: "Diffusion", icon: Send, badgeKey: "diffusion_new",
     roles: ["superviseur", "direction", "administrateur", "communication"] },
-  { to: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle,
+  { to: "/admin/whatsapp", label: "WhatsApp", icon: MessageCircle, badgeKey: "wa_unread",
     roles: ["superviseur", "direction", "administrateur", "communication"] },
   { to: "/admin/archives", label: "Archives", icon: Archive,
     roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable"] },
@@ -108,6 +113,25 @@ export default function PortalLayout({ admin = false }) {
     ? STAFF_MENU.filter((l) => allowedFor(l, roles))
     : CLIENT_LINKS;
   const canUsePayments = roles.includes("superviseur") || roles.some((r) => PAYMENTS_ROLES.includes(r));
+
+  // Badges non-lus (WhatsApp/Diffusion) affichés à côté du lien correspondant
+  // dans le menu — voir albarka_badges.py. Uniquement côté staff (admin).
+  const [badges, setBadges] = useState({});
+  useEffect(() => {
+    if (!admin) return;
+    let cancelled = false;
+    const refresh = () => {
+      apiClient.get("/me/badges").then(({ data }) => { if (!cancelled) setBadges(data); }).catch(() => {});
+    };
+    refresh();
+    const id = setInterval(refresh, BADGES_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [admin]);
+
+  const markSeen = (page) => {
+    apiClient.post("/me/badges/mark-seen", { page }).catch(() => {});
+    setBadges((b) => ({ ...b, [`${page === "diffusion" ? "diffusion_new" : page}`]: 0 }));
+  };
 
   const handleLogout = () => {
     logout();
@@ -150,19 +174,33 @@ export default function PortalLayout({ admin = false }) {
             les derniers liens (ex. "Paramètres") par ce bloc, qui était
             positionné en `absolute` par-dessus le menu. */}
         <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
-          {links.map((link) => (
+          {links.map((link) => {
+            const count = link.badgeKey ? badges[link.badgeKey] : 0;
+            return (
             <NavLink
               key={link.to}
               to={link.to}
               end={link.end}
               className={({ isActive }) => `albarka-sidebar-link ${isActive ? "active" : ""}`}
-              onClick={() => setOpenSidebar(false)}
+              onClick={() => {
+                setOpenSidebar(false);
+                if (link.badgeKey === "diffusion_new") markSeen("diffusion");
+              }}
               data-testid={`sidebar-link-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
             >
               <link.icon className="w-4 h-4" />
-              <span>{link.label}</span>
+              <span className="flex-1">{link.label}</span>
+              {!!count && (
+                <span
+                  className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center"
+                  data-testid={`sidebar-badge-${link.badgeKey}`}
+                >
+                  {count > 99 ? "99+" : count}
+                </span>
+              )}
             </NavLink>
-          ))}
+            );
+          })}
         </nav>
         <div className="shrink-0 p-4 border-t border-white/10 bg-[#0B1912]">
           <div className="text-xs text-white/70 mb-1 truncate font-medium">{user?.full_name}</div>

@@ -417,6 +417,103 @@ def build_billing_statement_pdf(
     return buf.getvalue()
 
 
+_DOC_TYPE_LABELS = {"recu": "REÇU DE CAISSE", "proforma": "FACTURE PROFORMA"}
+
+
+def build_invoice_document_pdf(
+    *, invoice: dict, client: Optional[dict], payments: List[dict],
+) -> bytes:
+    """PDF individuel d'une facture/reçu/proforma — distinct de la
+    "situation de compte" agrégée (build_billing_statement_pdf). Régénérable
+    à l'identique à tout moment à partir des données Mongo (voir
+    albarka_billing_docs.py) : le fichier stocké n'est qu'un cache, jamais la
+    source de vérité."""
+    buf = io.BytesIO()
+    doc_type = invoice.get("document_type", "facture")
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=1.8 * cm, rightMargin=1.8 * cm,
+        topMargin=1.8 * cm, bottomMargin=1.8 * cm,
+        title=f"{_DOC_TYPE_LABELS.get(doc_type, 'FACTURE')} {invoice.get('number', '')} — Cabinet ALBARKA",
+        author="Cabinet ALBARKA",
+    )
+    ss = _paragraph_styles()
+    story = []
+
+    client_label = (client.get("company") or client.get("full_name")) if client else "—"
+    story.append(Paragraph("CABINET ALBARKA", ss["AlbSubtitle"]))
+    story.append(Paragraph(_DOC_TYPE_LABELS.get(doc_type, "FACTURE"), ss["AlbTitle"]))
+    story.append(Paragraph(
+        f"N° {invoice.get('number', '')} · Émise le "
+        f"{(invoice.get('created_at') or '')[:10]} · Client : {client_label}",
+        ss["AlbSubtitle"],
+    ))
+    if invoice.get("title"):
+        story.append(Paragraph(f"<b>{invoice['title']}</b>", ss["AlbBody"]))
+
+    items = invoice.get("items") or []
+    currency = invoice.get("currency", "XOF")
+    rows = [
+        [
+            it.get("label", ""),
+            _number_fmt(it.get("quantity")),
+            f"{_number_fmt(it.get('unit_price'))} {currency}",
+            f"{_number_fmt(it.get('tax_rate'))} %",
+            f"{_number_fmt(it.get('quantity', 0) * it.get('unit_price', 0) * (1 + it.get('tax_rate', 0) / 100.0))} {currency}",
+        ]
+        for it in items
+    ]
+    story.append(_table(
+        ["Description", "Qté", "Prix U.", "TVA", "Total ligne"], rows,
+        col_widths=[6.5 * cm, 1.8 * cm, 2.8 * cm, 1.8 * cm, 3.5 * cm],
+    ))
+
+    total = float(invoice.get("total", 0))
+    paid = float(invoice.get("paid_amount", 0))
+    kpis = [
+        ("Sous-total", f"{_number_fmt(invoice.get('subtotal'))} {currency}"),
+        ("TVA", f"{_number_fmt(invoice.get('tax'))} {currency}"),
+        ("Total TTC", f"{_number_fmt(total)} {currency}"),
+    ]
+    # Reçu : toujours soldé à l'émission — RAP sans objet. Proforma : purement
+    # indicatif, non payable — RAP également sans objet.
+    if doc_type not in ("recu", "proforma"):
+        kpis.append(("Reste à payer", f"{_number_fmt(total - paid)} {currency}"))
+    story.append(Spacer(1, 6))
+    story.append(_kpi_row(kpis))
+
+    if payments and doc_type not in ("recu",):
+        story.append(Paragraph("Encaissements liés", ss["AlbH2"]))
+        pay_rows = [
+            [
+                _number_fmt(p.get("amount")),
+                p.get("method", ""),
+                p.get("reference") or "—",
+                (p.get("paid_at") or "")[:16].replace("T", " "),
+            ]
+            for p in payments
+        ]
+        story.append(_table(
+            ["Montant", "Méthode", "Référence", "Date"], pay_rows,
+            col_widths=[3.5 * cm, 3.5 * cm, 4 * cm, 5.5 * cm],
+        ))
+
+    if invoice.get("notes"):
+        story.append(Spacer(1, 12))
+        story.append(Paragraph(f"<i>Notes :</i> {invoice['notes']}", ss["AlbBody"]))
+
+    story.append(Spacer(1, 20))
+    story.append(Paragraph(
+        f"<font color='#64748B' size='8'>Document généré par le portail ALBARKA le "
+        f"{datetime.now(timezone.utc).strftime('%d/%m/%Y à %H:%M UTC')}. Confidentiel — "
+        f"usage interne au cabinet et au client concerné.</font>",
+        ss["AlbBody"],
+    ))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 def _number_fmt(v) -> str:
     try:
         return f"{float(v):,.0f}".replace(",", " ")

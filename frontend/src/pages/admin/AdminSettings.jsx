@@ -1,6 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Save, Send, Building, MessageCircle, Bell, Hash, KeyRound, Image as ImageIcon, CreditCard } from "lucide-react";
+import {
+  Save, Send, Building, MessageCircle, Bell, Hash, KeyRound, Image as ImageIcon,
+  CreditCard, FlaskConical, CheckCircle2, XCircle,
+} from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +28,14 @@ export default function AdminSettings() {
   const [recaptchaNewSecret, setRecaptchaNewSecret] = useState("");
   const [pawapaySandboxNewToken, setPawapaySandboxNewToken] = useState("");
   const [pawapayProductionNewToken, setPawapayProductionNewToken] = useState("");
+  // Bouton "Tester" reCAPTCHA/PawaPay — testent les valeurs SAISIES à
+  // l'écran (pas nécessairement enregistrées), via /admin/settings/test/*.
+  const [recaptchaTestToken, setRecaptchaTestToken] = useState(null);
+  const [recaptchaTesting, setRecaptchaTesting] = useState(false);
+  const [recaptchaTestResult, setRecaptchaTestResult] = useState(null); // {success, reason}
+  const recaptchaTestRef = useRef(null);
+  const [pawapayTesting, setPawapayTesting] = useState(false);
+  const [pawapayTestResult, setPawapayTestResult] = useState(null); // {success, reason}
 
   const load = async () => {
     setLoading(true);
@@ -71,6 +82,67 @@ export default function AdminSettings() {
     } catch (err) {
       toast.error(extractError(err));
     }
+  };
+
+  // Widget reCAPTCHA affiché directement dans Paramètres, avec la clé de
+  // site actuellement SAISIE (même non enregistrée) — nécessaire pour
+  // pouvoir tester avant de sauvegarder.
+  useEffect(() => {
+    const siteKey = settings?.recaptcha_site_key;
+    if (!siteKey) return;
+    setRecaptchaTestToken(null);
+    const renderWidget = () => {
+      try {
+        window.grecaptcha?.render(recaptchaTestRef.current, {
+          sitekey: siteKey,
+          callback: setRecaptchaTestToken,
+        });
+      } catch { /* déjà rendu pour cette clé */ }
+    };
+    if (document.getElementById("recaptcha-script")) {
+      window.grecaptcha?.ready(renderWidget);
+      return;
+    }
+    const s = document.createElement("script");
+    s.id = "recaptcha-script";
+    s.src = "https://www.google.com/recaptcha/api.js?render=explicit";
+    s.async = true;
+    s.defer = true;
+    s.onload = () => window.grecaptcha?.ready(renderWidget);
+    document.head.appendChild(s);
+  }, [settings?.recaptcha_site_key]);
+
+  const testRecaptcha = async () => {
+    setRecaptchaTesting(true);
+    setRecaptchaTestResult(null);
+    try {
+      const secret = recaptchaNewSecret || (settings.recaptcha_secret_key !== "********" ? settings.recaptcha_secret_key : "");
+      const { data } = await apiClient.post("/admin/settings/test/recaptcha", {
+        site_key: settings.recaptcha_site_key || "",
+        secret_key: secret || "",
+        token: recaptchaTestToken || "",
+      });
+      setRecaptchaTestResult(data);
+    } catch (err) {
+      setRecaptchaTestResult({ success: false, reason: extractError(err) });
+    } finally { setRecaptchaTesting(false); }
+  };
+
+  const testPawapay = async () => {
+    setPawapayTesting(true);
+    setPawapayTestResult(null);
+    try {
+      const env = settings.pawapay_environment || "sandbox";
+      const token = env === "production"
+        ? (pawapayProductionNewToken || (settings.pawapay_api_token_production !== "********" ? settings.pawapay_api_token_production : ""))
+        : (pawapaySandboxNewToken || (settings.pawapay_api_token_sandbox !== "********" ? settings.pawapay_api_token_sandbox : ""));
+      const { data } = await apiClient.post("/admin/settings/test/pawapay", {
+        environment: env, token: token || "", country: settings.pawapay_country || "BFA",
+      });
+      setPawapayTestResult(data);
+    } catch (err) {
+      setPawapayTestResult({ success: false, reason: extractError(err) });
+    } finally { setPawapayTesting(false); }
   };
 
   if (loading || !settings) return <div className="text-muted-foreground">Chargement…</div>;
@@ -254,21 +326,50 @@ export default function AdminSettings() {
                     data-testid="recaptcha-secret-key-input"
                   />
                 </div>
+                {settings.recaptcha_site_key && (
+                  <div>
+                    <Label className="text-xs">Tester (cochez la case puis cliquez sur Tester)</Label>
+                    <div ref={recaptchaTestRef} className="mt-1" data-testid="recaptcha-test-widget" />
+                  </div>
+                )}
               </div>
-              <Button
-                onClick={() => save({
-                  recaptcha_enabled: settings.recaptcha_enabled,
-                  recaptcha_site_key: settings.recaptcha_site_key,
-                  ...(recaptchaNewSecret ? { recaptcha_secret_key: recaptchaNewSecret } : {}),
-                })}
-                disabled={saving}
-                variant="outline"
-                className="mt-3"
-                data-testid="save-recaptcha-btn"
-              >
-                <Save className="w-4 h-4 mr-2" />
-                Enregistrer le reCAPTCHA
-              </Button>
+              <div className="flex items-center gap-2 mt-3">
+                <Button
+                  onClick={() => save({
+                    recaptcha_enabled: settings.recaptcha_enabled,
+                    recaptcha_site_key: settings.recaptcha_site_key,
+                    ...(recaptchaNewSecret ? { recaptcha_secret_key: recaptchaNewSecret } : {}),
+                  })}
+                  disabled={saving}
+                  variant="outline"
+                  data-testid="save-recaptcha-btn"
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Enregistrer le reCAPTCHA
+                </Button>
+                <Button
+                  onClick={testRecaptcha}
+                  disabled={recaptchaTesting || !settings.recaptcha_site_key}
+                  variant="outline"
+                  data-testid="test-recaptcha-btn"
+                >
+                  <FlaskConical className="w-4 h-4 mr-2" />
+                  {recaptchaTesting ? "Test…" : "Tester"}
+                </Button>
+              </div>
+              {recaptchaTestResult && (
+                <div
+                  className={`mt-2 text-sm rounded-md px-3 py-2 flex items-start gap-2 ${
+                    recaptchaTestResult.success ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"
+                  }`}
+                  data-testid="recaptcha-test-result"
+                >
+                  {recaptchaTestResult.success
+                    ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                    : <XCircle className="w-4 h-4 mt-0.5 shrink-0" />}
+                  <span>{recaptchaTestResult.reason}</span>
+                </div>
+              )}
             </div>
           </div>
         </TabsContent>
@@ -588,22 +689,52 @@ export default function AdminSettings() {
                 </div>
               )}
             </div>
-            <Button
-              onClick={() => save({
-                pawapay_enabled: settings.pawapay_enabled,
-                pawapay_environment: settings.pawapay_environment,
-                pawapay_country: settings.pawapay_country,
-                pawapay_callback_secret: settings.pawapay_callback_secret,
-                ...(pawapaySandboxNewToken ? { pawapay_api_token_sandbox: pawapaySandboxNewToken } : {}),
-                ...(pawapayProductionNewToken ? { pawapay_api_token_production: pawapayProductionNewToken } : {}),
-              })}
-              disabled={saving}
-              className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
-              data-testid="save-pawapay-btn"
-            >
-              <Save className="w-4 h-4 mr-2" />
-              Enregistrer
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={() => save({
+                  pawapay_enabled: settings.pawapay_enabled,
+                  pawapay_environment: settings.pawapay_environment,
+                  pawapay_country: settings.pawapay_country,
+                  pawapay_callback_secret: settings.pawapay_callback_secret,
+                  ...(pawapaySandboxNewToken ? { pawapay_api_token_sandbox: pawapaySandboxNewToken } : {}),
+                  ...(pawapayProductionNewToken ? { pawapay_api_token_production: pawapayProductionNewToken } : {}),
+                })}
+                disabled={saving}
+                className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
+                data-testid="save-pawapay-btn"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                Enregistrer
+              </Button>
+              <Button
+                onClick={testPawapay}
+                disabled={pawapayTesting}
+                variant="outline"
+                data-testid="test-pawapay-btn"
+              >
+                <FlaskConical className="w-4 h-4 mr-2" />
+                {pawapayTesting ? "Test…" : `Tester (${settings.pawapay_environment || "sandbox"})`}
+              </Button>
+            </div>
+            {settings.pawapay_environment === "production" && (
+              <div className="text-xs text-amber-700">
+                Le test envoie une vraie requête à l'API PawaPay en production (montant symbolique,
+                numéro fictif) — aucun paiement n'est jamais confirmé par un client réel.
+              </div>
+            )}
+            {pawapayTestResult && (
+              <div
+                className={`text-sm rounded-md px-3 py-2 flex items-start gap-2 ${
+                  pawapayTestResult.success ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"
+                }`}
+                data-testid="pawapay-test-result"
+              >
+                {pawapayTestResult.success
+                  ? <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                  : <XCircle className="w-4 h-4 mt-0.5 shrink-0" />}
+                <span>{pawapayTestResult.reason}</span>
+              </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>

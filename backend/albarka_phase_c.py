@@ -298,9 +298,17 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_st
         "paid_amount": paid_amount,
         **totals,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
         "created_by": user["id"],
+        "pdf_storage_id": None,
+        "pdf_storage_path": None,
     }
     await db.invoices.insert_one(doc.copy())
+    from albarka_billing_docs import ensure_invoice_pdf
+    try:
+        await ensure_invoice_pdf(doc)
+    except Exception:  # noqa: BLE001 — best-effort ; régénérable via /pdf/regenerate
+        logger.exception("Échec génération PDF à la création de %s", doc["id"])
     await _log_platform_event(user=user, action=f"{payload.document_type}.create",
                               entity_type="invoice", entity_id=doc["id"],
                               meta={"total": doc["total"], "number": number})
@@ -337,7 +345,13 @@ async def create_payment(payload: PaymentCreate, user: dict = Depends(require_st
     new_status = "paid" if new_paid >= float(invoice["total"]) - 0.01 else "partial"
     await db.invoices.update_one(
         {"id": payload.invoice_id},
-        {"$set": {"paid_amount": round(new_paid, 2), "status": new_status}},
+        {"$set": {
+            "paid_amount": round(new_paid, 2), "status": new_status,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            # Invalide le PDF caché (le "Reste à payer" affiché dessus vient
+            # de changer) — régénéré à la volée à la prochaine lecture.
+            "pdf_storage_path": None,
+        }},
     )
     await _log_platform_event(user=user, action="payment.create",
                               entity_type="invoice", entity_id=invoice["id"],
