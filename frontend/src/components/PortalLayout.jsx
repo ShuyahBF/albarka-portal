@@ -59,7 +59,7 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "secretariat"] },
   { to: "/admin/contacts", label: "Contacts", icon: Contact,
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
-  { to: "/admin/staff", label: "Collaborateurs", icon: UserCog,
+  { to: "/admin/staff", label: "Personnels", icon: UserCog,
     roles: ["superviseur", "direction"] },
   { to: "/admin/documents", label: "Pièces", icon: FileText,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },

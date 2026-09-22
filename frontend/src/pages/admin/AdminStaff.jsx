@@ -111,7 +111,7 @@ export default function AdminStaff() {
           can_receive_notifications: form.can_receive_notifications,
           is_active: form.is_active,
         });
-        toast.success("Collaborateur mis à jour");
+        toast.success("Personnel mis à jour");
         setOpen(false);
         setEditing(null);
         setForm(emptyForm());
@@ -127,7 +127,7 @@ export default function AdminStaff() {
     }
     try {
       await apiClient.post("/clients/staff", form);
-      toast.success("Collaborateur créé");
+      toast.success("Personnel créé");
       setOpen(false);
       setForm(emptyForm());
       await load();
@@ -141,20 +141,20 @@ export default function AdminStaff() {
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
-          <h1 className="font-display text-3xl md:text-4xl text-foreground">Collaborateurs</h1>
+          <h1 className="font-display text-3xl md:text-4xl text-foreground">Personnels</h1>
           <p className="text-muted-foreground mt-1">Équipe du cabinet et leurs rôles.</p>
         </div>
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
           {canEdit && (
             <DialogTrigger asChild>
               <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-staff-btn" onClick={openNew}>
-                <Plus className="w-4 h-4 mr-2" />Nouveau collaborateur
+                <Plus className="w-4 h-4 mr-2" />Nouveau personnel
               </Button>
             </DialogTrigger>
           )}
           <DialogContent data-testid="staff-dialog">
             <DialogHeader>
-              <DialogTitle>{editing ? "Modifier un collaborateur" : "Nouveau collaborateur"}</DialogTitle>
+              <DialogTitle>{editing ? "Modifier un personnel" : "Nouveau personnel"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
               <div>
@@ -230,7 +230,7 @@ export default function AdminStaff() {
           </TableHeader>
           <TableBody>
             {loading && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && visibleItems.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Aucun collaborateur.</TableCell></TableRow>}
+            {!loading && visibleItems.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Aucun personnel.</TableCell></TableRow>}
             {visibleItems.map((s) => (
               <TableRow key={s.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">{s.full_name}</TableCell>

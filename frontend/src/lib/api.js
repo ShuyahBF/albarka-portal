@@ -32,8 +32,19 @@ apiClient.interceptors.response.use(
 );
 
 export function extractError(err, fallback = "Une erreur est survenue") {
+  const detail = err?.response?.data?.detail;
+  // Erreur de validation FastAPI/Pydantic (422) : `detail` est alors un
+  // tableau d'objets {type, loc, msg, ...}, jamais une chaîne — le rendre
+  // tel quel (ex. dans un toast) fait planter React ("Objects are not
+  // valid as a React child"), d'où une page blanche après une saisie
+  // invalide (ex. mot de passe trop court) plutôt qu'un message d'erreur.
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((d) => (typeof d === "string" ? d : d?.msg)).filter(Boolean);
+    if (msgs.length) return msgs.join(" · ");
+  } else if (typeof detail === "string" && detail) {
+    return detail;
+  }
   return (
-    err?.response?.data?.detail ||
     err?.response?.data?.message ||
     err?.message ||
     fallback
