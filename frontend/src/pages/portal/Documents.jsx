@@ -20,10 +20,11 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
 import EntitySelect from "@/components/EntitySelect";
-import OcrRunsPanel from "@/components/ocr/OcrRunsPanel";
-import OcrDashboard from "@/components/ocr/OcrDashboard";
-import StarRating from "@/components/ocr/StarRating";
-import { displayValue, formatXof, shortModel } from "@/components/ocr/format";
+// Module commun ocr-core (copie identique, source unique : dépôt ShuyahBF/Claude).
+import OcrRunsPanel from "@/components/ocr-core/OcrRunsPanel";
+import OcrDashboard from "@/components/ocr-core/OcrDashboard";
+import StarRating from "@/components/ocr-core/StarRating";
+import { displayValue, formatXof, shortModel } from "@/components/ocr-core/format";
 
 const KINDS = [
   { value: "piece_comptable", label: "Pièce comptable" },
@@ -236,7 +237,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
         </div>
       )}
 
-      {view === "ocr" && !isClient ? <OcrDashboard /> : (<>
+      {view === "ocr" && !isClient ? <OcrDashboard apiBase="/documents" /> : (<>
       {!hideUpload && (
         <div className="albarka-card p-6" data-testid="upload-card">
           <div className="flex flex-col md:flex-row md:items-end gap-4">
@@ -421,7 +422,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                         </div>
                         {/* Cabinet : analyses par modèle, coût, évaluation, relance */}
                         {!isClient && (
-                          <OcrRunsPanel doc={d} models={ocrModels.models} defaultModel={ocrModels.default_model} onChanged={load} />
+                          <OcrRunsPanel apiBase="/documents" doc={d} models={ocrModels.models} defaultModel={ocrModels.default_model} onChanged={load} />
                         )}
                         {isClient && !synth[d.id] && d.status === "en_analyse" && (
                           <div className="text-sm text-muted-foreground">

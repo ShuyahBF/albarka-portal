@@ -1,4 +1,4 @@
-"""Lot 1 OCR — choix du modèle, coût réel FCFA, évaluation, tableau de bord.
+"""OCR (lot 1, migré au lot 2 sur le module commun ocr_core) — modèle, coût FCFA, évaluation, tableau de bord.
 
 Tests unitaires autonomes : MongoDB simulé (mongomock-motor), stockage et
 appel IA remplacés par des doublures — aucun serveur, aucune clé, aucun
@@ -27,6 +27,7 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import albarka_ai  # noqa: E402
+from ocr_core import engine as ocr_engine  # noqa: E402
 import albarka_documents as ad  # noqa: E402
 from albarka_auth import get_current_user  # noqa: E402
 
@@ -61,8 +62,18 @@ def _run(coro):
 
 
 # ---------------------------------------------------------------------
-# albarka_ai : coût, préparation, lecture de la réponse
+# albarka_ai : adaptateur Albarka du module commun ocr_core (lot 2).
+# Le moteur lui-même (préparation, appel IA, coût) est testé dans ocr-core.
 # ---------------------------------------------------------------------
+def _fake_llm(reply, tin=10, tout=10, seen=None):
+    """Remplace l'appel IA du module commun ; note la consigne reçue."""
+    async def fake(model, system_prompt, text, images, filename):
+        if seen is not None:
+            seen.update(model=model.id, system_prompt=system_prompt, images=len(images))
+        return reply, tin, tout
+    return fake
+
+
 class TestAiModule:
     def test_cost_uses_real_tokens_and_rate(self):
         usd, xof = albarka_ai.compute_cost(albarka_ai.OCR_MODELS["claude-opus-5"], 1000, 500)
@@ -71,9 +82,16 @@ class TestAiModule:
     def test_default_model_is_unchanged_sonnet(self):
         assert albarka_ai.DEFAULT_MODEL_ID == "claude-sonnet-5"
 
-    def test_photo_is_shrunk_to_1568(self):
-        with Image.open(io.BytesIO(albarka_ai._shrink_image(_png(4000, 3000)))) as img:
-            assert img.format == "JPEG" and max(img.size) == albarka_ai.MAX_IMAGE_EDGE_PX
+    def test_legacy_default_model_env_still_wins(self, monkeypatch):
+        monkeypatch.setenv("OCR_DEFAULT_MODEL", "claude-opus-5")
+        monkeypatch.setenv("ALBARKA_OCR_DEFAULT_MODEL", HAIKU)
+        assert albarka_ai._default_model_id() == HAIKU
+        monkeypatch.delenv("ALBARKA_OCR_DEFAULT_MODEL")
+        assert albarka_ai._default_model_id() == "claude-opus-5"
+
+    def test_system_prompt_is_albarka_with_common_format(self):
+        assert "cabinet ALBARKA" in albarka_ai.SYSTEM_PROMPT
+        assert '"uncertain_fields"' in albarka_ai.SYSTEM_PROMPT
 
     def test_scanned_pdf_is_sent_as_images(self):
         text, images, notes = albarka_ai.prepare_pdf(_pdf(12))
@@ -87,52 +105,54 @@ class TestAiModule:
         answer = {"document_type": "Facture", "summary": "ok", "flags": [],
                   "extracted_fields": {"numero": "F-12", "montant_total": 150000},
                   "confidence": 1.7, "uncertain_fields": ["numero", 3]}
-
-        async def fake(model, text, images, filename):
-            return json.dumps(answer), 2000, 400
-
-        monkeypatch.setattr(albarka_ai, "_call_llm", fake)
+        seen = {}
+        monkeypatch.setattr(ocr_engine, "call_llm", _fake_llm(json.dumps(answer), 2000, 400, seen))
         r = _run(albarka_ai.analyze_document(_png(800, 600), "image/png", "f.png", "claude-sonnet-5"))
+        assert seen["system_prompt"] == albarka_ai.SYSTEM_PROMPT and seen["images"] == 1
         assert r["model"] == "claude-sonnet-5" and r["input_mode"] == "images"
         assert r["confidence"] == 1.0 and r["uncertain_fields"] == ["numero"]
         assert r["cost_usd"] == pytest.approx(0.008) and r["cost_xof"] == pytest.approx(4.8)
         assert "error" not in r
 
     def test_cost_kept_when_answer_is_not_json(self, monkeypatch):
-        async def fake(model, text, images, filename):
-            return "désolé", 1000, 10
-
-        monkeypatch.setattr(albarka_ai, "_call_llm", fake)
+        monkeypatch.setattr(ocr_engine, "call_llm", _fake_llm("désolé", 1000, 10))
         r = _run(albarka_ai.analyze_document(_png(100, 100), "image/png", "f.png", HAIKU))
         assert r["error"] and r["cost_xof"] > 0
 
     def test_backward_compatible_call_without_model(self, monkeypatch):
         """albarka_myaccount.py appelle analyze_document(data, ct, filename)."""
-        async def fake(model, text, images, filename):
-            return '{"summary": "ok"}', 10, 10
-
-        monkeypatch.setattr(albarka_ai, "_call_llm", fake)
+        monkeypatch.setattr(ocr_engine, "call_llm", _fake_llm('{"summary": "ok"}'))
         r = _run(albarka_ai.analyze_document(_png(100, 100), "image/png", "f.png"))
         assert r["model"] == albarka_ai.DEFAULT_MODEL_ID
 
-    def test_call_llm_reads_usage_from_public_api(self, monkeypatch):
-        """Branchement réel sur emergentintegrations 0.2.0 : modèle transmis,
-        images en ImageContent, tokens lus dans ChatResponse.usage."""
+    def test_word_file_is_not_sent_to_the_ai(self, monkeypatch):
+        """Avant le lot 2, un .docx était décodé comme du texte et envoyé (payé) à l'IA."""
+        seen = {}
+        monkeypatch.setattr(ocr_engine, "call_llm", _fake_llm('{"summary": "x"}', seen=seen))
+        ct = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        r = _run(albarka_ai.analyze_document(b"PK\x03\x04 binaire", ct, "contrat.docx"))
+        assert seen == {} and r["cost_xof"] == 0 and "non pris en charge" in r["flags"][0]
+
+    def test_real_emergentintegrations_020_usage(self, monkeypatch):
+        """Branchement réel sur emergentintegrations 0.2.0 : consigne Albarka,
+        modèle transmis, images en ImageContent, tokens lus dans ChatResponse.usage."""
         from emergentintegrations.llm.chat import LlmChat
 
         captured = {}
 
         async def fake_send(self, message):
-            captured.update(model=self.model, provider=self.provider, params=self.extra_params, message=message)
+            captured.update(model=self.model, provider=self.provider, params=self.extra_params,
+                            system=self.messages[0]["content"], message=message)
             return SimpleNamespace(content='{"summary": "x"}',
                                    usage=SimpleNamespace(input_tokens=1234, output_tokens=56))
 
         monkeypatch.setenv("EMERGENT_LLM_KEY", "sk-emergent-test")
         monkeypatch.setattr(LlmChat, "send_message_with_tools", fake_send)
-        out = _run(albarka_ai._call_llm(albarka_ai.OCR_MODELS["claude-opus-5"], "", [b"a", b"b"], "f.pdf"))
+        out = _run(ocr_engine.call_llm(albarka_ai.OCR_MODELS["claude-opus-5"], albarka_ai.SYSTEM_PROMPT,
+                                       "", [b"a", b"b"], "f.pdf"))
         assert out == ('{"summary": "x"}', 1234, 56)
         assert captured["provider"] == "anthropic" and captured["model"] == "claude-opus-5"
-        assert captured["params"]["max_tokens"] == 8192
+        assert captured["params"]["max_tokens"] == 8192 and "ALBARKA" in captured["system"]
         assert len(captured["message"].file_contents) == 2
 
     def test_missing_key_is_reported(self, monkeypatch):

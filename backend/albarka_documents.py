@@ -16,10 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from html import escape as _esc
 from typing import Any, Dict, List, Optional
 
@@ -27,7 +26,8 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from albarka_ai import DEFAULT_MODEL_ID, OCR_MODELS, analyze_document, get_model, usd_to_xof_rate
+import ocr_core  # module commun d'OCR (copie identique, source : dépôt ShuyahBF/Claude, ocr-core/)
+from albarka_ai import DEFAULT_MODEL_ID, analyze_document, get_model
 from albarka_auth import get_current_user, require_staff
 from albarka_models import (
     DOCS_DELETE_ROLES,
@@ -289,77 +289,24 @@ async def list_documents(tenant_id: Optional[str] = None, user: dict = Depends(g
 # Mesure OCR : modèles, tableau de bord, évaluation humaine (staff).
 # Déclarés AVANT /{document_id} pour ne pas être capturés par cette route.
 # ---------------------------------------------------------------------
-_OCR_PERIODS = {"today", "7d", "30d", "all"}
-
-
 @router.get("/ocr-models")
 async def list_ocr_models(user: dict = Depends(require_staff())):
-    """Liste déroulante des modèles + taux USD→FCFA appliqué aux coûts."""
-    return {
-        "models": [m.public() for m in OCR_MODELS.values()],
-        "default_model": DEFAULT_MODEL_ID,
-        "usd_to_xof_rate": usd_to_xof_rate(),
-    }
-
-
-def _period_start(period: str) -> Optional[str]:
-    now = datetime.now(timezone.utc)
-    if period == "today":
-        return now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    if period == "7d":
-        return (now - timedelta(days=7)).isoformat()
-    if period == "30d":
-        return (now - timedelta(days=30)).isoformat()
-    return None
-
-
-def _avg(values: List[float]) -> Optional[float]:
-    return round(sum(values) / len(values), 4) if values else None
-
-
-def _ocr_stats_block(rows: List[dict]) -> Dict[str, Any]:
-    """Indicateurs d'un groupe d'analyses (un modèle, ou le total)."""
-    reviews = [r["review"] for r in rows if r.get("review")]
-    ok_rows = [r for r in rows if not r.get("error")]
-    total_cost = sum(float(r.get("cost_xof") or 0) for r in rows)
-    return {
-        "runs": len(rows),
-        "errors": len(rows) - len(ok_rows),
-        "total_cost_xof": round(total_cost, 2),
-        "avg_cost_xof": round(total_cost / len(rows), 2) if rows else None,
-        "total_input_tokens": sum(int(r.get("input_tokens") or 0) for r in rows),
-        "total_output_tokens": sum(int(r.get("output_tokens") or 0) for r in rows),
-        "avg_duration_ms": _avg([float(r.get("duration_ms") or 0) for r in ok_rows]),
-        # Confiance auto-déclarée par le modèle — indicative seulement
-        "avg_confidence": _avg([float(r["confidence"]) for r in ok_rows if r.get("confidence") is not None]),
-        # Mesures humaines (seules à faire foi)
-        "reviewed": len(reviews),
-        "avg_rating": _avg([float(rv["rating"]) for rv in reviews if rv.get("rating")]),
-        "avg_accuracy": _avg([float(rv["accuracy"]) for rv in reviews if rv.get("accuracy") is not None]),
-    }
+    """Liste déroulante des modèles + taux USD→FCFA appliqué aux coûts (format commun ocr_core)."""
+    return ocr_core.public_catalog(DEFAULT_MODEL_ID)
 
 
 @router.get("/ocr-stats")
 async def ocr_stats(period: str = "30d", user: dict = Depends(require_staff())):
-    """Coût cumulé/moyen, note et précision moyennes, par modèle et au total."""
-    if period not in _OCR_PERIODS:
-        raise HTTPException(status_code=400, detail=f"period invalide (attendu : {sorted(_OCR_PERIODS)})")
-    query: dict = {}
-    start = _period_start(period)
-    if start:
-        query["created_at"] = {"$gte": start}
+    """Coût cumulé/moyen, note et précision moyennes, par modèle et au total (calcul commun ocr_core)."""
+    try:
+        start = ocr_core.period_start(period)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    query: dict = {"created_at": {"$gte": start}} if start else {}
     rows = await db.document_ocr_runs.find(
         query, {"_id": 0, "extracted_fields": 0, "summary": 0},
     ).to_list(20000)
-    by_model: Dict[str, List[dict]] = {}
-    for r in rows:
-        by_model.setdefault(r.get("model") or "inconnu", []).append(r)
-    models = []
-    for model_id, model_rows in by_model.items():
-        cfg = get_model(model_id)
-        models.append({"model": model_id, "label": cfg.label if cfg else model_id, **_ocr_stats_block(model_rows)})
-    models.sort(key=lambda m: m["runs"], reverse=True)
-    return {"period": period, "usd_to_xof_rate": usd_to_xof_rate(), "models": models, "total": _ocr_stats_block(rows)}
+    return ocr_core.stats_by_model(rows, period)
 
 
 class OcrReviewPayload(BaseModel):
@@ -370,30 +317,8 @@ class OcrReviewPayload(BaseModel):
     corrected_fields: Dict[str, Any] = Field(default_factory=dict)
 
 
-def _normalize_value(value: Any) -> Any:
-    """Forme comparable : ignore espaces, casse et format des nombres
-    ("150 000", "150000" et 150000.0 sont égaux)."""
-    if value is None:
-        return ""
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, sort_keys=True, ensure_ascii=False)
-    text = " ".join(str(value).split())
-    compact = text.replace(" ", "").replace("\u202f", "").replace(",", ".")
-    try:
-        return float(compact)
-    except ValueError:
-        return text.lower()
-
-
-def compute_accuracy(extracted: Dict[str, Any], corrected: Dict[str, Any]) -> Dict[str, Any]:
-    """Précision réelle = part des champs que le comptable n'a PAS eu à corriger."""
-    changed = {
-        k: v for k, v in corrected.items()
-        if k not in extracted or _normalize_value(v) != _normalize_value(extracted.get(k))
-    }
-    total = len(set(extracted) | set(corrected))
-    accuracy = round((total - len(changed)) / total, 4) if total else None
-    return {"changed": changed, "fields_total": total, "fields_corrected": len(changed), "accuracy": accuracy}
+# Précision réelle (format des nombres ignoré) : calcul commun, réexporté pour compatibilité.
+compute_accuracy = ocr_core.compute_accuracy
 
 
 @router.post("/ocr-runs/{run_id}/review")
@@ -401,18 +326,10 @@ async def review_ocr_run(run_id: str, payload: OcrReviewPayload, user: dict = De
     run = await db.document_ocr_runs.find_one({"id": run_id}, {"_id": 0})
     if not run:
         raise HTTPException(status_code=404, detail="Analyse introuvable")
-    acc = compute_accuracy(run.get("extracted_fields") or {}, payload.corrected_fields)
-    review = {
-        "rating": payload.rating,
-        "comment": (payload.comment or "").strip() or None,
-        "corrected_fields": acc["changed"],      # seulement ce qui a vraiment changé
-        "fields_total": acc["fields_total"],
-        "fields_corrected": acc["fields_corrected"],
-        "accuracy": acc["accuracy"],
-        "reviewed_by": user["id"],
-        "reviewed_by_name": user.get("full_name"),
-        "reviewed_at": datetime.now(timezone.utc).isoformat(),
-    }
+    review = ocr_core.build_review(
+        run.get("extracted_fields") or {}, payload.rating, payload.comment,
+        payload.corrected_fields, user["id"], user.get("full_name"),
+    )
     # Une nouvelle évaluation remplace la précédente (correction d'une erreur de saisie).
     await db.document_ocr_runs.update_one({"id": run_id}, {"$set": {"review": review}})
     return review

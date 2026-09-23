@@ -1,4 +1,7 @@
-// Petites fonctions d'affichage partagées par les écrans OCR du cabinet.
+// ocr-core (module commun, source unique : dépôt ShuyahBF/Claude, dossier ocr-core/).
+// Ne pas modifier dans un site : corriger dans ocr-core puis resynchroniser.
+//
+// Petites fonctions d'affichage partagées par les écrans OCR.
 
 // Montant en FCFA, avec 2 décimales sous 100 FCFA (le coût d'une pièce est
 // souvent de quelques FCFA : l'arrondir à l'entier ferait perdre l'info).
@@ -21,7 +24,7 @@ export function formatDuration(ms) {
   return `${(Number(ms) / 1000).toFixed(1)} s`;
 }
 
-// Nom court d'un modèle pour les tableaux ("claude-sonnet-5" → "Sonnet 5",
+// Nom court d'un modèle ("claude-sonnet-5" → "Sonnet 5",
 // "claude-haiku-4-5-20251001" → "Haiku 4.5" : la date de version est masquée).
 export function shortModel(modelId) {
   if (!modelId) return "—";
@@ -35,9 +38,22 @@ export function shortModel(modelId) {
 }
 
 // Valeur d'un champ extrait affichée lisiblement (listes/objets en JSON
-// indenté au lieu de "[object Object]").
+// indenté au lieu de "[object Object]", "—" si vide au lieu de "null").
 export function displayValue(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "object") return JSON.stringify(value, null, 2);
   return String(value);
+}
+
+// Message d'erreur lisible d'une réponse d'API (FastAPI renvoie `detail`
+// en texte, ou en liste d'objets pour une erreur de validation 422).
+export function errorMessage(err, fallback = "Une erreur est survenue") {
+  const detail = err?.response?.data?.detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((d) => (typeof d === "string" ? d : d?.msg)).filter(Boolean);
+    if (msgs.length) return msgs.join(" · ");
+  } else if (typeof detail === "string" && detail) {
+    return detail;
+  }
+  return err?.message || fallback;
 }

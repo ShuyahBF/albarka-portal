@@ -1,18 +1,21 @@
+// ocr-core (module commun, source unique : dépôt ShuyahBF/Claude, dossier ocr-core/).
+// Ne pas modifier dans un site : corriger dans ocr-core puis resynchroniser.
+//
 // Tableau de bord OCR (cabinet) : par période et par modèle — nombre de
 // pièces analysées, coût cumulé et moyen en FCFA, note et précision
 // moyennes (évaluations humaines), confiance déclarée, durée moyenne.
 // Sert à choisir le modèle au meilleur rapport précision / coût.
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { apiClient, extractError } from "@/lib/api";
+import { apiClient } from "@/lib/api";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
-import StarRating from "@/components/ocr/StarRating";
-import { formatDuration, formatPercent, formatXof } from "@/components/ocr/format";
+import StarRating from "./StarRating";
+import { errorMessage, formatDuration, formatPercent, formatXof } from "./format";
 
 const PERIODS = [
   { value: "today", label: "Aujourd'hui" },
@@ -21,18 +24,19 @@ const PERIODS = [
   { value: "all", label: "Depuis le début" },
 ];
 
-export default function OcrDashboard() {
+// Contrat d'API commun : GET {apiBase}/ocr-stats?period=today|7d|30d|all
+export default function OcrDashboard({ apiBase = "/documents" }) {
   const [period, setPeriod] = useState("30d");
   const [stats, setStats] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      const { data } = await apiClient.get("/documents/ocr-stats", { params: { period } });
+      const { data } = await apiClient.get(`${apiBase}/ocr-stats`, { params: { period } });
       setStats(data);
     } catch (err) {
-      toast.error(extractError(err));
+      toast.error(errorMessage(err));
     }
-  }, [period]);
+  }, [apiBase, period]);
 
   useEffect(() => { load(); }, [load]);
   const total = stats?.total;
@@ -44,7 +48,7 @@ export default function OcrDashboard() {
           Coûts calculés sur les tokens réellement consommés · 1 USD = {stats?.usd_to_xof_rate ?? "…"} FCFA
         </p>
         <Select value={period} onValueChange={setPeriod}>
-          <SelectTrigger className="w-56 bg-white" data-testid="ocr-period"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="w-56 bg-background" data-testid="ocr-period"><SelectValue /></SelectTrigger>
           <SelectContent>
             {PERIODS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
           </SelectContent>
@@ -60,7 +64,7 @@ export default function OcrDashboard() {
           hint={total?.avg_rating ? `Note moyenne ${total.avg_rating.toFixed(1)} / 5` : "Aucune évaluation"} />
       </div>
 
-      <div className="albarka-card overflow-x-auto">
+      <div className="rounded-lg border bg-card overflow-x-auto">
         <div className="p-4 border-b border-border">
           <div className="font-semibold">Comparaison des modèles</div>
           <div className="text-xs text-muted-foreground mt-1">
@@ -117,7 +121,7 @@ export default function OcrDashboard() {
 
 function Kpi({ title, value, hint }) {
   return (
-    <div className="albarka-card p-4">
+    <div className="rounded-lg border bg-card p-4">
       <div className="text-xs text-muted-foreground">{title}</div>
       <div className="text-xl font-semibold">{value}</div>
       {hint && <div className="text-xs text-muted-foreground mt-1">{hint}</div>}
