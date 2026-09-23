@@ -20,6 +20,10 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
 import EntitySelect from "@/components/EntitySelect";
+import OcrRunsPanel from "@/components/ocr/OcrRunsPanel";
+import OcrDashboard from "@/components/ocr/OcrDashboard";
+import StarRating from "@/components/ocr/StarRating";
+import { displayValue, formatXof, shortModel } from "@/components/ocr/format";
 
 const KINDS = [
   { value: "piece_comptable", label: "Pièce comptable" },
@@ -60,6 +64,11 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
   const fileRef = useRef(null);
   const { isClient, user } = useAuth();
   const [tenantId, setTenantId] = useState(tenantIdOverride || "");
+  // Mesure OCR (cabinet uniquement) : modèles proposés, modèle choisi pour
+  // le prochain dépôt, et vue « Pièces » / « Tableau de bord OCR ».
+  const [ocrModels, setOcrModels] = useState({ models: [], default_model: "" });
+  const [model, setModel] = useState("");
+  const [view, setView] = useState("pieces");
 
   // Côté staff uniquement : le client garde son accès Download/Delete inchangé
   // sur ses propres pièces, ces restrictions ne s'appliquent qu'à /admin/documents.
@@ -84,6 +93,15 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
 
   useEffect(() => { load(); }, [tenantIdOverride]);
 
+  // Liste des modèles d'IA (staff uniquement — route refusée aux clients).
+  useEffect(() => {
+    if (isClient) return;
+    apiClient.get("/documents/ocr-models").then(({ data }) => {
+      setOcrModels(data);
+      setModel((m) => m || data.default_model);
+    }).catch(() => {});
+  }, [isClient]);
+
   // Poll analyses while any doc is pending
   useEffect(() => {
     const pending = docs.some((d) => d.status === "en_analyse");
@@ -103,6 +121,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
     form.append("file", file);
     form.append("kind", kind);
     if (!isClient) form.append("tenant_id", tenantIdOverride || tenantId);
+    if (!isClient && model) form.append("model", model);
     try {
       await apiClient.post("/documents", form, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -123,7 +142,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
       return;
     }
     setExpanded(doc.id);
-    if (!synth[doc.id]) {
+    if (isClient && !synth[doc.id]) {  // côté staff, OcrRunsPanel charge lui-même les analyses
       try {
         const { data } = await apiClient.get(`/documents/${doc.id}`);
         setSynth((s) => ({ ...s, [doc.id]: data.synthesis }));
@@ -204,6 +223,20 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
         </p>
       </div>
 
+      {/* Bascule Pièces / Tableau de bord OCR (cabinet, hors fiche client) */}
+      {!isClient && !tenantIdOverride && (
+        <div className="inline-flex rounded-lg border border-border bg-white p-1" data-testid="ocr-view-toggle">
+          {[["pieces", "Pièces"], ["ocr", "Tableau de bord OCR"]].map(([value, label]) => (
+            <button key={value} type="button" onClick={() => setView(value)}
+              className={`px-4 py-1.5 text-sm rounded-md ${view === value ? "bg-[#0F6B4A] text-white" : "hover:bg-[#0F6B4A]/5"}`}
+              data-testid={`ocr-view-${value}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view === "ocr" && !isClient ? <OcrDashboard /> : (<>
       {!hideUpload && (
         <div className="albarka-card p-6" data-testid="upload-card">
           <div className="flex flex-col md:flex-row md:items-end gap-4">
@@ -220,6 +253,21 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                 </SelectContent>
               </Select>
             </div>
+            {!isClient && (
+              <div className="flex-1 min-w-[240px]">
+                <label className="text-sm font-medium mb-1.5 block">Modèle d'IA</label>
+                <Select value={model} onValueChange={setModel}>
+                  <SelectTrigger data-testid="upload-model-select">
+                    <SelectValue placeholder="Modèle d'IA" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ocrModels.models.map((m) => (
+                      <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {!isClient && !tenantIdOverride && (
               <div className="flex-1 min-w-[240px]">
                 <label className="text-sm font-medium mb-1.5 block">Client</label>
@@ -253,6 +301,9 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
           </div>
           <p className="text-xs text-muted-foreground mt-3">
             PDF, image (JPG/PNG/WEBP), Word, Excel — 20 Mo max.
+            {!isClient && ocrModels.models.find((m) => m.id === model) && (
+              <> {" "}· {ocrModels.models.find((m) => m.id === model).note}</>
+            )}
           </p>
         </div>
       )}
@@ -268,15 +319,16 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
               <TableHead className="text-right">Taille</TableHead>
               <TableHead>Déposé le</TableHead>
               <TableHead>Statut</TableHead>
+              {!isClient && <TableHead>Analyses IA</TableHead>}
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading && (
-              <TableRow><TableCell colSpan={isClient ? 7 : 8} className="text-center text-muted-foreground py-8">Chargement…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={isClient ? 7 : 9} className="text-center text-muted-foreground py-8">Chargement…</TableCell></TableRow>
             )}
             {!loading && docs.length === 0 && (
-              <TableRow><TableCell colSpan={isClient ? 7 : 8} className="text-center text-muted-foreground py-10">
+              <TableRow><TableCell colSpan={isClient ? 7 : 9} className="text-center text-muted-foreground py-10">
                 Aucune pièce déposée pour le moment.
               </TableCell></TableRow>
             )}
@@ -313,6 +365,18 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                       {STATUS_LABEL[d.status] || d.status}
                     </span>
                   </TableCell>
+                  {!isClient && (
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {(d.ocr_runs || []).map((run) => (
+                          <span key={run.id} className="albarka-chip bg-slate-100 text-slate-700 inline-flex items-center gap-1">
+                            {shortModel(run.model)} · {formatXof(run.cost_xof)} ·{" "}
+                            {run.rating ? <StarRating value={run.rating} size={10} /> : "à évaluer"}
+                          </span>
+                        ))}
+                      </div>
+                    </TableCell>
+                  )}
                   <TableCell className="text-right whitespace-nowrap">
                     {isClient ? (
                       <>
@@ -349,18 +413,22 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                 </TableRow>
                 {expanded === d.id && (
                   <TableRow>
-                    <TableCell colSpan={isClient ? 7 : 8} className="bg-[var(--albarka-paper)]/50 border-t border-border">
+                    <TableCell colSpan={isClient ? 7 : 9} className="bg-[var(--albarka-paper)]/50 border-t border-border">
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Sparkles className="w-4 h-4 text-[#0F6B4A]" />
-                          <span className="text-sm font-semibold">Synthèse IA</span>
+                          <span className="text-sm font-semibold">{isClient ? "Synthèse IA" : "Analyses IA"}</span>
                         </div>
-                        {!synth[d.id] && d.status === "en_analyse" && (
+                        {/* Cabinet : analyses par modèle, coût, évaluation, relance */}
+                        {!isClient && (
+                          <OcrRunsPanel doc={d} models={ocrModels.models} defaultModel={ocrModels.default_model} onChanged={load} />
+                        )}
+                        {isClient && !synth[d.id] && d.status === "en_analyse" && (
                           <div className="text-sm text-muted-foreground">
-                            Analyse en cours par Claude Sonnet 5…
+                            Analyse IA en cours…
                           </div>
                         )}
-                        {synth[d.id] && (
+                        {isClient && synth[d.id] && (
                           <div className="space-y-3">
                             {synth[d.id].document_type_guess && (
                               <div className="text-sm">
@@ -378,7 +446,8 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                                 {Object.entries(synth[d.id].extracted_fields).map(([k, v]) => (
                                   <div key={k} className="text-xs bg-white border border-border rounded p-2">
                                     <div className="uppercase tracking-wider text-muted-foreground text-[10px] mb-0.5">{k}</div>
-                                    <div className="font-mono truncate">{String(v)}</div>
+                                    {/* displayValue : listes (lignes de facture) en JSON lisible, "—" si vide — au lieu de "[object Object]" / "null" */}
+                                    <div className="font-mono whitespace-pre-wrap break-words">{displayValue(v)}</div>
                                   </div>
                                 ))}
                               </div>
@@ -390,7 +459,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                             )}
                           </div>
                         )}
-                        {!synth[d.id] && d.status !== "en_analyse" && (
+                        {isClient && !synth[d.id] && d.status !== "en_analyse" && (
                           <div className="text-sm text-muted-foreground">Aucune synthèse disponible.</div>
                         )}
                       </div>
@@ -402,6 +471,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
           </TableBody>
         </Table>
       </div>
+      </>)}
     </div>
   );
 }
