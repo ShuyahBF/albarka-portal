@@ -11,7 +11,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from albarka_auth import get_current_user, hash_password, require_roles, require_staff
 from albarka_admin_settings import get_settings_doc
 from albarka_models import (
-    ALBARKA_ROLES, CLIENT_MANAGE_ROLES, VERIFY_PHONE_ROLES, User, hide_test_accounts_filter,
+    ALBARKA_ROLES, CLIENT_MANAGE_ROLES, STAFF_MANAGE_ROLES, VERIFY_PHONE_ROLES, User, hide_test_accounts_filter,
     is_admin_account, is_client, is_test_account, modification_stamp,
 )
 from db import db, serialize, serialize_many
@@ -146,15 +146,18 @@ async def create_client(payload: ClientCreate, user: dict = Depends(require_role
 
 
 def _is_admin(u: dict) -> bool:
-    """Retourne True si l'utilisateur porte le rôle privilégié `administrateur`."""
-    return "administrateur" in (u.get("roles") or [])
+    """Peut attribuer / retirer le rôle `administrateur` : un Administrateur
+    (règle d'origine), le Superviseur (tous les droits) ou le compte admin."""
+    roles = u.get("roles") or []
+    return "administrateur" in roles or "superviseur" in roles or is_admin_account(u)
 
 
 _SUPERVISEUR_RESERVED = "Le rôle Superviseur ne peut être attribué ou retiré que par le compte admin du portail"
 
 
 @router.post("/staff")
-async def create_staff(payload: StaffCreate, user: dict = Depends(require_staff())):
+async def create_staff(payload: StaffCreate, user: dict = Depends(require_roles(STAFF_MANAGE_ROLES))):
+    # Créer un compte du personnel : Direction, DG, Administrateur ou Superviseur uniquement.
     # Rôle Superviseur (tous les droits) : seul le compte admin du portail le donne.
     if "superviseur" in payload.roles and not is_admin_account(user):
         raise HTTPException(status_code=403, detail=_SUPERVISEUR_RESERVED)
@@ -162,7 +165,7 @@ async def create_staff(payload: StaffCreate, user: dict = Depends(require_staff(
     if "administrateur" in payload.roles and not _is_admin(user):
         raise HTTPException(
             status_code=403,
-            detail="Seul un compte Administrateur peut créer un autre Administrateur",
+            detail="Seul un Administrateur ou le Superviseur peut créer un Administrateur",
         )
     existing = await db.users.find_one({"email": payload.email.lower()})
     if existing:
@@ -248,11 +251,24 @@ async def create_test_accounts(payload: TestAccountsPayload, user: dict = Depend
             continue
         if existing:
             await db.users.update_one({"id": existing["id"]}, {"$set": fields})
+            account_id = existing["id"]
             status = "mis à jour"
         else:
-            await db.users.insert_one({"id": secrets.token_urlsafe(12), "email": email, "created_at": now,
+            account_id = secrets.token_urlsafe(12)
+            await db.users.insert_one({"id": account_id, "email": email, "created_at": now,
                                        "last_login": None, **fields})
             status = "créé"
+        # Client de test : un contrat « En cours » est indispensable pour se
+        # connecter (règle du portail) — créé une seule fois, marqué « test ».
+        if roles == ["client"]:
+            await db.client_contracts.update_one(
+                {"tenant_id": account_id, "is_test_contract": True},
+                {"$setOnInsert": {
+                    "id": secrets.token_urlsafe(12), "tenant_id": account_id, "is_test_contract": True,
+                    "numero_contrat": f"CTR-TEST-{alias[-1]}", "title": "Contrat de test (recette)",
+                    "start_date": now[:10], "end_date": None, "amount": None, "currency": "XOF",
+                    "status": "en_cours", "created_at": now, "created_by": user["id"]}},
+                upsert=True)
         results.append({"email": email, "name": name, "roles": roles, "status": status})
     from albarka_phase_c import _log_platform_event  # import local : évite un cycle
     await _log_platform_event(user=user, action="test_accounts.create", entity_type="user",
@@ -263,6 +279,8 @@ async def create_test_accounts(payload: TestAccountsPayload, user: dict = Depend
 @router.delete("/test-accounts")
 async def delete_test_accounts(user: dict = Depends(require_roles(["superviseur"]))):
     """Supprime tous les comptes de test (un vrai compte n'est jamais touché)."""
+    # Contrats de test des clients de test supprimés avec eux
+    await db.client_contracts.delete_many({"is_test_contract": True})
     res = await db.users.delete_many({"is_test_account": True})
     from albarka_phase_c import _log_platform_event  # import local : évite un cycle
     await _log_platform_event(user=user, action="test_accounts.delete", entity_type="user",
@@ -303,6 +321,12 @@ async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(
     # (voir AdminStaff.jsx, qui limite déjà sa propre UI à admin/superviseur/direction).
     if is_client(target) and not set(user.get("roles") or []) & set(CLIENT_MANAGE_ROLES):
         raise HTTPException(status_code=403, detail="Action réservée aux rôles autorisés")
+    # Compte du personnel : modification (et donc changement de rôles) réservée
+    # à Direction, DG, Administrateur, Superviseur ou au compte admin — même par l'API.
+    actor_roles = set(user.get("roles") or [])
+    if not is_client(target) and not (
+            "superviseur" in actor_roles or actor_roles & set(STAFF_MANAGE_ROLES) or is_admin_account(user)):
+        raise HTTPException(status_code=403, detail="Seuls la Direction, la DG, un Administrateur ou le Superviseur peuvent modifier un compte du personnel")
     # Point 10 — seul un `administrateur` peut attribuer/retirer le rôle `administrateur`.
     if "roles" in update:
         current_roles = set(target.get("roles") or [])
@@ -311,7 +335,7 @@ async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(
         if touches_admin and not _is_admin(user):
             raise HTTPException(
                 status_code=403,
-                detail="Seul un compte Administrateur peut attribuer ou retirer le rôle Administrateur",
+                detail="Seul un Administrateur ou le Superviseur peut attribuer ou retirer le rôle Administrateur",
             )
     update.update(modification_stamp(user))  # dernière modification : quand et par qui
     res = await db.users.update_one({"id": user_id}, {"$set": update})
@@ -395,7 +419,8 @@ async def delete_client(user_id: str, user: dict = Depends(require_staff())):
 # (rôles de gestion des clients) et le personnel (superviseur, direction,
 # administrateur). Un compte Superviseur : superviseur ou admin seulement ;
 # le compte admin : lui seul.
-_STAFF_ACCOUNT_ROLES = ["superviseur", "direction", "administrateur"]
+# Désactiver / réinitialiser le mot de passe d'un collaborateur : mêmes rôles que sa gestion
+_STAFF_ACCOUNT_ROLES = ["superviseur", *STAFF_MANAGE_ROLES]
 
 
 async def _account_for_action(user_id: str, actor: dict) -> dict:

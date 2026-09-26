@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
+import { ui } from "@/components/forms-core/ui";
 
 // Doit rester identique à CLIENT_MANAGE_ROLES côté backend : qui peut ouvrir/fermer les modules.
 const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
@@ -218,12 +219,13 @@ export default function ClientSpacePanel({ tenantId }) {
                 </td>
                 <td className="p-3">
                   <div className="flex justify-end gap-1">
-                    <Button size="sm" variant="ghost" className="px-2" title="Ouvrir" onClick={() => openFile(it)}><Eye className="w-4 h-4" /></Button>
-                    <Button size="sm" variant="ghost" className="px-2" title={it.visible ? "Masquer au client" : "Rendre visible (le client est prévenu)"} onClick={() => setVisible(it, !it.visible)} data-testid={`cs-toggle-${it.id}`}>
-                      {it.visible ? <EyeOff className="w-4 h-4" /> : <CheckCircle2 className="w-4 h-4 text-[#0F6B4A]" />}
-                    </Button>
-                    {it.source === "upload" && it.visible && <Button size="sm" variant="ghost" className="px-2" title="Prévenir à nouveau le client" onClick={() => renotify(it)}><Bell className="w-4 h-4" /></Button>}
-                    {it.source === "upload" && <Button size="sm" variant="ghost" className="px-2 text-rose-600" title="Retirer" onClick={() => remove(it)}><Trash2 className="w-4 h-4" /></Button>}
+                    {/* Actions : boutons pleins colorés (design SAWALI) */}
+                    <button type="button" className={ui.act.iconSky} title="Ouvrir" onClick={() => openFile(it)}><Eye className="w-3.5 h-3.5" /></button>
+                    <button type="button" className={it.visible ? ui.act.iconDark : ui.act.iconEmerald} title={it.visible ? "Masquer au client" : "Rendre visible (le client est prévenu)"} onClick={() => setVisible(it, !it.visible)} data-testid={`cs-toggle-${it.id}`}>
+                      {it.visible ? <EyeOff className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    </button>
+                    {it.source === "upload" && it.visible && <button type="button" className={ui.act.iconAmber} title="Prévenir à nouveau le client" onClick={() => renotify(it)}><Bell className="w-3.5 h-3.5" /></button>}
+                    {it.source === "upload" && <button type="button" className={ui.act.iconDanger} title="Retirer" onClick={() => remove(it)}><Trash2 className="w-3.5 h-3.5" /></button>}
                   </div>
                 </td>
               </tr>

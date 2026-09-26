@@ -9,7 +9,8 @@ const TabsList = React.forwardRef(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+      // Onglets soulignés (design SAWALI)
+      "inline-flex h-auto items-center justify-start gap-2 border-b border-slate-200 bg-transparent p-0 text-slate-500 overflow-x-auto max-w-full",
       className
     )}
     {...props} />
@@ -24,7 +25,7 @@ const TabsTrigger = React.forwardRef(({ className, ...props }, ref) => (
       // fond de l'onglet actif se distingue à peine du fond de la page —
       // filet rouge de secours pour marquer la sélection quel que soit le
       // thème (bordure transparente au repos pour ne pas décaler la taille).
-      "inline-flex items-center justify-center whitespace-nowrap rounded-md border border-transparent px-3 py-1 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow data-[state=active]:border-red-500",
+      "inline-flex items-center justify-center gap-1.5 whitespace-nowrap border-b-2 border-transparent -mb-px px-3 py-2 text-sm transition hover:text-slate-900 focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50 data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:font-semibold",
       className
     )}
     {...props} />

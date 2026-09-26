@@ -21,8 +21,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { GripVertical, ArrowUp, ArrowDown, Copy, Trash2, Plus, Eye, Save, X, Settings2, ListOrdered, Loader2 } from "lucide-react";
 import FormRenderer from "./FormRenderer";
 import { FIELD_TYPES, TYPE_BY_KEY, CHOICE_TYPES, newField, newPage } from "./fieldTypes";
+import { ui, cx } from "./ui";
 
-const inputCls = "w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40";
+// Champ compact du panneau de propriétés (design SAWALI)
+const inputCls = ui.inputSm;
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
 function Properties({ field, pages, pageIdx, update, moveToPage }) {
@@ -39,48 +41,48 @@ function Properties({ field, pages, pageIdx, update, moveToPage }) {
 
   return (
     <div className="space-y-3 text-sm" data-testid="field-properties">
-      <div className="flex items-center gap-2 text-xs text-slate-500">
+      <div className="flex items-center gap-2 text-xs font-semibold text-primary border-b border-slate-100 pb-2">
         {React.createElement(TYPE_BY_KEY[field.type]?.icon || ListOrdered, { className: "h-4 w-4" })} {TYPE_BY_KEY[field.type]?.label}
       </div>
-      <label className="block"><span className="text-xs font-medium text-slate-600">{field.type === "section" ? "Titre" : "Question"}</span>
+      <label className="block"><span className={ui.label}>{field.type === "section" ? "Titre" : "Question"}</span>
         <input value={field.label} onChange={(e) => set({ label: e.target.value })} className={inputCls} data-testid="prop-label" /></label>
-      <label className="block"><span className="text-xs font-medium text-slate-600">{field.type === "section" ? "Texte" : "Aide (sous la question)"}</span>
+      <label className="block"><span className={ui.label}>{field.type === "section" ? "Texte" : "Aide (sous la question)"}</span>
         <textarea rows={2} value={field.help || ""} onChange={(e) => set({ help: e.target.value })} className={inputCls} /></label>
       {field.type !== "section" && (
         <div className="flex flex-wrap gap-4">
-          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={!!field.required} onChange={(e) => set({ required: e.target.checked })} data-testid="prop-required" /> Obligatoire</label>
-          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={field.width === "half"} onChange={(e) => set({ width: e.target.checked ? "half" : "full" })} /> Demi-largeur</label>
+          <label className="inline-flex items-center gap-2"><input type="checkbox" className={ui.check} checked={!!field.required} onChange={(e) => set({ required: e.target.checked })} data-testid="prop-required" /> Obligatoire</label>
+          <label className="inline-flex items-center gap-2"><input type="checkbox" className={ui.check} checked={field.width === "half"} onChange={(e) => set({ width: e.target.checked ? "half" : "full" })} /> Demi-largeur</label>
         </div>
       )}
       {["text", "textarea", "email", "tel", "url", "number"].includes(field.type) && (
-        <label className="block"><span className="text-xs font-medium text-slate-600">Texte indicatif</span>
+        <label className="block"><span className={ui.label}>Texte indicatif</span>
           <input value={field.placeholder || ""} onChange={(e) => set({ placeholder: e.target.value })} className={inputCls} /></label>
       )}
       {CHOICE_TYPES.includes(field.type) && (
-        <label className="block"><span className="text-xs font-medium text-slate-600">Options (une par ligne)</span>
+        <label className="block"><span className={ui.label}>Options (une par ligne)</span>
           <textarea rows={5} value={(field.options || []).join("\n")} data-testid="prop-options"
             onChange={(e) => set({ options: e.target.value.split("\n") })}
             onBlur={(e) => set({ options: e.target.value.split("\n").map((o) => o.trim()).filter(Boolean) })} className={inputCls} /></label>
       )}
       {["number", "text", "textarea"].includes(field.type) && (
         <div className="grid grid-cols-2 gap-2">
-          <label><span className="text-xs text-slate-600">{field.type === "number" ? "Minimum" : "Longueur min."}</span>
+          <label><span className={ui.label}>{field.type === "number" ? "Minimum" : "Longueur min."}</span>
             <input type="number" value={field.min ?? ""} onChange={(e) => set({ min: e.target.value === "" ? null : Number(e.target.value) })} className={inputCls} /></label>
-          <label><span className="text-xs text-slate-600">{field.type === "number" ? "Maximum" : "Longueur max."}</span>
+          <label><span className={ui.label}>{field.type === "number" ? "Maximum" : "Longueur max."}</span>
             <input type="number" value={field.max ?? ""} onChange={(e) => set({ max: e.target.value === "" ? null : Number(e.target.value) })} className={inputCls} /></label>
         </div>
       )}
       {field.type === "rating" && (
-        <label className="block"><span className="text-xs text-slate-600">Nombre d'étoiles</span>
+        <label className="block"><span className={ui.label}>Nombre d'étoiles</span>
           <select value={field.max || 5} onChange={(e) => set({ max: Number(e.target.value) })} className={inputCls}>{[3, 4, 5, 6, 7, 8, 9, 10].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
       )}
       {field.type === "table" && (
         <div className="space-y-1">
-          <span className="text-xs font-medium text-slate-600">Colonnes</span>
+          <span className={ui.label}>Colonnes</span>
           {(field.columns || []).map((c, i) => (
             <div key={c.key} className="flex gap-1">
               <input value={c.label} onChange={(e) => set({ columns: field.columns.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) })} className={inputCls} />
-              <select value={c.type} onChange={(e) => set({ columns: field.columns.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)) })} className="rounded border border-slate-300 text-xs px-1">
+              <select value={c.type} onChange={(e) => set({ columns: field.columns.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)) })} className="rounded border border-slate-300 bg-white text-xs px-1">
                 <option value="text">Texte</option><option value="number">Nombre</option><option value="date">Date</option></select>
               <button type="button" onClick={() => set({ columns: field.columns.filter((_, j) => j !== i) })} className="text-slate-400 hover:text-rose-600"><X className="h-4 w-4" /></button>
             </div>
@@ -90,13 +92,13 @@ function Properties({ field, pages, pageIdx, update, moveToPage }) {
         </div>
       )}
       {field.type === "file" && (
-        <label className="block"><span className="text-xs text-slate-600">Types acceptés (vide = tous), ex. <code>.pdf,image/*</code></span>
+        <label className="block"><span className={ui.label}>Types acceptés (vide = tous), ex. <code>.pdf,image/*</code></span>
           <input value={field.accept || ""} onChange={(e) => set({ accept: e.target.value })} className={inputCls} /></label>
       )}
       {/* Affichage conditionnel */}
-      <div className="rounded-lg bg-slate-50 p-2 space-y-1.5">
+      <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-2.5 space-y-1.5">
         <label className="inline-flex items-center gap-2 text-xs font-medium text-slate-700">
-          <input type="checkbox" checked={!!field.show_if} disabled={!earlier.length} data-testid="prop-condition"
+          <input type="checkbox" className={ui.check} checked={!!field.show_if} disabled={!earlier.length} data-testid="prop-condition"
             onChange={(e) => set({ show_if: e.target.checked ? { field: earlier[earlier.length - 1]?.id, equals: "" } : null })} />
           Afficher seulement si…
         </label>
@@ -118,7 +120,7 @@ function Properties({ field, pages, pageIdx, update, moveToPage }) {
         )}
       </div>
       {pages.length > 1 && (
-        <label className="block"><span className="text-xs text-slate-600">Page</span>
+        <label className="block"><span className={ui.label}>Page</span>
           <select value={pageIdx} onChange={(e) => moveToPage(Number(e.target.value))} className={inputCls}>
             {pages.map((p, i) => <option key={p.id} value={i}>{p.title}</option>)}</select></label>
       )}
@@ -129,25 +131,25 @@ function Properties({ field, pages, pageIdx, update, moveToPage }) {
 function SettingsTab({ settings, set }) {
   const s = settings || {};
   return (
-    <div className="max-w-2xl space-y-4 text-sm" data-testid="form-settings">
-      <label className="flex items-center gap-2"><input type="checkbox" checked={s.accepting_responses !== false} onChange={(e) => set({ accepting_responses: e.target.checked })} />
+    <div className={cx(ui.panel, "max-w-2xl space-y-4 text-sm")} data-testid="form-settings">
+      <label className="flex items-center gap-2"><input type="checkbox" className={ui.check} checked={s.accepting_responses !== false} onChange={(e) => set({ accepting_responses: e.target.checked })} />
         <span><strong>Accepter les réponses</strong> — décocher pour fermer le formulaire.</span></label>
-      <label className="block"><span className="font-medium">Date limite de réponse</span> <span className="text-xs text-slate-500">(facultatif)</span>
+      <label className="block"><span className={ui.label}>Date limite de réponse</span> <span className="text-xs text-slate-500">(facultatif)</span>
         <input type="datetime-local" value={(s.close_at || "").slice(0, 16)} onChange={(e) => set({ close_at: e.target.value || null })} className={`${inputCls} max-w-xs`} /></label>
-      <label className="block"><span className="font-medium">Message affiché après l'envoi</span>
+      <label className="block"><span className={ui.label}>Message affiché après l'envoi</span>
         <textarea rows={2} value={s.confirmation_message || ""} onChange={(e) => set({ confirmation_message: e.target.value })} className={inputCls} /></label>
       <fieldset className="space-y-1">
-        <legend className="font-medium">Identité du répondant (lien public)</legend>
+        <legend className={ui.label}>Identité du répondant (lien public)</legend>
         {[["none", "Ne pas demander (réponses anonymes)"], ["optional", "Nom et e-mail facultatifs"], ["required", "Nom et e-mail obligatoires"]].map(([v, l]) => (
-          <label key={v} className="flex items-center gap-2"><input type="radio" name="resp" checked={(s.respondent_info || "optional") === v} onChange={() => set({ respondent_info: v })} /> {l}</label>
+          <label key={v} className="flex items-center gap-2"><input type="radio" className={ui.check} name="resp" checked={(s.respondent_info || "optional") === v} onChange={() => set({ respondent_info: v })} /> {l}</label>
         ))}
         <p className="text-xs text-slate-500">Pour un client invité, le nom et l'e-mail sont connus : rien ne lui est demandé.</p>
       </fieldset>
-      <label className="flex items-center gap-2"><input type="checkbox" checked={!!s.allow_edit} onChange={(e) => set({ allow_edit: e.target.checked })} />
+      <label className="flex items-center gap-2"><input type="checkbox" className={ui.check} checked={!!s.allow_edit} onChange={(e) => set({ allow_edit: e.target.checked })} />
         Un client invité peut modifier sa réponse (sinon une seule réponse)</label>
-      <label className="flex items-center gap-2"><input type="checkbox" checked={s.public_multiple !== false} onChange={(e) => set({ public_multiple: e.target.checked })} />
+      <label className="flex items-center gap-2"><input type="checkbox" className={ui.check} checked={s.public_multiple !== false} onChange={(e) => set({ public_multiple: e.target.checked })} />
         Lien public : plusieurs réponses possibles avec la même adresse e-mail</label>
-      <label className="block"><span className="font-medium">Prévenir par e-mail à chaque réponse</span> <span className="text-xs text-slate-500">(adresses séparées par des virgules)</span>
+      <label className="block"><span className={ui.label}>Prévenir par e-mail à chaque réponse</span> <span className="text-xs text-slate-500">(adresses séparées par des virgules)</span>
         <input value={(s.notify_emails || []).join(", ")} onChange={(e) => set({ notify_emails: e.target.value.split(/[,;\s]+/).filter(Boolean) })} className={inputCls} placeholder="secretariat@cabinet.bf" /></label>
     </div>
   );
@@ -213,23 +215,22 @@ export default function FormBuilder({ form, categories = [], onSave, saving = fa
   return (
     <div className="space-y-4" data-testid="form-builder">
       {/* En-tête : titre, description, catégorie, actions */}
-      <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+      <div className={ui.panel}>
         <div className="flex flex-wrap items-start gap-3">
-          <input value={draft.title || ""} onChange={(e) => change({ title: e.target.value })} className="flex-1 min-w-[240px] text-lg font-semibold border-0 border-b border-transparent focus:border-primary focus:outline-none" placeholder="Titre du formulaire" data-testid="builder-title" />
-          <select value={draft.category_id || ""} onChange={(e) => change({ category_id: e.target.value || null })} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+          <input value={draft.title || ""} onChange={(e) => change({ title: e.target.value })} className="flex-1 min-w-[240px] text-2xl font-display font-bold text-slate-900 focus:outline-none" placeholder="Titre du formulaire" data-testid="builder-title" />
+          <select value={draft.category_id || ""} onChange={(e) => change({ category_id: e.target.value || null })} className={ui.selectInline}>
             <option value="">Sans catégorie</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
-          <button type="button" onClick={() => { setPreviewData({}); setPreview(true); }} className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm"><Eye className="h-4 w-4" /> Aperçu</button>
-          <button type="button" onClick={save} disabled={saving || !dirty} data-testid="builder-save"
-            className="inline-flex items-center gap-1 rounded-lg bg-primary text-primary-foreground px-3 py-1.5 text-sm font-medium disabled:opacity-50">
+          <button type="button" onClick={() => { setPreviewData({}); setPreview(true); }} className={cx(ui.btnSecondary, "py-1.5")}><Eye className="h-4 w-4" /> Aperçu</button>
+          <button type="button" onClick={save} disabled={saving || !dirty} data-testid="builder-save" className={cx(ui.btnPrimary, "py-1.5")}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} {dirty ? "Enregistrer" : "Enregistré"}
           </button>
         </div>
-        <textarea rows={1} value={draft.description || ""} onChange={(e) => change({ description: e.target.value })} className="w-full text-sm text-slate-600 border-0 focus:outline-none resize-none" placeholder="Description (affichée en haut du formulaire)" />
+        <textarea rows={1} value={draft.description || ""} onChange={(e) => change({ description: e.target.value })} className="w-full text-sm text-slate-600 focus:outline-none resize-none" placeholder="Description (affichée en haut du formulaire)" />
       </div>
 
-      <div className="flex gap-2 border-b border-slate-200">
+      <div className={ui.tabs}>
         {[["questions", "Questions", ListOrdered], ["settings", "Réglages", Settings2]].map(([k, l, I]) => (
-          <button key={k} type="button" onClick={() => setTab(k)} className={`inline-flex items-center gap-1 px-3 py-2 text-sm -mb-px border-b-2 ${tab === k ? "border-primary text-primary font-medium" : "border-transparent text-slate-500"}`}><I className="h-4 w-4" /> {l}</button>
+          <button key={k} type="button" onClick={() => setTab(k)} className={ui.tab(tab === k)}><I className="h-4 w-4" /> {l}</button>
         ))}
       </div>
 
@@ -239,13 +240,13 @@ export default function FormBuilder({ form, categories = [], onSave, saving = fa
         <div className="grid grid-cols-1 lg:grid-cols-[190px_1fr_280px] gap-4">
           {/* Palette */}
           <div className="space-y-1" data-testid="builder-palette">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Ajouter</p>
+            <p className={ui.label}>Ajouter une question</p>
             <div className="grid grid-cols-2 lg:grid-cols-1 gap-1">
               {FIELD_TYPES.map((t) => (
                 <button key={t.type} type="button" draggable onDragStart={() => setDragInfo({ kind: "new", type: t.type })} onDragEnd={() => setDragInfo(null)}
                   onClick={() => addAfterSelected(t.type)} data-testid={`palette-${t.type}`}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 hover:border-primary hover:text-primary cursor-grab">
-                  <t.icon className="h-3.5 w-3.5" /> {t.label}
+                  className="flex items-center gap-2 rounded-lg ring-1 ring-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 hover:ring-primary hover:text-primary hover:bg-primary/5 cursor-grab transition">
+                  <t.icon className="h-3.5 w-3.5 text-primary" /> {t.label}
                 </button>
               ))}
             </div>
@@ -256,20 +257,20 @@ export default function FormBuilder({ form, categories = [], onSave, saving = fa
             <div className="flex flex-wrap items-center gap-1">
               {pages.map((p, i) => (
                 <button key={p.id} type="button" onClick={() => { setPageIdx(i); setSelected(null); }}
-                  className={`rounded-full px-3 py-1 text-xs border ${i === pageIdx ? "bg-primary text-primary-foreground border-primary" : "bg-white border-slate-300"}`}>{p.title} ({p.fields.length})</button>
+                  className={ui.chip(i === pageIdx)}>{p.title} ({p.fields.length})</button>
               ))}
-              <button type="button" onClick={() => { setPages((ps) => [...ps, newPage(ps.length + 1)]); setPageIdx(pages.length); }} className="rounded-full px-2 py-1 text-xs border border-dashed border-slate-400 inline-flex items-center gap-1"><Plus className="h-3 w-3" /> Page</button>
+              <button type="button" onClick={() => { setPages((ps) => [...ps, newPage(ps.length + 1)]); setPageIdx(pages.length); }} className={ui.btnTool}><Plus className="h-3 w-3" /> Page</button>
             </div>
             <div className="flex items-center gap-2">
               <input value={page.title} onChange={(e) => setPages((ps) => { ps[pageIdx].title = e.target.value; return ps; })} className={`${inputCls} max-w-xs`} aria-label="Titre de la page" />
               {pages.length > 1 && (
                 <button type="button" onClick={() => { if (!page.fields.length || window.confirm(`Supprimer « ${page.title} » et ses ${page.fields.length} question(s) ?`)) { setPages((ps) => ps.filter((_, i) => i !== pageIdx)); setPageIdx(0); } }}
-                  className="text-xs text-rose-600 inline-flex items-center gap-1"><Trash2 className="h-3 w-3" /> Supprimer la page</button>
+                  className="text-xs text-rose-500 hover:bg-rose-50 rounded px-1.5 py-1 inline-flex items-center gap-1"><Trash2 className="h-3 w-3" /> Supprimer la page</button>
               )}
             </div>
-            <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-2 space-y-1.5 min-h-[200px]" data-testid="builder-canvas"
+            <div className="rounded-xl border-2 border-dashed border-slate-200 bg-slate-50/60 p-3 space-y-2 min-h-[200px]" data-testid="builder-canvas"
               onDragOver={(e) => { e.preventDefault(); if (dropIndex === null) setDropIndex(page.fields.length); }} onDrop={(e) => onDrop(e, dropIndex ?? page.fields.length)}>
-              {page.fields.length === 0 && <p className="text-sm text-slate-400 text-center py-10">Cliquez ou glissez un type de champ depuis la palette.</p>}
+              {page.fields.length === 0 && <p className={ui.empty}>Cliquez ou glissez un type de champ depuis la palette.</p>}
               {page.fields.map((f, i) => {
                 const T = TYPE_BY_KEY[f.type];
                 return (
@@ -278,9 +279,9 @@ export default function FormBuilder({ form, categories = [], onSave, saving = fa
                     <div draggable onDragStart={() => setDragInfo({ kind: "move", index: i })} onDragEnd={() => { setDragInfo(null); setDropIndex(null); }}
                       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setDropIndex(e.clientY < r.top + r.height / 2 ? i : i + 1); }}
                       onClick={() => setSelected(f.id)} data-testid={`canvas-field-${i}`}
-                      className={`group flex items-center gap-2 rounded-lg border bg-white px-2 py-2 cursor-pointer ${selected === f.id ? "border-primary ring-2 ring-primary/20" : "border-slate-200"}`}>
+                      className={cx("group flex items-center gap-2 rounded-xl border bg-white px-3 py-2.5 cursor-pointer transition", selected === f.id ? "border-primary ring-2 ring-primary/20 shadow-sm" : "border-slate-200 hover:border-slate-300")}>
                       <GripVertical className="h-4 w-4 text-slate-300 cursor-grab shrink-0" />
-                      {T && <T.icon className="h-4 w-4 text-slate-500 shrink-0" />}
+                      {T && <span className="h-7 w-7 rounded-lg bg-primary/10 text-primary inline-flex items-center justify-center shrink-0"><T.icon className="h-3.5 w-3.5" /></span>}
                       <div className="min-w-0 flex-1">
                         <p className={`text-sm truncate ${f.type === "section" ? "font-semibold" : ""}`}>{f.label}{f.required && <span className="text-rose-600"> *</span>}</p>
                         <p className="text-[11px] text-slate-400">{T?.label}{f.width === "half" ? " · demi-largeur" : ""}{f.show_if ? " · conditionnel" : ""}</p>
@@ -300,21 +301,21 @@ export default function FormBuilder({ form, categories = [], onSave, saving = fa
           </div>
 
           {/* Propriétés */}
-          <div className="rounded-xl border border-slate-200 bg-white p-3 h-fit lg:sticky lg:top-4">
+          <div className={cx(ui.card, "h-fit lg:sticky lg:top-4")}>
             {selField ? <Properties field={selField} pages={pages} pageIdx={pageIdx} update={updateField} moveToPage={moveToPage} />
-              : <p className="text-sm text-slate-400">Sélectionnez une question pour la configurer.</p>}
+              : <p className="text-sm text-slate-400 italic">Sélectionnez une question pour la configurer.</p>}
           </div>
         </div>
       )}
 
       {/* Aperçu en direct */}
       {preview && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => e.target === e.currentTarget && setPreview(false)}>
-          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl" data-testid="builder-preview">
-            <div className="flex items-start justify-between mb-4">
-              <div><p className="text-xs uppercase tracking-wide text-slate-400">Aperçu</p><h2 className="text-xl font-semibold">{draft.title}</h2>
+        <div className={ui.overlay} onClick={(e) => e.target === e.currentTarget && setPreview(false)}>
+          <div className={ui.modalLg} data-testid="builder-preview">
+            <div className="flex items-start justify-between">
+              <div><p className={ui.eyebrow}>Aperçu</p><h2 className={cx(ui.modalTitle, "text-xl")}><Eye className={ui.modalIcon} /> {draft.title}</h2>
                 {draft.description && <p className="text-sm text-slate-600 mt-1 whitespace-pre-line">{draft.description}</p>}</div>
-              <button type="button" onClick={() => setPreview(false)} className="text-slate-400 hover:text-slate-700"><X className="h-5 w-5" /></button>
+              <button type="button" onClick={() => setPreview(false)} className={ui.close} aria-label="Fermer"><X className="h-5 w-5" /></button>
             </div>
             <FormRenderer form={{ ...draft, pages }} value={previewData} onChange={setPreviewData} />
           </div>

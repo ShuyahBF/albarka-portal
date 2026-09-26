@@ -6,10 +6,23 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from albarka_auth import get_current_user
-from albarka_models import hide_test_accounts_filter, is_client, tenant_id_of
+from albarka_models import client_modules, hide_test_accounts_filter, is_client, tenant_id_of
 from db import db, serialize_many
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+def _open_modules(user: dict) -> set:
+    """Modules visibles : pour un client, seulement ceux que le cabinet lui a
+    ouverts ; pour le cabinet, tout."""
+    if is_client(user):
+        return set(client_modules(user))
+    return {"documents", "missions", "echeances", "historique"}
+
+
+async def _count(collection, query: dict, allowed: bool) -> int:
+    # Module fermé pour ce client : compteur à zéro (aucune donnée divulguée)
+    return await collection.count_documents(query) if allowed else 0
 
 
 @router.get("/summary")
@@ -17,13 +30,14 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
     scope = {}
     if is_client(user):
         scope["tenant_id"] = tenant_id_of(user)
+    mods = _open_modules(user)
 
-    documents_total = await db.documents.count_documents(scope)
-    documents_pending = await db.documents.count_documents({**scope, "status": "en_analyse"})
-    missions_active = await db.missions.count_documents({**scope, "status": {"$in": ["en_attente", "en_cours"]}})
-    missions_done = await db.missions.count_documents({**scope, "status": "terminee"})
-    echeances_upcoming = await db.echeances.count_documents({**scope, "status": {"$in": ["a_venir", "en_cours"]}})
-    echeances_late = await db.echeances.count_documents({**scope, "status": "en_retard"})
+    documents_total = await _count(db.documents, scope, "documents" in mods)
+    documents_pending = await _count(db.documents, {**scope, "status": "en_analyse"}, "documents" in mods)
+    missions_active = await _count(db.missions, {**scope, "status": {"$in": ["en_attente", "en_cours"]}}, "missions" in mods)
+    missions_done = await _count(db.missions, {**scope, "status": "terminee"}, "missions" in mods)
+    echeances_upcoming = await _count(db.echeances, {**scope, "status": {"$in": ["a_venir", "en_cours"]}}, "echeances" in mods)
+    echeances_late = await _count(db.echeances, {**scope, "status": "en_retard"}, "echeances" in mods)
 
     # Additional staff-only stats
     clients_total = None
@@ -53,9 +67,11 @@ async def dashboard_activity(limit: int = 15, user: dict = Depends(get_current_u
     if is_client(user):
         scope["tenant_id"] = tenant_id_of(user)
 
-    docs = await db.documents.find(scope, {"_id": 0}).sort("created_at", -1).to_list(limit)
-    missions = await db.missions.find(scope, {"_id": 0}).sort("created_at", -1).to_list(limit)
-    echeances = await db.echeances.find(scope, {"_id": 0}).sort("due_date", 1).to_list(limit)
+    mods = _open_modules(user)
+    # Chaque liste n'est renvoyée que si son module est ouvert pour ce client
+    docs = await db.documents.find(scope, {"_id": 0}).sort("created_at", -1).to_list(limit) if "documents" in mods else []
+    missions = await db.missions.find(scope, {"_id": 0}).sort("created_at", -1).to_list(limit) if "missions" in mods else []
+    echeances = await db.echeances.find(scope, {"_id": 0}).sort("due_date", 1).to_list(limit) if "echeances" in mods else []
 
     return {
         "documents": serialize_many(docs),

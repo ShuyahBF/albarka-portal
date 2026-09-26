@@ -47,6 +47,11 @@ CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"]
 # rôle cumulable "telechargement" (mêmes conventions que DOWNLOAD_ROLES).
 CAISSE_PDF_ACTION_ROLES = ["administrateur", "superviseur", "direction", "dg", "caissier", "secretariat"]
 CLIENT_MANAGE_ROLES = DOCS_PRIVILEGED_ROLES
+# Gestion des comptes du PERSONNEL (créer, modifier, rôles, désactiver,
+# mot de passe) : Direction, DG, Administrateur — et le Superviseur (qui a
+# tous les droits). Tout autre collaborateur ne peut rien changer, même en
+# appelant l'API directement.
+STAFF_MANAGE_ROLES = ["administrateur", "dg", "direction"]
 CHAT_THREAD_CREATE_ROLES = DOCS_PRIVILEGED_ROLES
 # Module Paiements (liens PawaPay) — réservé au rôle "caissier" uniquement,
 # à la demande explicite du client ("accessible seulement au nouveau rôle
@@ -74,6 +79,10 @@ def can_encaisser(user: dict) -> bool:
 # une facture de la Caisse. Un reçu déposé reste réservé au Caissier.
 CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", "comptable",
                       "fiscaliste", "aide_comptable", "caissier"]
+# Caisse (factures, encaissements, relevés) : mêmes rôles que le lien
+# « Caisse » du menu (+ DG) ; le Superviseur passe toujours. Encaisser reste
+# réservé au Caissier (ENCAISSEMENT_ROLES / can_encaisser).
+BILLING_ROLES = ["direction", "dg", "administrateur", "comptable", "secretariat", "caissier"]
 # Modules de l'espace client que le cabinet peut ouvrir ou fermer, client par
 # client (fiche client → « Espace client »). Tableau de bord et Mon compte
 # restent toujours visibles. Aucun réglage enregistré = tous les modules.
@@ -225,6 +234,10 @@ def hide_test_accounts_filter(viewer: dict) -> dict:
     """Filtre Mongo des listes d'utilisateurs : les comptes de test ne sont
     visibles que du superviseur ; pour tout autre viewer ils sont exclus."""
     if "superviseur" in (viewer.get("roles") or []):
+        return {}
+    # Un compte de test voit les autres comptes de test (ex. la secrétaire de
+    # test peut facturer le client de test) en plus des vrais comptes.
+    if viewer.get("is_test_account"):
         return {}
     return {"is_test_account": {"$ne": True}}
 

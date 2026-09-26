@@ -17,6 +17,7 @@ import { CheckCircle2, Loader2, Lock } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import FormRenderer from "./FormRenderer";
 import { errorText } from "./fieldTypes";
+import { ui, cx } from "./ui";
 
 export default function PublicFormPage({ publicApiBase = "/public/forms", token, brand = {} }) {
   const [ctx, setCtx] = useState(null);
@@ -68,10 +69,10 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
         {(brand.logoUrl || brand.name) && (
           <div className="flex items-center gap-2 mb-4">
             {brand.logoUrl && <img src={brand.logoUrl} alt="" className="h-9 w-auto" />}
-            {brand.name && <span className="font-semibold text-slate-800">{brand.name}</span>}
+            {brand.name && <span className="font-display font-bold text-slate-800">{brand.name}</span>}
           </div>
         )}
-        <div className="rounded-2xl bg-white shadow-sm border border-slate-200 p-6">{children}</div>
+        <div className="rounded-2xl bg-white shadow-xl shadow-slate-200/60 ring-1 ring-slate-200 p-6 md:p-8">{children}</div>
         <p className="text-center text-[11px] text-slate-400 mt-4 inline-flex items-center gap-1 w-full justify-center"><Lock className="h-3 w-3" /> Vos réponses sont transmises de façon sécurisée{brand.name ? ` à ${brand.name}` : ""}.</p>
       </div>
     </div>
@@ -83,13 +84,13 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
   if (done) return shell(
     <div className="text-center py-8" data-testid="public-form-done">
       <CheckCircle2 className="h-12 w-12 text-emerald-600 mx-auto mb-3" />
-      <h1 className="text-xl font-semibold mb-2">{form.title}</h1>
+      <h1 className="text-xl font-display font-bold mb-2">{form.title}</h1>
       <p className="text-slate-700 whitespace-pre-line">{done}</p>
     </div>
   );
-  if (ctx.closed_reason) return shell(<div className="text-center py-8"><h1 className="text-xl font-semibold mb-2">{form.title}</h1><p className="text-slate-600">{ctx.closed_reason}</p></div>);
+  if (ctx.closed_reason) return shell(<div className="text-center py-8"><h1 className="text-xl font-display font-bold mb-2">{form.title}</h1><p className="text-slate-600">{ctx.closed_reason}</p></div>);
   if (ctx.already_answered && !ctx.can_edit) return shell(
-    <div className="text-center py-8"><CheckCircle2 className="h-12 w-12 text-emerald-600 mx-auto mb-3" /><h1 className="text-xl font-semibold mb-2">{form.title}</h1>
+    <div className="text-center py-8"><CheckCircle2 className="h-12 w-12 text-emerald-600 mx-auto mb-3" /><h1 className="text-xl font-display font-bold mb-2">{form.title}</h1>
       <p className="text-slate-600">Vous avez déjà répondu à ce formulaire. Merci !</p></div>
   );
 
@@ -99,13 +100,13 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
     <>
       {ctx.recipient?.name && <p className="text-sm text-slate-600">Bonjour <strong>{ctx.recipient.name}</strong>{ctx.already_answered ? " — vous pouvez modifier votre réponse." : ","}</p>}
       {askIdentity && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3">
-          <label className="text-sm"><span className="font-medium">Votre nom{required && <span className="text-rose-600"> *</span>}</span>
-            <input value={respondent.name} onChange={(e) => setRespondent({ ...respondent, name: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="respondent-name" />
-            {errors._respondent_name && <span className="text-xs text-rose-600">{errors._respondent_name}</span>}</label>
-          <label className="text-sm"><span className="font-medium">Votre e-mail{required && <span className="text-rose-600"> *</span>}</span>
-            <input type="email" value={respondent.email} onChange={(e) => setRespondent({ ...respondent, email: e.target.value })} className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="respondent-email" />
-            {errors._respondent_email && <span className="text-xs text-rose-600">{errors._respondent_email}</span>}</label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-xl bg-slate-50 ring-1 ring-slate-200 p-4">
+          <label className="block"><span className={ui.label}>Votre nom{required && <span className="text-rose-600"> *</span>}</span>
+            <input value={respondent.name} onChange={(e) => setRespondent({ ...respondent, name: e.target.value })} className={ui.input} data-testid="respondent-name" />
+            {errors._respondent_name && <span className={ui.error}>{errors._respondent_name}</span>}</label>
+          <label className="block"><span className={ui.label}>Votre e-mail{required && <span className="text-rose-600"> *</span>}</span>
+            <input type="email" value={respondent.email} onChange={(e) => setRespondent({ ...respondent, email: e.target.value })} className={ui.input} data-testid="respondent-email" />
+            {errors._respondent_email && <span className={ui.error}>{errors._respondent_email}</span>}</label>
         </div>
       )}
       {/* Champ piège : invisible pour un humain, rempli par les robots */}
@@ -115,9 +116,10 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
 
   return shell(
     <>
-      <h1 className="text-2xl font-semibold text-slate-900">{form.title}</h1>
+      <p className={ui.eyebrow}>Formulaire</p>
+      <h1 className="text-2xl font-display font-bold text-slate-900">{form.title}</h1>
       {form.description && <p className="text-sm text-slate-600 mt-1 mb-4 whitespace-pre-line">{form.description}</p>}
-      {globalError && <p className="rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-sm px-3 py-2 mb-3" data-testid="public-form-error">{globalError}</p>}
+      {globalError && <p className="rounded-xl bg-rose-50 ring-1 ring-rose-200 text-rose-800 text-sm px-4 py-2.5 mb-3" data-testid="public-form-error">{globalError}</p>}
       <div className="mt-4">
         <FormRenderer form={form} value={data} onChange={setData} errors={errors} uploadFile={upload} onSubmit={submit} submitting={submitting}
           submitLabel={ctx.already_answered ? "Mettre à jour ma réponse" : "Envoyer mes réponses"} header={header} />

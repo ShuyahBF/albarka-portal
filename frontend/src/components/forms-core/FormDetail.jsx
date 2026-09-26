@@ -18,6 +18,7 @@ import FormSendPanel from "./FormSendPanel";
 import FormResponses from "./FormResponses";
 import FormStats from "./FormStats";
 import { errorText } from "./fieldTypes";
+import { ui, cx } from "./ui";
 
 const TABS = [["build", "Constructeur", PenLine], ["send", "Envoi & suivi", Send], ["responses", "Réponses", Inbox], ["stats", "Statistiques", BarChart3]];
 
@@ -42,20 +43,24 @@ export default function FormDetail({ apiBase = "/forms", basePath = "/admin/form
     catch (e) { toast.error(errorText(e)); throw e; } finally { setSaving(false); }
   };
 
-  if (!form) return <p className="text-sm text-slate-500 inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Chargement…</p>;
+  if (!form) return <p className={ui.loading}><Loader2 className="h-4 w-4 animate-spin inline mr-1" /> Chargement…</p>;
   return (
-    <div className="space-y-4" data-testid="form-detail">
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="button" onClick={() => navigate(basePath)} className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-primary"><ArrowLeft className="h-4 w-4" /> Formulaires</button>
-        <span className="font-mono text-xs text-slate-400">{form.number}</span>
-        <h1 className="text-xl font-display font-semibold truncate">{form.title}</h1>
-        {form.archived_at && <span className="rounded-full bg-slate-800 text-white text-[11px] px-2 py-0.5">Archivé</span>}
-        {form.closed_reason && !form.archived_at && <span className="rounded-full bg-amber-100 text-amber-900 text-[11px] px-2 py-0.5">Clos</span>}
+    <div className="space-y-5" data-testid="form-detail">
+      {/* Retour, numéro, titre et état du formulaire */}
+      <div className="space-y-1">
+        <button type="button" onClick={() => navigate(basePath)} className="text-sm text-slate-500 hover:text-slate-900 inline-flex items-center gap-1"><ArrowLeft className="h-4 w-4" /> Bibliothèque de formulaires</button>
+        <div className="flex flex-wrap items-center gap-2">
+          <code className={cx(ui.code, "text-[11px] px-2")}>{form.number}</code>
+          <h1 className={cx(ui.h1, "truncate")}>{form.title}</h1>
+          {form.archived_at && <span className={ui.badge.grey}>Archivé</span>}
+          {form.closed_reason && !form.archived_at && <span className={ui.badge.amber}>Clos</span>}
+          {!form.closed_reason && !form.archived_at && <span className={ui.badge.green}>Ouvert</span>}
+        </div>
       </div>
-      <div className="flex gap-1 border-b border-slate-200 overflow-x-auto">
+      {/* Onglets soulignés */}
+      <div className={ui.tabs}>
         {TABS.map(([k, l, I]) => (
-          <button key={k} type="button" onClick={() => setParams(k === "build" ? {} : { tab: k })} data-testid={`form-tab-${k}`}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm -mb-px border-b-2 whitespace-nowrap ${tab === k ? "border-primary text-primary font-medium" : "border-transparent text-slate-500 hover:text-slate-800"}`}>
+          <button key={k} type="button" onClick={() => setParams(k === "build" ? {} : { tab: k })} data-testid={`form-tab-${k}`} className={ui.tab(tab === k)}>
             <I className="h-4 w-4" /> {l}{k === "responses" ? ` (${form.submissions_count || 0})` : ""}
           </button>
         ))}

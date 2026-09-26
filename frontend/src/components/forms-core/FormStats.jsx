@@ -17,12 +17,13 @@ import { Loader2 } from "lucide-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, BarChart, Bar, CartesianGrid } from "recharts";
 import { apiClient } from "@/lib/api";
 import { errorText, formatDateTime } from "./fieldTypes";
+import { ui, cx } from "./ui";
 
 function Kpi({ label, value, hint }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="text-2xl font-semibold text-slate-900 tabular-nums">{value}</p>
+    <div className={ui.stat}>
+      <p className={ui.statLabel}>{label}</p>
+      <p className={ui.statValue}>{value}</p>
       {hint && <p className="text-[11px] text-slate-400">{hint}</p>}
     </div>
   );
@@ -31,9 +32,9 @@ function Kpi({ label, value, hint }) {
 function QuestionCard({ q, color }) {
   const bars = q.options || q.distribution;
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid={`stats-q-${q.id}`}>
-      <p className="font-medium text-sm text-slate-900">{q.label}</p>
-      <p className="text-[11px] text-slate-500 mb-2">{q.answered} réponse(s) · {q.answered_pct} % des répondants</p>
+    <div className={ui.card} data-testid={`stats-q-${q.id}`}>
+      <p className="font-display font-bold text-sm text-slate-900">{q.label}</p>
+      <p className="text-[11px] text-slate-500 mb-2"><span className={ui.badge.sky}>{q.answered_pct} %</span> {q.answered} réponse(s) sur l'ensemble des répondants</p>
       {q.avg !== undefined && (
         <p className="text-sm mb-2">Moyenne <strong className="tabular-nums">{q.avg}</strong>
           <span className="text-slate-500"> · min {q.min} · médiane {q.median} · max {q.max}</span></p>
@@ -72,14 +73,15 @@ export default function FormStats({ apiBase = "/forms", form, color = "#0F6B4A" 
       .then((r) => setSt(r.data)).catch((e) => toast.error(errorText(e)));
   }, [apiBase, form.id, dateFrom, dateTo]);
 
-  if (!st) return <p className="text-sm text-slate-500 inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Calcul des statistiques…</p>;
+  if (!st) return <p className={ui.loading}><Loader2 className="h-4 w-4 animate-spin inline mr-1" /> Calcul des statistiques…</p>;
   const inv = st.invitations || {};
   return (
     <div className="space-y-4" data-testid="form-stats">
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="text-xs text-slate-600">Du<input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="block rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
-        <label className="text-xs text-slate-600">Au<input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="block rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
-        {(dateFrom || dateTo) && <button type="button" onClick={() => { setDateFrom(""); setDateTo(""); }} className="text-xs text-primary">Toute la période</button>}
+      <div className={cx(ui.card, "flex flex-wrap items-end gap-3")}>
+        {/* Période : du … au … */}
+        <label className="block"><span className={ui.label}>Du</span><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={ui.inputInline} /></label>
+        <label className="block"><span className={ui.label}>Au</span><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={ui.inputInline} /></label>
+        {(dateFrom || dateTo) && <button type="button" onClick={() => { setDateFrom(""); setDateTo(""); }} className={ui.btnTool}>Toute la période</button>}
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi label="Réponses" value={st.total_submissions} hint={st.last_at ? `dernière : ${formatDateTime(st.last_at)}` : "aucune pour l'instant"} />
@@ -88,8 +90,8 @@ export default function FormStats({ apiBase = "/forms", form, color = "#0F6B4A" 
         <Kpi label="Taux de réponse (invités)" value={`${inv.response_pct || 0} %`} hint={`${inv.answered || 0} réponse(s), ${inv.pending || 0} en attente`} />
       </div>
       {st.series.length > 0 && (
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="text-sm font-medium mb-2">Réponses par jour</p>
+        <div className={ui.card}>
+          <p className="font-display font-bold text-sm mb-2">Réponses par jour</p>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={st.series} margin={{ left: -20, right: 10 }}>
@@ -106,7 +108,7 @@ export default function FormStats({ apiBase = "/forms", form, color = "#0F6B4A" 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {st.questions.map((q) => <QuestionCard key={q.id} q={q} color={color} />)}
       </div>
-      {st.questions.length === 0 && <p className="text-sm text-slate-400">Ce formulaire n'a pas encore de question.</p>}
+      {st.questions.length === 0 && <p className={ui.empty}>Ce formulaire n'a pas encore de question.</p>}
     </div>
   );
 }

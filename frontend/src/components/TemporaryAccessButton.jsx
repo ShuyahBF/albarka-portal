@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { TimerReset, Copy } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ui } from "@/components/forms-core/ui";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
@@ -34,9 +35,10 @@ export default function TemporaryAccessButton({ account }) {
 
   return (
     <>
-      <Button variant="ghost" size="sm" title="Accès temporaire" onClick={() => setOpen(true)} data-testid={`temp-access-${account.id}`}>
-        <TimerReset className="w-4 h-4" />
-      </Button>
+      {/* Bouton plein violet (design SAWALI) */}
+      <button type="button" title="Accès temporaire" onClick={() => setOpen(true)} className={`${ui.act.iconIndigo} ml-1`} data-testid={`temp-access-${account.id}`}>
+        <TimerReset className="w-3.5 h-3.5" />
+      </button>
       <Dialog open={open} onOpenChange={(v) => { if (!v) close(); }}>
         <DialogContent data-testid="temp-access-dialog">
           <DialogHeader><DialogTitle>Accès temporaire pour {account.full_name}</DialogTitle></DialogHeader>

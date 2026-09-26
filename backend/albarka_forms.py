@@ -143,7 +143,7 @@ class AlbarkaFormsAdapter(FormsAdapter):
 
     async def list_recipients(self, user: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Clients actifs proposés dans la liste d'envoi (triés par nom)."""
-        # Comptes de test proposés au superviseur uniquement
+        # Comptes de test : proposés au superviseur et aux comptes de test uniquement
         cur = self.db.users.find({"roles": "client", "is_active": {"$ne": False}, **hide_test_accounts_filter(user)},
                                  {"_id": 0, "password_hash": 0}).sort("full_name", 1)
         return [self._as_recipient(u) for u in await cur.to_list(5000)]

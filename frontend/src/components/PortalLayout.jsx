@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   FileText,
@@ -70,13 +70,13 @@ const CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", 
 // Staff menu items with the roles that grant access. `superviseur` = full access.
 const STAFF_MENU = [
   { to: "/admin", label: "Tableau de bord", icon: LayoutDashboard, end: true,
-    roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
+    roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   { to: "/admin/clients", label: "Clients", icon: Users,
-    roles: ["superviseur", "direction", "secretariat"] },
+    roles: ["superviseur", "direction", "administrateur", "secretariat"] },
   { to: "/admin/contacts", label: "Contacts", icon: Contact,
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
   { to: "/admin/staff", label: "Personnels", icon: UserCog,
-    roles: ["superviseur", "direction"] },
+    roles: ["superviseur", "direction", "administrateur"] },
   { to: "/admin/documents", label: "Pièces", icon: FileText,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   { to: "/admin/missions", label: "Missions", icon: Briefcase,
@@ -84,8 +84,8 @@ const STAFF_MENU = [
   { to: "/admin/echeances", label: "Échéances fiscales", icon: Scale,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable"] },
   { to: "/admin/paie", label: "Paie & RH", icon: Wallet,
-    roles: ["superviseur", "direction", "rh"] },
-  { to: "/admin/rapports", label: "Rapports client", icon: ClipboardList,
+    roles: ["superviseur", "direction", "administrateur", "rh"] },
+  { to: "/admin/rapports", label: "Rapports client", icon: ClipboardList, end: true, // end : pas surligné sur « Rapports en masse »
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
   { to: "/admin/rapports/bulk", label: "Rapports en masse", icon: Zap,
     roles: ["superviseur", "direction", "comptable", "fiscaliste"] },
@@ -123,7 +123,9 @@ const STAFF_MENU = [
 function allowedFor(link, roles) {
   if (link.alwaysAllowed) return true;
   if (roles.includes("superviseur")) return true;
-  return (link.roles || []).some((r) => roles.includes(r));
+  // La DG a les mêmes liens que la Direction (droits identiques côté serveur)
+  const effective = roles.includes("dg") ? [...roles, "direction"] : roles;
+  return (link.roles || []).some((r) => effective.includes(r));
 }
 
 export default function PortalLayout({ admin = false }) {
@@ -132,11 +134,27 @@ export default function PortalLayout({ admin = false }) {
   usePresenceHeartbeat(!!user);
   const [openSidebar, setOpenSidebar] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
   const roles = user?.roles || [];
+  // Adresse désignée par admin pour créer des accès temporaires : elle voit
+  // « Personnels » (où se trouve le bouton), même sans le rôle Direction.
+  const [canIssueTokens, setCanIssueTokens] = useState(false);
+  useEffect(() => {
+    if (!admin) return;
+    apiClient.get("/access/me").then(({ data }) => setCanIssueTokens(!!data.can_issue_tokens)).catch(() => {});
+  }, [admin]);
   const links = admin
-    ? STAFF_MENU.filter((l) => allowedFor(l, roles))
+    ? STAFF_MENU.filter((l) => allowedFor(l, roles) || (canIssueTokens && l.to === "/admin/staff"))
     // Espace client : seuls les modules ouverts par le cabinet (aucun réglage = tous)
     : CLIENT_LINKS.filter((l) => !l.module || !Array.isArray(user?.portal_modules) || user.portal_modules.includes(l.module));
+  // Rôle sans « Tableau de bord » dans son menu (ex. Caissier, Communication,
+  // Formulaires) : à l'arrivée sur /admin, on ouvre son premier lien autorisé.
+  useEffect(() => {
+    if (admin && location.pathname === "/admin" && links.length && !links.some((l) => l.to === "/admin")) {
+      navigate(links[0].to, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, location.pathname, links.length]);
   const canUsePayments = roles.includes("superviseur") || roles.some((r) => PAYMENTS_ROLES.includes(r));
 
   // Badges non-lus (WhatsApp/Diffusion) affichés à côté du lien correspondant
@@ -158,6 +176,13 @@ export default function PortalLayout({ admin = false }) {
     setBadges((b) => ({ ...b, [`${page === "diffusion" ? "diffusion_new" : page}`]: 0 }));
   };
 
+  // Thème « portail » (design SAWALI) : classe sur <body> pour couvrir aussi
+  // les fenêtres rendues hors de la page ; retirée en quittant le portail.
+  useEffect(() => {
+    document.body.classList.add("portal-ui");
+    return () => document.body.classList.remove("portal-ui");
+  }, []);
+
   const handleLogout = async () => {
     await sendOffline(); // hors ligne tout de suite, avant de perdre le jeton
     logout();
@@ -165,7 +190,7 @@ export default function PortalLayout({ admin = false }) {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--albarka-paper)] flex">
+    <div className="min-h-screen bg-slate-50 flex">
       {/* Sidebar */}
       <aside
         data-testid="portal-sidebar"

@@ -15,6 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import AccountActions, { AccountDates } from "@/components/AccountActions";
+import { ui } from "@/components/forms-core/ui";
 import { usePresence, PresenceLabel } from "@/components/Presence";
 
 // Doivent rester identiques aux listes équivalentes côté backend (albarka_models.py).
@@ -268,14 +269,15 @@ export default function AdminClients() {
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
                   {canManage && (
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(c)} title="Modifier" data-testid={`edit-client-${c.id}`}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
+                    // Modifier : bouton plein noir (design SAWALI)
+                    <button type="button" onClick={() => openEdit(c)} title="Modifier" className={ui.act.iconDark} data-testid={`edit-client-${c.id}`}>
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                   )}
                   {/* Désactiver / réinitialiser le mot de passe ; Supprimer : admin uniquement */}
                   <AccountActions account={c} onChanged={load} canManage={canManage} canDelete={isAdminAccount} deleteLabel="ce client" />
                   <Link to={`/admin/clients/${c.id}`}>
-                    <Button variant="outline" size="sm" data-testid={`view-client-${c.id}`}>Ouvrir</Button>
+                    <span className={`${ui.act.primary} ml-1`} data-testid={`view-client-${c.id}`}>Ouvrir</span>
                   </Link>
                 </TableCell>
               </TableRow>

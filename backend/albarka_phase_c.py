@@ -24,7 +24,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from albarka_admin_settings import get_settings_doc
 from albarka_auth import get_current_user, require_roles, require_staff
 from albarka_models import (
-    CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, NOT_TEST_ACCOUNT, can_encaisser, is_client,
+    BILLING_ROLES, CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, NOT_TEST_ACCOUNT, can_encaisser, is_client,
 )
 from db import db, serialize, serialize_many
 
@@ -259,7 +259,7 @@ async def list_invoices(
     tenant_id: Optional[str] = None,
     status: Optional[str] = None,
     document_type: Optional[str] = None,
-    user: dict = Depends(require_staff()),
+    user: dict = Depends(require_roles(BILLING_ROLES)),
 ):
     q = {}
     if tenant_id: q["tenant_id"] = tenant_id
@@ -344,7 +344,7 @@ async def _new_billing_document(
 
 
 @billing_router.post("/invoices")
-async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_staff())):
+async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_roles(BILLING_ROLES))):
     # Délivrer un reçu = encaisser : rôle "caissier" obligatoire, même pour un superviseur.
     if payload.document_type == "recu" and not can_encaisser(user):
         raise HTTPException(status_code=403, detail="Seul un collaborateur Caissier peut délivrer un reçu")
@@ -362,7 +362,7 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_st
 
 
 @billing_router.post("/payments")
-async def create_payment(payload: PaymentCreate, user: dict = Depends(require_staff())):
+async def create_payment(payload: PaymentCreate, user: dict = Depends(require_roles(BILLING_ROLES))):
     """Encaissement sur une facture — réservé au Caissier (sans passe-droit
     superviseur). Délivre automatiquement un reçu (REC-…) du montant encaissé,
     avec son PDF."""
@@ -456,7 +456,7 @@ async def list_payments(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     all_time: bool = False,
-    user: dict = Depends(require_staff()),
+    user: dict = Depends(require_roles(BILLING_ROLES)),
 ):
     low, high = _payments_date_bounds(user, date_from, date_to, all_time)
     q: dict = {}
@@ -474,7 +474,7 @@ async def billing_summary(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     all_time: bool = False,
-    user: dict = Depends(require_staff()),
+    user: dict = Depends(require_roles(BILLING_ROLES)),
 ):
     """Agrégat rapide : total facturé / impayé (toutes dates confondues —
     les factures restent visibles sans restriction de période pour tous les
@@ -566,7 +566,7 @@ async def billing_statement_pdf(
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     all_time: bool = False,
-    user: dict = Depends(require_staff()),
+    user: dict = Depends(require_roles(BILLING_ROLES)),
 ):
     """Export PDF de la Caisse ("situation de compte") — mêmes filtres que
     l'écran, sans colonne Actions (voir build_billing_statement_pdf)."""
@@ -589,7 +589,7 @@ class SendStatementPayload(BaseModel):
 
 
 @billing_router.post("/statement/send")
-async def send_billing_statement(payload: SendStatementPayload, user: dict = Depends(require_staff())):
+async def send_billing_statement(payload: SendStatementPayload, user: dict = Depends(require_roles(BILLING_ROLES))):
     """Envoie la situation de compte du client sélectionné par WhatsApp ou
     email — même restriction que l'envoi de pièces (_can_send_whatsapp) pour
     le canal WhatsApp : rôle Communication limité aux clients au numéro

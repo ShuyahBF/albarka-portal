@@ -1,5 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
+/* Polices du portail (design SAWALI) : Space Grotesk (titres) + Geist (texte) */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/geist@1.3.1/dist/fonts/geist-sans/style.css');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -114,4 +118,81 @@
     color: #E5A24B;
     border-left: 2px solid #E5A24B;
     padding-left: calc(1rem - 2px);
+}
+
+/* =====================================================================
+   Thème « portail » (design SAWALI) — espaces connectés cabinet et client.
+   La classe portal-ui est posée sur <body> par PortalLayout : elle couvre
+   aussi les fenêtres (rendues hors de la page). Le site public n'est pas
+   concerné. Couleur principale = celle d'Albarka (--primary).
+   ===================================================================== */
+body.portal-ui {
+    font-family: 'Geist', 'Manrope', -apple-system, sans-serif;
+    background: #f8fafc;
+}
+body.portal-ui h1, body.portal-ui h2, body.portal-ui h3, body.portal-ui h4,
+body.portal-ui .font-display {
+    font-family: 'Space Grotesk', 'Geist', sans-serif;
+    letter-spacing: -0.02em;
+}
+/* Titres de page : taille et graisse des pages SAWALI */
+body.portal-ui main h1 {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 700;
+    color: #0f172a;
+}
+body.portal-ui main h2 { font-weight: 700; }
+
+/* Champs texte, zones de texte et listes déroulantes natifs */
+body.portal-ui input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]):not([data-input-otp]),
+body.portal-ui textarea,
+body.portal-ui select {
+    border-radius: 0.5rem;
+    border-color: rgb(203 213 225);
+    transition: border-color .15s, box-shadow .15s;
+}
+body.portal-ui input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=color]):not([data-input-otp]):focus,
+body.portal-ui textarea:focus,
+body.portal-ui select:focus {
+    outline: none;
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.15);
+}
+body.portal-ui input::placeholder, body.portal-ui textarea::placeholder { color: rgb(148 163 184); }
+/* Cases à cocher et boutons radio aux couleurs du site */
+body.portal-ui input[type=checkbox], body.portal-ui input[type=radio] {
+    accent-color: hsl(var(--primary));
+    width: 1rem;
+    height: 1rem;
+    cursor: pointer;
+}
+/* Tableaux : en-tête en petites majuscules sur fond gris clair, lignes survolées */
+body.portal-ui main table thead { background: rgb(248 250 252); }
+body.portal-ui main table thead th {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    color: rgb(100 116 139);
+}
+body.portal-ui main table tbody tr:hover { background: rgb(248 250 252 / 0.7); }
+/* Cartes : bord gris clair, coins arrondis */
+body.portal-ui .albarka-card { border-color: rgb(226 232 240); background: #fff; }
+body.portal-ui .albarka-card:hover { border-color: rgb(203 213 225); box-shadow: 0 4px 16px -8px rgba(15, 23, 42, 0.12); }
+
+/* Menu latéral : lien actif en pastille pleine (comme SAWALI) */
+body.portal-ui .albarka-sidebar-link {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.86);
+    border-left: 0;
+    padding-left: 1rem;
+}
+body.portal-ui .albarka-sidebar-link:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+body.portal-ui .albarka-sidebar-link.active {
+    background: hsl(var(--primary));
+    color: #fff;
+    border-left: 0;
+    padding-left: 1rem;
+    box-shadow: 0 6px 18px -8px hsl(var(--primary) / 0.8);
 }

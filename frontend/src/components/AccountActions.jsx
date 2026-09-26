@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Power, KeyRound, Trash2, Copy } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { ui } from "@/components/forms-core/ui";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -83,19 +84,20 @@ export default function AccountActions({ account, onChanged, canManage = true, c
     <>
       {canManage && (
         <>
-          <Button variant="ghost" size="sm" title={active ? "Désactiver le compte" : "Réactiver le compte"} onClick={toggleActive}
-            className={active ? "text-amber-700" : "text-emerald-700"} data-testid={`toggle-active-${account.id}`}>
-            <Power className="w-4 h-4" />
-          </Button>
-          <Button variant="ghost" size="sm" title="Réinitialiser le mot de passe" onClick={() => setOpenReset(true)} data-testid={`reset-pwd-${account.id}`}>
-            <KeyRound className="w-4 h-4" />
-          </Button>
+          {/* Boutons pleins colorés (design SAWALI) : orange = désactiver, vert = réactiver, bleu = mot de passe */}
+          <button type="button" title={active ? "Désactiver le compte" : "Réactiver le compte"} onClick={toggleActive}
+            className={`${active ? ui.act.iconAmber : ui.act.iconEmerald} ml-1`} data-testid={`toggle-active-${account.id}`}>
+            <Power className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" title="Réinitialiser le mot de passe" onClick={() => setOpenReset(true)} className={`${ui.act.iconSky} ml-1`} data-testid={`reset-pwd-${account.id}`}>
+            <KeyRound className="w-3.5 h-3.5" />
+          </button>
         </>
       )}
       {canDelete && (
-        <Button variant="ghost" size="sm" className="text-red-600" title="Supprimer" onClick={() => setOpenDelete(true)} data-testid={`delete-account-${account.id}`}>
-          <Trash2 className="w-4 h-4" />
-        </Button>
+        <button type="button" className={`${ui.act.iconDanger} ml-1`} title="Supprimer" onClick={() => setOpenDelete(true)} data-testid={`delete-account-${account.id}`}>
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
       )}
 
       {/* Réinitialisation du mot de passe */}

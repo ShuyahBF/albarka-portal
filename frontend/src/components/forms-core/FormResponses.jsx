@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Download, Search, Trash2, X, Paperclip, Loader2, Inbox } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { errorText, formatDateTime, readableValue, isVisible, downloadBlob } from "./fieldTypes";
+import { ui, cx } from "./ui";
 
 const SOURCES = { invitation: "Invitation", public: "Lien public", portal: "Espace client" };
 
@@ -68,34 +69,35 @@ export default function FormResponses({ apiBase = "/forms", form }) {
   };
 
   return (
-    <div className="space-y-3" data-testid="form-responses">
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="text-xs text-slate-600">Du<input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="block rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
-        <label className="text-xs text-slate-600">Au<input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="block rounded-lg border border-slate-300 px-2 py-1.5 text-sm" /></label>
-        <select value={source} onChange={(e) => setSource(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
+    <div className="space-y-4" data-testid="form-responses">
+      <div className={cx(ui.card, "flex flex-wrap items-end gap-3")}>
+        {/* Période : du … au … */}
+        <label className="block"><span className={ui.label}>Du</span><input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className={ui.inputInline} /></label>
+        <label className="block"><span className={ui.label}>Au</span><input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className={ui.inputInline} /></label>
+        <label className="block"><span className={ui.label}>Origine</span><select value={source} onChange={(e) => setSource(e.target.value)} className={ui.selectInline}>
           <option value="all">Toutes origines</option><option value="invitation">Invitations</option><option value="public">Lien public</option>
-        </select>
-        <div className="relative flex-1 min-w-[180px]"><Search className="h-4 w-4 text-slate-400 absolute left-2.5 top-2.5" />
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher dans les réponses…" className="w-full rounded-lg border border-slate-300 pl-8 pr-3 py-1.5 text-sm" /></div>
-        <button type="button" onClick={exportCsv} className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-sm" data-testid="responses-export"><Download className="h-4 w-4" /> Export Excel (CSV)</button>
+        </select></label>
+        <div className="relative flex-1 min-w-[180px]"><Search className={ui.searchIcon} />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher dans les réponses…" className={ui.searchInput} /></div>
+        <button type="button" onClick={exportCsv} className={ui.act.emerald} data-testid="responses-export"><Download className="h-3.5 w-3.5" /> Export Excel (CSV)</button>
       </div>
-      <p className="text-xs text-slate-500">{items.length} réponse(s){items.length !== data.total ? ` sur ${data.total}` : ""}</p>
-      {loading ? <p className="text-sm text-slate-500 inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Chargement…</p> : items.length === 0 ? (
-        <div className="text-center py-12 text-slate-400"><Inbox className="h-10 w-10 mx-auto mb-2" /><p className="text-sm">Aucune réponse pour l'instant.</p></div>
+      <p className={ui.badge.sky}>{items.length} réponse(s){items.length !== data.total ? ` sur ${data.total}` : ""}</p>
+      {loading ? <p className={ui.loading}><Loader2 className="h-4 w-4 animate-spin inline mr-1" /> Chargement…</p> : items.length === 0 ? (
+        <div className={ui.empty}><Inbox className="h-10 w-10 mx-auto mb-2 opacity-40" />Aucune réponse pour l'instant.</div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-xs text-slate-500 text-left"><tr>
-              <th className="px-3 py-2">Date</th><th className="px-3">Répondant</th><th className="px-3">Origine</th>
-              {cols.map((f) => <th key={f.id} className="px-3 max-w-[180px] truncate">{f.label}</th>)}<th /></tr></thead>
+          <table className={ui.table}>
+            <thead className={ui.thead}><tr>
+              <th className={ui.th}>Date</th><th className={ui.th}>Répondant</th><th className={ui.th}>Origine</th>
+              {cols.map((f) => <th key={f.id} className={cx(ui.th, "max-w-[180px] truncate")}>{f.label}</th>)}<th className={ui.th} /></tr></thead>
             <tbody>
               {items.map((s) => (
-                <tr key={s.id} onClick={() => setOpen(s)} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer" data-testid="response-row">
+                <tr key={s.id} onClick={() => setOpen(s)} className={cx(ui.tr, "cursor-pointer")} data-testid="response-row">
                   <td className="px-3 py-2 whitespace-nowrap text-xs">{formatDateTime(s.created_at)}{s.revisions ? <span className="text-slate-400"> (modifiée)</span> : null}</td>
                   <td className="px-3"><span className="font-medium">{s.respondent_name || "Anonyme"}</span><span className="block text-[11px] text-slate-400">{s.respondent_email}</span></td>
-                  <td className="px-3 text-xs">{SOURCES[s.source] || s.source}</td>
+                  <td className="px-3"><span className={s.source === "public" ? ui.badge.violet : ui.badge.sky}>{SOURCES[s.source] || s.source}</span></td>
                   {cols.map((f) => <td key={f.id} className="px-3 max-w-[180px] truncate text-xs">{readableValue(f, s.data?.[f.id])}</td>)}
-                  <td className="px-2 text-right"><button type="button" onClick={(e) => { e.stopPropagation(); remove(s); }} className="p-1 text-slate-400 hover:text-rose-600" title="Supprimer"><Trash2 className="h-4 w-4" /></button></td>
+                  <td className="px-2 text-right"><button type="button" onClick={(e) => { e.stopPropagation(); remove(s); }} className={cx(ui.act.icon, "hover:text-rose-600")} title="Supprimer"><Trash2 className="h-3.5 w-3.5" /></button></td>
                 </tr>
               ))}
             </tbody>
@@ -104,19 +106,19 @@ export default function FormResponses({ apiBase = "/forms", form }) {
       )}
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={(e) => e.target === e.currentTarget && setOpen(null)}>
-          <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl" data-testid="response-detail">
-            <div className="flex items-start justify-between mb-3">
-              <div><h3 className="font-semibold">{open.respondent_name || "Réponse anonyme"}</h3>
+        <div className={ui.overlay} onClick={(e) => e.target === e.currentTarget && setOpen(null)}>
+          <div className={ui.modalLg} data-testid="response-detail">
+            <div className="flex items-start justify-between">
+              <div><h3 className={ui.modalTitle}><Inbox className={ui.modalIcon} /> {open.respondent_name || "Réponse anonyme"}</h3>
                 <p className="text-xs text-slate-500">{open.respondent_email} · {formatDateTime(open.created_at)} · {SOURCES[open.source] || open.source}</p></div>
-              <button type="button" onClick={() => setOpen(null)} className="text-slate-400 hover:text-slate-700"><X className="h-5 w-5" /></button>
+              <button type="button" onClick={() => setOpen(null)} className={ui.close} aria-label="Fermer"><X className="h-5 w-5" /></button>
             </div>
-            <dl className="divide-y divide-slate-100">
+            <dl className="divide-y divide-slate-100 rounded-lg ring-1 ring-slate-200 px-3">
               {fields.filter((f) => isVisible(f, open.data || {})).map((f) => {
                 const v = open.data?.[f.id];
                 return (
                   <div key={f.id} className="py-2 grid grid-cols-1 sm:grid-cols-3 gap-1">
-                    <dt className="text-xs font-medium text-slate-500">{f.label}</dt>
+                    <dt className={ui.label}>{f.label}</dt>
                     <dd className="sm:col-span-2 text-sm text-slate-800 whitespace-pre-line">
                       {v && typeof v === "object" && v.file_id ? (
                         <button type="button" onClick={() => openFile(v.file_id)} className="inline-flex items-center gap-1 text-primary underline"><Paperclip className="h-3.5 w-3.5" /> {f.type === "signature" ? "Voir la signature" : v.filename}</button>
@@ -129,7 +131,7 @@ export default function FormResponses({ apiBase = "/forms", form }) {
                 );
               })}
             </dl>
-            <div className="mt-4 flex justify-end"><button type="button" onClick={() => remove(open)} className="inline-flex items-center gap-1 text-sm text-rose-600"><Trash2 className="h-4 w-4" /> Supprimer cette réponse</button></div>
+            <div className={ui.modalFooter}><button type="button" onClick={() => setOpen(null)} className={ui.btnSecondary}>Fermer</button><button type="button" onClick={() => remove(open)} className={ui.btnDanger}><Trash2 className="h-4 w-4" /> Supprimer cette réponse</button></div>
           </div>
         </div>
       )}

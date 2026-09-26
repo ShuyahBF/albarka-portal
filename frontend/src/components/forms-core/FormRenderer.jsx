@@ -17,8 +17,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Star, Paperclip, X, Loader2, ChevronLeft, ChevronRight, Eraser, Plus, Trash2 } from "lucide-react";
 import { isVisible, isEmpty } from "./fieldTypes";
+import { ui, cx } from "./ui";
 
-const inputCls = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary disabled:bg-slate-50";
+// Champ de saisie du répondant (design SAWALI, couleur du site)
+const inputCls = ui.input;
 
 // --- Signature dessinée au doigt ou à la souris (sans bibliothèque externe)
 function SignaturePad({ value, onUpload, disabled }) {
@@ -61,13 +63,13 @@ function SignaturePad({ value, onUpload, disabled }) {
   return (
     <div className="space-y-2">
       <canvas ref={canvasRef} width={600} height={180}
-        className="w-full h-36 rounded-lg border border-dashed border-slate-400 bg-white touch-none"
+        className="w-full h-40 bg-white rounded-lg ring-1 ring-slate-300 cursor-crosshair touch-none"
         onMouseDown={start} onMouseMove={move} onMouseUp={end} onMouseLeave={end}
         onTouchStart={start} onTouchMove={move} onTouchEnd={end} />
       <div className="flex gap-2">
-        <button type="button" onClick={clear} disabled={!dirty || disabled} className="inline-flex items-center gap-1 text-xs rounded border px-2 py-1 disabled:opacity-40"><Eraser className="h-3 w-3" /> Effacer</button>
+        <button type="button" onClick={clear} disabled={!dirty || disabled} className={ui.act.slate}><Eraser className="h-3 w-3" /> Effacer</button>
         <button type="button" onClick={save} disabled={!dirty || busy || disabled}
-          className="inline-flex items-center gap-1 text-xs rounded bg-primary text-primary-foreground px-2 py-1 disabled:opacity-40">
+          className={ui.act.primary}>
           {busy && <Loader2 className="h-3 w-3 animate-spin" />} Valider la signature
         </button>
       </div>
@@ -90,7 +92,7 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
   if (t === "section") {
     return (
       <div className="pt-2">
-        <h3 className="font-semibold text-slate-900 text-base">{field.label}</h3>
+        <h3 className="font-display font-bold text-slate-900 text-base border-b border-slate-100 pb-1">{field.label}</h3>
         {field.help && <p className="text-sm text-slate-600 mt-1 whitespace-pre-line">{field.help}</p>}
       </div>
     );
@@ -119,7 +121,7 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
       <div className="space-y-1.5">
         {(field.options || []).map((o) => (
           <label key={o} className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="radio" name={field.id} checked={value === o} disabled={disabled} onChange={() => onChange(o)} className="accent-[hsl(var(--primary))]" /> {o}
+            <input type="radio" name={field.id} checked={value === o} disabled={disabled} onChange={() => onChange(o)} className={ui.check} /> {o}
           </label>
         ))}
       </div>
@@ -131,10 +133,10 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
       <div className={t === "multiselect" ? "flex flex-wrap gap-1.5" : "space-y-1.5"}>
         {(field.options || []).map((o) => t === "multiselect" ? (
           <button key={o} type="button" disabled={disabled} onClick={() => toggle(o)}
-            className={`rounded-full px-3 py-1 text-xs border ${arr.includes(o) ? "bg-primary text-primary-foreground border-primary" : "bg-white border-slate-300 text-slate-700"}`}>{o}</button>
+            className={ui.chip(arr.includes(o))}>{o}</button>
         ) : (
           <label key={o} className="flex items-center gap-2 text-sm cursor-pointer">
-            <input type="checkbox" checked={arr.includes(o)} disabled={disabled} onChange={() => toggle(o)} className="accent-[hsl(var(--primary))]" /> {o}
+            <input type="checkbox" checked={arr.includes(o)} disabled={disabled} onChange={() => toggle(o)} className={ui.check} /> {o}
           </label>
         ))}
       </div>
@@ -144,7 +146,7 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
       <div className="flex gap-2">
         {[["Oui", true], ["Non", false]].map(([label, v]) => (
           <button key={label} type="button" disabled={disabled} onClick={() => onChange(value === v ? null : v)}
-            className={`px-4 py-1.5 rounded-lg border text-sm ${value === v ? "bg-primary text-primary-foreground border-primary" : "bg-white border-slate-300"}`}>{label}</button>
+            className={cx("px-5 py-1.5 rounded-lg ring-1 text-sm transition", value === v ? "bg-primary text-primary-foreground ring-primary" : "bg-white ring-slate-300 text-slate-700 hover:ring-primary/50")}>{label}</button>
         ))}
       </div>
     );
@@ -164,7 +166,7 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
       <div className="flex flex-wrap gap-1">
         {Array.from({ length: 11 }, (_, i) => i).map((n) => (
           <button key={n} type="button" disabled={disabled} onClick={() => onChange(value === n ? null : n)}
-            className={`h-9 w-9 rounded-lg border text-sm ${Number(value) === n && value !== null && value !== "" ? "bg-primary text-primary-foreground border-primary" : "bg-white border-slate-300"}`}>{n}</button>
+            className={cx("h-9 w-9 rounded-lg ring-1 text-sm tabular-nums transition", Number(value) === n && value !== null && value !== "" ? "bg-primary text-primary-foreground ring-primary" : "bg-white ring-slate-300 text-slate-700 hover:ring-primary/50")}>{n}</button>
         ))}
       </div>
     );
@@ -174,15 +176,15 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
     const setCell = (i, k, v) => onChange(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
     control = (
       <div className="overflow-x-auto">
-        <table className="w-full text-sm border border-slate-200 rounded">
-          <thead className="bg-slate-50"><tr>{cols.map((c) => <th key={c.key} className="text-left px-2 py-1 font-medium">{c.label}</th>)}<th /></tr></thead>
+        <table className="w-full text-sm rounded-lg ring-1 ring-slate-200 overflow-hidden">
+          <thead className={ui.thead}><tr>{cols.map((c) => <th key={c.key} className={ui.th}>{c.label}</th>)}<th /></tr></thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={i} className="border-t border-slate-100">
                 {cols.map((c) => (
                   <td key={c.key} className="p-1">
                     <input type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"} value={r[c.key] ?? ""} disabled={disabled}
-                      onChange={(e) => setCell(i, c.key, e.target.value)} className="w-full rounded border border-slate-200 px-2 py-1 text-sm" />
+                      onChange={(e) => setCell(i, c.key, e.target.value)} className={ui.inputSm} />
                   </td>
                 ))}
                 <td className="p-1 w-8">
@@ -192,17 +194,17 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
             ))}
           </tbody>
         </table>
-        {!disabled && <button type="button" onClick={() => onChange([...rows, {}])} className="mt-1 inline-flex items-center gap-1 text-xs text-primary"><Plus className="h-3 w-3" /> Ajouter une ligne</button>}
+        {!disabled && <button type="button" onClick={() => onChange([...rows, {}])} className={cx(ui.btnTool, "mt-2")}><Plus className="h-3 w-3" /> Ajouter une ligne</button>}
       </div>
     );
   } else if (t === "file") {
     control = value?.file_id ? (
-      <div className="flex items-center gap-2 text-sm">
-        <Paperclip className="h-4 w-4 text-slate-500" /> <span className="truncate">{value.filename}</span>
+      <div className="flex items-center gap-2 text-sm rounded-lg ring-1 ring-slate-200 bg-slate-50 px-3 py-2">
+        <Paperclip className="h-4 w-4 text-primary" /> <span className="truncate">{value.filename}</span>
         {!disabled && <button type="button" onClick={() => onChange(null)} className="text-slate-400 hover:text-rose-600"><X className="h-4 w-4" /></button>}
       </div>
     ) : (
-      <label className={`inline-flex items-center gap-2 rounded-lg border border-dashed border-slate-400 px-3 py-2 text-sm ${disabled ? "opacity-50" : "cursor-pointer hover:bg-slate-50"}`}>
+      <label className={cx("flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50/60 px-3 py-4 text-sm text-slate-600", disabled ? "opacity-50" : "cursor-pointer hover:border-primary hover:text-primary")}>
         {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
         {uploading ? "Envoi…" : "Joindre un fichier"}
         <input type="file" className="hidden" disabled={disabled || uploading} accept={field.accept || undefined}
@@ -215,12 +217,12 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
 
   return (
     <div>
-      <label htmlFor={`ff-${field.id}`} className="block text-sm font-medium text-slate-800 mb-1">
+      <label htmlFor={`ff-${field.id}`} className="block text-sm font-semibold text-slate-800 mb-1">
         {field.label}{field.required && <span className="text-rose-600"> *</span>}
       </label>
       {field.help && <p className="text-xs text-slate-500 mb-1.5 whitespace-pre-line">{field.help}</p>}
       {control}
-      {error && <p className="text-xs text-rose-600 mt-1" data-testid={`field-error-${field.id}`}>{error}</p>}
+      {error && <p className={ui.error} data-testid={`field-error-${field.id}`}>{error}</p>}
     </div>
   );
 }
@@ -276,15 +278,15 @@ export default function FormRenderer({ form, value = {}, onChange, errors = {}, 
       </div>
       <div className="flex items-center justify-between pt-2 border-t border-slate-100">
         <button type="button" onClick={() => setPageIdx((i) => Math.max(0, i - 1))} disabled={pageIdx === 0}
-          className="inline-flex items-center gap-1 text-sm text-slate-600 disabled:invisible"><ChevronLeft className="h-4 w-4" /> Précédent</button>
+          className={cx(ui.btnSecondary, "disabled:invisible")}><ChevronLeft className="h-4 w-4" /> Précédent</button>
         {last ? (
           <button type="button" onClick={submit} disabled={!onSubmit || submitting || disabled} data-testid="form-submit"
-            className="inline-flex items-center gap-2 rounded-lg bg-primary text-primary-foreground px-5 py-2 text-sm font-medium disabled:opacity-50">
+            className={cx(ui.btnPrimary, "px-5")}>
             {submitting && <Loader2 className="h-4 w-4 animate-spin" />} {onSubmit ? submitLabel : "Aperçu — envoi désactivé"}
           </button>
         ) : (
           <button type="button" onClick={next} data-testid="form-next"
-            className="inline-flex items-center gap-1 rounded-lg bg-primary text-primary-foreground px-4 py-2 text-sm font-medium">Suivant <ChevronRight className="h-4 w-4" /></button>
+            className={ui.btnPrimary}>Suivant <ChevronRight className="h-4 w-4" /></button>
         )}
       </div>
     </div>

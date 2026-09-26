@@ -4,6 +4,7 @@ import { Plus, Pencil, FlaskConical } from "lucide-react";
 import AccountActions, { AccountDates } from "@/components/AccountActions";
 import { usePresence, PresenceLabel } from "@/components/Presence";
 import TemporaryAccessButton from "@/components/TemporaryAccessButton";
+import { ui } from "@/components/forms-core/ui";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,14 +48,16 @@ const emptyForm = () => ({
 export default function AdminStaff() {
   const { user: me } = useAuth();
   const myRoles = me?.roles || [];
-  // Point 10 — filtrage selon le rôle du visiteur.
-  const isAdmin = myRoles.includes("administrateur");
-  const canEdit = isAdmin || myRoles.includes("superviseur") || myRoles.includes("direction");
+  // Compte admin du portail (doit rester identique à ADMIN_ACCOUNT_EMAIL côté backend)
+  const isAdminAccount = (me?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
+  // Rôle Administrateur : visible et attribuable par un Administrateur (règle
+  // d'origine), le Superviseur (tous les droits) ou le compte admin.
+  const isAdmin = myRoles.includes("administrateur") || myRoles.includes("superviseur") || isAdminAccount;
+  // Gestion du personnel : Direction, DG, Administrateur, Superviseur (même règle que le serveur)
+  const canEdit = isAdmin || myRoles.includes("direction") || myRoles.includes("dg");
   // Superviseur : supprime un compte du personnel, gère les comptes de test.
   const isSuperviseur = myRoles.includes("superviseur");
-  // Compte admin du portail : SEUL habilité à cocher / décocher « Superviseur »
-  // (doit rester identique à ADMIN_ACCOUNT_EMAIL côté backend).
-  const isAdminAccount = (me?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
+  // Compte admin du portail : SEUL habilité à cocher / décocher « Superviseur ».
   // Ligne du tableau : compte admin / compte Superviseur (protégés)
   const isAdminAccountRow = (s) => (s.email || "").toLowerCase() === "admin@sawalismartsystems.com";
   const isSupRow = (s) => (s.roles || []).includes("superviseur");
@@ -324,15 +327,10 @@ export default function AdminStaff() {
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
                   {canEdit && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEdit(s)}
-                      title="Modifier"
-                      data-testid={`edit-staff-${s.id}`}
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </Button>
+                    // Modifier : bouton plein noir (design SAWALI)
+                    <button type="button" onClick={() => openEdit(s)} title="Modifier" className={ui.act.iconDark} data-testid={`edit-staff-${s.id}`}>
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
                   )}
                   {/* Désactiver / réinitialiser le mot de passe (jamais sur soi ; compte admin :
                       lui seul ; superviseur : superviseur ou admin) + Supprimer (superviseur) */}
