@@ -42,6 +42,19 @@ from albarka_phase_c import (  # noqa: E402
     messaging_router,
 )
 from albarka_public import router as public_router  # noqa: E402
+# Espace client : documents déposés / mis à disposition par le cabinet
+from albarka_client_space import (  # noqa: E402
+    ensure_client_space_indexes,
+    me_router as client_space_me_router,
+    router as client_space_router,
+)
+# Formulaires (module commun forms_core branché par albarka_forms.py)
+from albarka_forms import (  # noqa: E402
+    ensure_forms_indexes,
+    portal_router as forms_portal_router,
+    public_router as forms_public_router,
+    staff_router as forms_staff_router,
+)
 from albarka_report_templates import router as report_templates_router  # noqa: E402
 from albarka_reports_mgmt import router as reports_mgmt_router  # noqa: E402
 from albarka_wa_inbox import router as wa_inbox_router  # noqa: E402
@@ -99,6 +112,13 @@ api_router.include_router(wa_inbox_router)
 api_router.include_router(wa_extras_router)
 # Endpoints publics (bouton wa.me — Partie 0)
 api_router.include_router(public_router)
+# Espace client : dépôts du cabinet (factures, rapports… faits ailleurs) + page client
+api_router.include_router(client_space_router)
+api_router.include_router(client_space_me_router)
+# Formulaires : gestion (rôle formulaires), remplissage public par lien, espace client
+api_router.include_router(forms_staff_router)
+api_router.include_router(forms_public_router)
+api_router.include_router(forms_portal_router)
 
 
 @api_router.get("/")
@@ -165,6 +185,10 @@ async def _ensure_indexes():
         await _db.report_series.create_index("key", unique=True)
         # Contacts (iteration 4)
         await _db.contacts.create_index([("scope", 1), ("tenant_id", 1), ("is_primary", -1)])
+        # Formulaires (jetons de lien uniques, réponses par formulaire, anti-abus)
+        await ensure_forms_indexes()
+        # Espace client (documents du cabinet par client)
+        await ensure_client_space_indexes()
     except Exception:
         logger.exception("Échec création index Mongo (non bloquant)")
 

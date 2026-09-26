@@ -10,7 +10,9 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from albarka_auth import get_current_user, hash_password, require_roles, require_staff
 from albarka_admin_settings import get_settings_doc
-from albarka_models import ALBARKA_ROLES, CLIENT_MANAGE_ROLES, VERIFY_PHONE_ROLES, User, is_client
+from albarka_models import (
+    ALBARKA_ROLES, CLIENT_MANAGE_ROLES, VERIFY_PHONE_ROLES, User, effective_roles, is_admin_account, is_client,
+)
 from db import db, serialize, serialize_many
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
@@ -111,6 +113,9 @@ async def list_staff(user: dict = Depends(require_staff())):
     docs = await db.users.find(
         {"roles": {"$nin": ["client"]}}, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
+    # Rôles affichés = rôles réellement appliqués (administrateur : compte admin seul).
+    for d in docs:
+        d["roles"] = effective_roles(d)
     return serialize_many(docs)
 
 
@@ -140,18 +145,20 @@ async def create_client(payload: ClientCreate, user: dict = Depends(require_role
 
 
 def _is_admin(u: dict) -> bool:
-    """Retourne True si l'utilisateur porte le rôle privilégié `administrateur`."""
-    return "administrateur" in (u.get("roles") or [])
+    """Retourne True si l'utilisateur est le compte admin du portail — le seul
+    qui puisse porter (et donc attribuer) le rôle `administrateur`."""
+    return is_admin_account(u)
+
+
+_ADMIN_ROLE_RESERVED = "Le rôle Administrateur est réservé au compte admin du portail"
 
 
 @router.post("/staff")
 async def create_staff(payload: StaffCreate, user: dict = Depends(require_staff())):
-    # Point 10 — seul un `administrateur` peut créer un compte administrateur.
-    if "administrateur" in payload.roles and not _is_admin(user):
-        raise HTTPException(
-            status_code=403,
-            detail="Seul un compte Administrateur peut créer un autre Administrateur",
-        )
+    # Seul le compte admin peut être administrateur : aucun nouveau compte ne
+    # peut recevoir ce rôle (voir effective_roles dans albarka_models.py).
+    if "administrateur" in payload.roles:
+        raise HTTPException(status_code=403, detail=_ADMIN_ROLE_RESERVED)
     existing = await db.users.find_one({"email": payload.email.lower()})
     if existing:
         raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà")
@@ -187,7 +194,7 @@ async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(
     update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if not update:
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
-    target = await db.users.find_one({"id": user_id}, {"_id": 0, "roles": 1})
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "roles": 1, "email": 1})
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     # La restriction "création/modification de clients" ne s'applique qu'aux
@@ -195,16 +202,14 @@ async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(
     # (voir AdminStaff.jsx, qui limite déjà sa propre UI à admin/superviseur/direction).
     if is_client(target) and not set(user.get("roles") or []) & set(CLIENT_MANAGE_ROLES):
         raise HTTPException(status_code=403, detail="Action réservée aux rôles autorisés")
-    # Point 10 — seul un `administrateur` peut attribuer/retirer le rôle `administrateur`.
+    # Rôle `administrateur` : réservé au compte admin. Il ne peut être ajouté
+    # à aucun autre compte ; sur le compte admin il est porté d'office, donc
+    # inutile de le stocker (effective_roles l'ajoute à chaque requête).
     if "roles" in update:
-        current_roles = set(target.get("roles") or [])
-        new_roles = set(update["roles"])
-        touches_admin = ("administrateur" in current_roles) != ("administrateur" in new_roles)
-        if touches_admin and not _is_admin(user):
-            raise HTTPException(
-                status_code=403,
-                detail="Seul un compte Administrateur peut attribuer ou retirer le rôle Administrateur",
-            )
+        if "administrateur" in update["roles"] and not is_admin_account(target):
+            raise HTTPException(status_code=403, detail=_ADMIN_ROLE_RESERVED)
+        # Un compte ne doit jamais se retrouver sans aucun rôle stocké.
+        update["roles"] = [r for r in update["roles"] if r != "administrateur"] or update["roles"]
     res = await db.users.update_one({"id": user_id}, {"$set": update})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")

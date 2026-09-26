@@ -88,6 +88,21 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "pawapay_api_token_production": "",
     "pawapay_country": "BFA",  # ISO-3
     "pawapay_callback_secret": "",
+    # Espace client — notification WhatsApp au client quand le cabinet dépose
+    # ou met à disposition un document (voir albarka_client_space.py).
+    #  - client_docs_templates : texte du message par catégorie
+    #    ("default" + facture, proforma, recu, rapport…) ; vide = texte par défaut.
+    #    Variables : {client} {entreprise} {cabinet} {nombre} {liste} {titre}
+    #    {categorie} {reference} {montant} {lien}.
+    #  - modèle Meta (hors fenêtre de 24 h) : nom, langue et variables
+    #    envoyées dans l'ordre pour {{1}}, {{2}}… (liste séparée par des virgules).
+    #  - repli e-mail si WhatsApp est impossible.
+    "client_docs_notify_enabled": True,
+    "client_docs_templates": {},
+    "client_docs_wa_template_name": "",
+    "client_docs_wa_template_lang": "fr",
+    "client_docs_wa_template_params": "client,nombre,lien",
+    "client_docs_email_fallback": True,
 }
 
 
@@ -176,6 +191,13 @@ class SettingsUpdate(BaseModel):
     pawapay_api_token_production: Optional[str] = Field(None, max_length=500)
     pawapay_country: Optional[str] = Field(None, max_length=3)
     pawapay_callback_secret: Optional[str] = Field(None, max_length=200)
+    # Espace client — modèles de notification (voir DEFAULT_SETTINGS)
+    client_docs_notify_enabled: Optional[bool] = None
+    client_docs_templates: Optional[Dict[str, str]] = None
+    client_docs_wa_template_name: Optional[str] = Field(None, max_length=120)
+    client_docs_wa_template_lang: Optional[str] = Field(None, max_length=10)
+    client_docs_wa_template_params: Optional[str] = Field(None, max_length=200)
+    client_docs_email_fallback: Optional[bool] = None
 
 
 @router.get("/settings")
@@ -201,6 +223,22 @@ async def update_settings(payload: SettingsUpdate, user: dict = Depends(require_
             if val and not _EMAIL_RE.match(val):
                 raise HTTPException(status_code=400, detail=f"{k} : adresse email invalide")
             changes[k] = val
+    # Modèles de notification de l'espace client : clés connues uniquement,
+    # 1000 caractères max ; un texte vide revient au texte par défaut.
+    if "client_docs_templates" in changes:
+        from albarka_client_space import TEMPLATE_KEYS
+        tpl = changes["client_docs_templates"]
+        unknown = set(tpl) - set(TEMPLATE_KEYS)
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"Modèle inconnu : {', '.join(sorted(unknown))}")
+        changes["client_docs_templates"] = {k: (v or "").strip()[:1000] for k, v in tpl.items() if (v or "").strip()}
+    if "client_docs_wa_template_params" in changes:
+        from albarka_client_space import TEMPLATE_VARIABLES
+        params = [p.strip() for p in (changes["client_docs_wa_template_params"] or "").split(",") if p.strip()]
+        bad = [p for p in params if p not in TEMPLATE_VARIABLES]
+        if bad:
+            raise HTTPException(status_code=400, detail=f"Variable inconnue pour le modèle Meta : {', '.join(bad)}")
+        changes["client_docs_wa_template_params"] = ",".join(params)
     if not changes:
         return _mask(await _load_settings())
     await _load_settings()

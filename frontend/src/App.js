@@ -11,6 +11,8 @@ import PortalLayout from "@/components/PortalLayout";
 import Home from "@/pages/public/Home";
 import Missions from "@/pages/public/Missions";
 import Contact from "@/pages/public/Contact";
+// Remplissage d'un formulaire par lien (sans connexion)
+import FillForm from "@/pages/public/FillForm";
 
 // Auth
 import Login from "@/pages/auth/Login";
@@ -22,6 +24,8 @@ import ClientMissions from "@/pages/portal/Missions";
 import ClientEcheances from "@/pages/portal/Echeances";
 import Historique from "@/pages/portal/Historique";
 import MyAccount from "@/pages/portal/MyAccount";
+import MyForms from "@/pages/portal/MyForms";
+import CabinetDocuments from "@/pages/portal/CabinetDocuments";
 
 // Admin (staff)
 import AdminClients from "@/pages/admin/AdminClients";
@@ -39,6 +43,8 @@ import AdminBulkReports from "@/pages/admin/AdminBulkReports";
 import { AdminArchives, AdminMessaging, AdminPlatformLogs } from "@/pages/admin/AdminPhaseC";
 import AdminWhatsAppConversations from "@/pages/admin/AdminWhatsAppConversations";
 import AdminWhatsAppStats from "@/pages/admin/AdminWhatsAppStats";
+import { AdminFormsLibrary, AdminFormDetail } from "@/pages/admin/AdminForms";
+import AdminClientSpace from "@/pages/admin/AdminClientSpace";
 import { AdminDashboard, AdminDocuments, AdminMissions, AdminEcheances } from "@/pages/admin/AdminShared";
 
 function RootRedirect() {
@@ -71,6 +77,8 @@ function App() {
           <Route path="/services" element={<Missions />} />
           <Route path="/contact" element={<Contact />} />
           <Route path="/login" element={<Login />} />
+          {/* Formulaire à remplir via un lien reçu ou partagé — public, sans connexion */}
+          <Route path="/f/:token" element={<FillForm />} />
 
           {/* Client portal */}
           <Route path="/portal" element={<ProtectedRoute><PortalLayout admin={false} /></ProtectedRoute>}>
@@ -79,6 +87,8 @@ function App() {
             <Route path="missions" element={<ClientMissions />} />
             <Route path="echeances" element={<ClientEcheances />} />
             <Route path="historique" element={<Historique />} />
+            <Route path="formulaires" element={<MyForms />} />
+            <Route path="documents-cabinet" element={<CabinetDocuments />} />
             <Route path="mon-compte" element={<MyAccount />} />
           </Route>
 
@@ -103,6 +113,11 @@ function App() {
             <Route path="whatsapp" element={<AdminWhatsAppConversations />} />
             <Route path="whatsapp/stats" element={<AdminWhatsAppStats />} />
             <Route path="comptabilite" element={<AdminAccounting />} />
+            {/* Formulaires (rôle « formulaires ») : bibliothèque puis fiche d'un formulaire */}
+            <Route path="forms" element={<AdminFormsLibrary />} />
+            <Route path="forms/:id" element={<AdminFormDetail />} />
+            {/* Dépôt de documents dans l'espace d'un client (sans OCR) */}
+            <Route path="espace-client" element={<AdminClientSpace />} />
             <Route path="logs" element={<AdminPlatformLogs />} />
             <Route path="settings" element={<AdminSettings />} />
             <Route path="mon-compte" element={<MyAccount />} />

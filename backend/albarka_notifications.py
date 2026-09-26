@@ -321,6 +321,55 @@ async def send_whatsapp(*, to_phone: str, message: str) -> dict:
     }
 
 
+async def wa_window_state(to_phone: str) -> Optional[bool]:
+    """Fenêtre de conversation WhatsApp de 24 h avec ce numéro :
+    True = ouverte (le client nous a écrit il y a moins de 24 h, message libre
+    possible), False = fermée, None = inconnue (aucun message reçu enregistré)."""
+    return _wa_window_open(await _wa_last_inbound_iso(to_phone))
+
+
+async def send_whatsapp_template(*, to_phone: str, template_name: str, language: str = "fr",
+                                 body_params: Optional[list] = None) -> dict:
+    """Envoie un MODÈLE WhatsApp approuvé par Meta (seul type de message
+    qu'on peut envoyer hors fenêtre de 24 h). `body_params` remplit, dans
+    l'ordre, les variables {{1}}, {{2}}… du corps du modèle.
+    Même forme de retour que send_whatsapp()."""
+    cfg = await _get_wa_config()
+    if not cfg:
+        return {"ok": False, "message_id": None, "status": None, "error": "wa_not_configured",
+                "kind": "not_configured", "outside_24h_window": None}
+    if not to_phone or not to_phone.startswith("+"):
+        return {"ok": False, "message_id": None, "status": None, "error": "invalid_phone",
+                "kind": "invalid_phone", "outside_24h_window": None}
+    template: dict = {"name": template_name.strip(), "language": {"code": (language or "fr").strip()}}
+    if body_params:
+        # Meta refuse les paramètres vides ou contenant des retours à la ligne.
+        params = [{"type": "text", "text": (str(p).replace("\n", " ").strip() or "-")[:1000]} for p in body_params]
+        template["components"] = [{"type": "body", "parameters": params}]
+    payload = {"messaging_product": "whatsapp", "recipient_type": "individual",
+               "to": to_phone.lstrip("+"), "type": "template", "template": template}
+    url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/messages"
+    headers = {"Authorization": f"Bearer {cfg['access_token']}", "Content-Type": "application/json"}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+        if resp.status_code >= 300:
+            logger.warning("WA modèle %s HTTP %s vers %s : %s", template_name, resp.status_code, to_phone, resp.text[:400])
+            return {"ok": False, "message_id": None, "status": resp.status_code, "error": resp.text[:400],
+                    "kind": "http_error", "outside_24h_window": None}
+        messages = (resp.json() or {}).get("messages") or []
+        mid = messages[0].get("id") if messages else None
+        if not mid:
+            return {"ok": False, "message_id": None, "status": resp.status_code, "error": "silent_drop",
+                    "kind": "silent_drop", "outside_24h_window": None}
+        return {"ok": True, "message_id": mid, "status": resp.status_code, "error": None,
+                "kind": "success", "outside_24h_window": None}
+    except httpx.HTTPError as exc:
+        logger.exception("Échec envoi modèle WA à %s", to_phone)
+        return {"ok": False, "message_id": None, "status": None, "error": str(exc)[:400],
+                "kind": "http_error", "outside_24h_window": None}
+
+
 async def _wa_upload_media(*, pdf_bytes: bytes, filename: str, content_type: str = "application/pdf") -> Optional[str]:
     """Upload un fichier à la Media API Meta, retourne le media_id ou None.
 

@@ -26,6 +26,10 @@ ALBARKA_ROLES = [
     # Accès exclusif au module Paiements (liens de paiement mobile money) —
     # voir PAYMENTS_ROLES et albarka_payments.py.
     "caissier",
+    # Accès au module Formulaires (création, envoi aux clients, réponses,
+    # statistiques) — voir FORMS_ROLES et albarka_forms.py. Rôle cumulable,
+    # à cocher dans la fiche du collaborateur.
+    "formulaires",
     "client",
 ]
 STAFF_ROLES = [r for r in ALBARKA_ROLES if r != "client"]
@@ -50,6 +54,45 @@ CHAT_THREAD_CREATE_ROLES = DOCS_PRIVILEGED_ROLES
 # passe-droit "superviseur" déjà appliqué partout ailleurs dans l'app —
 # cohérence avec le reste du portail plutôt qu'un cas particulier isolé.
 PAYMENTS_ROLES = ["caissier"]
+# Module Formulaires — seuls les collaborateurs ayant coché « Formulaires »
+# y accèdent (menu de la barre latérale compris), plus le superviseur via le
+# passe-droit habituel de require_roles().
+FORMS_ROLES = ["formulaires"]
+# Encaisser (enregistrer un paiement sur une facture) et délivrer un reçu —
+# réservé au rôle cumulable "caissier" : une secrétaire qui a aussi ce rôle
+# peut encaisser, une secrétaire sans ce rôle ne le peut pas. SANS passe-droit
+# superviseur (contrairement à require_roles/has_any_role) : un superviseur
+# doit lui aussi avoir le rôle Caissier — voir can_encaisser().
+ENCAISSEMENT_ROLES = ["caissier"]
+
+
+def can_encaisser(user: dict) -> bool:
+    """Encaisser / délivrer un reçu : rôle Caissier obligatoire, aucune exception."""
+    return bool(set(user.get("roles") or []) & set(ENCAISSEMENT_ROLES))
+# Espace client — déposer / scanner un document fait hors du portail
+# (facture, rapport…) dans l'espace d'un client, ou y mettre à disposition
+# une facture de la Caisse. Un reçu déposé reste réservé au Caissier.
+CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", "comptable",
+                      "fiscaliste", "aide_comptable", "caissier"]
+# Modules de l'espace client que le cabinet peut ouvrir ou fermer, client par
+# client (fiche client → « Espace client »). Tableau de bord et Mon compte
+# restent toujours visibles. Aucun réglage enregistré = tous les modules.
+CLIENT_PORTAL_MODULES = {
+    "documents": "Mes pièces",
+    "cabinet_documents": "Factures & documents",
+    "missions": "Mes missions",
+    "echeances": "Échéances",
+    "formulaires": "Mes formulaires",
+    "historique": "Historique",
+}
+
+
+def client_modules(user: dict) -> List[str]:
+    """Modules de l'espace client ouverts pour ce client."""
+    mods = user.get("portal_modules")
+    if not isinstance(mods, list):
+        return list(CLIENT_PORTAL_MODULES)
+    return [m for m in mods if m in CLIENT_PORTAL_MODULES]
 
 MISSION_TYPES = [
     "tenue_comptable",
@@ -126,6 +169,8 @@ class User(BaseModel):
     whatsapp_number: Optional[str] = None
     whatsapp_verified: bool = False
     is_active: bool = True
+    # Espace client : modules ouverts par le cabinet (None = tous).
+    portal_modules: Optional[List[str]] = None
     created_at: str = Field(default_factory=_now_iso)
     last_login: Optional[str] = None
 
@@ -151,6 +196,26 @@ def whatsapp_number_of(user_doc: dict) -> Optional[str]:
     """Numéro à utiliser pour un envoi WhatsApp : le numéro dédié s'il existe,
     sinon le téléphone (numéro unique historique servant aux deux usages)."""
     return user_doc.get("whatsapp_number") or user_doc.get("phone")
+
+
+# Le rôle "administrateur" est réservé au seul compte admin du portail :
+# sur tout autre compte il est ignoré (sans rien effacer en base), et ce
+# compte le porte d'office. Voir effective_roles(), appliqué à chaque requête
+# par get_current_user() (albarka_auth.py).
+ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com"
+
+
+def is_admin_account(user: dict) -> bool:
+    return (user.get("email") or "").strip().lower() == ADMIN_ACCOUNT_EMAIL
+
+
+def effective_roles(user: dict) -> List[str]:
+    """Rôles réellement appliqués : "administrateur" retiré partout sauf sur
+    le compte admin, où il est ajouté d'office."""
+    roles = [r for r in (user.get("roles") or []) if r != "administrateur"]
+    if is_admin_account(user):
+        roles.append("administrateur")
+    return roles
 
 
 def is_superviseur(user: dict) -> bool:

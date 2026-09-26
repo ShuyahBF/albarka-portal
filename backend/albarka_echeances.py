@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from albarka_auth import get_current_user, require_staff
-from albarka_models import EcheanceCreate, EcheanceUpdate, is_client, tenant_id_of
+from albarka_models import EcheanceCreate, EcheanceUpdate, client_modules, is_client, tenant_id_of
 from db import db, serialize, serialize_many
 
 router = APIRouter(prefix="/echeances", tags=["Échéances"])
@@ -18,6 +18,9 @@ router = APIRouter(prefix="/echeances", tags=["Échéances"])
 async def list_echeances(tenant_id: Optional[str] = None, user: dict = Depends(get_current_user)):
     query: dict = {}
     if is_client(user):
+        # Module fermé par le cabinet pour ce client (fiche client → Espace client)
+        if "echeances" not in client_modules(user):
+            return []
         query["tenant_id"] = tenant_id_of(user)
     elif tenant_id:
         query["tenant_id"] = tenant_id

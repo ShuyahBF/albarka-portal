@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import ClientDocsNotifPanel from "@/pages/admin/ClientDocsNotifPanel";
 import CertificatesPanel from "@/pages/admin/CertificatesPanel";
 import BrandingPanel from "@/pages/admin/BrandingPanel";
 import { useAuth } from "@/contexts/AuthContext";
@@ -580,6 +581,8 @@ export default function AdminSettings() {
               Enregistrer
             </Button>
           </div>
+          {/* Modèles de notification des documents mis à disposition des clients */}
+          <ClientDocsNotifPanel settings={settings} setSettings={setSettings} save={save} saving={saving} />
         </TabsContent>
 
         {/* --- RAPPORTS --- */}

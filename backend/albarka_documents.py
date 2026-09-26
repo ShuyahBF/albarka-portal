@@ -30,6 +30,7 @@ import ocr_core  # module commun d'OCR (copie identique, source : dépôt Shuyah
 from albarka_ai import DEFAULT_MODEL_ID, analyze_document, get_model
 from albarka_auth import get_current_user, require_staff
 from albarka_models import (
+    client_modules,
     DOCS_DELETE_ROLES,
     DOCS_PRIVILEGED_ROLES,
     DOCUMENT_KINDS,
@@ -133,6 +134,9 @@ async def upload_document(
     model: Optional[str] = Form(None),
     user: dict = Depends(get_current_user),
 ):
+    # Module « Mes pièces » fermé par le cabinet pour ce client : dépôt refusé.
+    if is_client(user) and "documents" not in client_modules(user):
+        raise HTTPException(status_code=403, detail="Ce module n'est pas ouvert pour votre compte")
     if kind not in DOCUMENT_KINDS:
         raise HTTPException(status_code=400, detail=f"kind invalide (attendu : {DOCUMENT_KINDS})")
     ext = _ext_of(file.filename or "")
@@ -245,6 +249,9 @@ async def _analyze_and_store(
 async def list_documents(tenant_id: Optional[str] = None, user: dict = Depends(get_current_user)):
     query: dict = {}
     if is_client(user):
+        # Module fermé par le cabinet pour ce client (fiche client → Espace client)
+        if "documents" not in client_modules(user):
+            return []
         query["tenant_id"] = tenant_id_of(user)
     elif tenant_id:
         query["tenant_id"] = tenant_id

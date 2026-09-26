@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Plus, Receipt, Wallet, X, MoreHorizontal, Eye, RefreshCw,
-  Trash2, Download, Mail, MessageCircle,
+  Trash2, Download, Mail, MessageCircle, UserCheck, UserX,
 } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,12 @@ import { useAuth } from "@/contexts/AuthContext";
 const CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"];
 // Doit rester identique à CAISSE_PDF_ACTION_ROLES côté backend (albarka_models.py).
 const CAISSE_PDF_ACTION_ROLES = ["administrateur", "superviseur", "direction", "dg", "caissier", "secretariat"];
+// Doit rester identique à ENCAISSEMENT_ROLES côté backend : encaisser et
+// délivrer un reçu sont réservés au Caissier — SANS passe-droit superviseur.
+const ENCAISSEMENT_ROLES = ["caissier"];
+// Doit rester identique à CLIENT_SPACE_ROLES côté backend (albarka_models.py) :
+// qui peut mettre un document à disposition dans l'espace d'un client.
+const CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", "comptable", "fiscaliste", "aide_comptable", "caissier"];
 
 const emptyItem = () => ({ label: "", quantity: 1, unit_price: "", tax_rate: 18 });
 
@@ -40,6 +46,10 @@ export default function AdminBilling() {
   // "telechargement" (voir canDownloadPdf ci-dessous).
   const canActOnPdf = roles.includes("superviseur") || roles.some((r) => CAISSE_PDF_ACTION_ROLES.includes(r));
   const canDownloadPdf = roles.includes("telechargement");
+  // Encaisser / délivrer un reçu : rôle Caissier obligatoire, même pour un superviseur.
+  const canEncaisser = roles.some((r) => ENCAISSEMENT_ROLES.includes(r));
+  // Mettre un document à disposition dans l'espace du client.
+  const canShareToClient = roles.includes("superviseur") || roles.some((r) => CLIENT_SPACE_ROLES.includes(r));
 
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -47,7 +57,7 @@ export default function AdminBilling() {
   const [openInv, setOpenInv] = useState(false);
   const [openPay, setOpenPay] = useState(false);
   const [payTarget, setPayTarget] = useState(null);
-  const [invForm, setInvForm] = useState({ tenant_id: "", title: "", document_type: "facture", items: [emptyItem()] });
+  const [invForm, setInvForm] = useState({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()] });
   const [payForm, setPayForm] = useState({ amount: "", method: "cash", reference: "" });
   const [filterTenantId, setFilterTenantId] = useState("");
   // Résout tenant_id -> {company, full_name} pour la colonne Client à
@@ -186,6 +196,7 @@ export default function AdminBilling() {
       await apiClient.post("/billing/invoices", {
         tenant_id: invForm.tenant_id, title: invForm.title,
         document_type: invForm.document_type,
+        client_visible: invForm.client_visible, // mis à disposition dès la création (client prévenu)
         items: items.map((it) => ({
           label: it.label, quantity: Number(it.quantity) || 1,
           unit_price: Number(it.unit_price) || 0, tax_rate: Number(it.tax_rate) || 0,
@@ -193,7 +204,20 @@ export default function AdminBilling() {
       });
       toast.success(`${invForm.document_type === "recu" ? "Reçu" : invForm.document_type === "proforma" ? "Proforma" : "Facture"} créé(e)`);
       setOpenInv(false);
-      setInvForm({ tenant_id: "", title: "", document_type: "facture", items: [emptyItem()] });
+      setInvForm({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()] });
+      await load();
+    } catch (err) { toast.error(extractError(err)); }
+  };
+
+  // --- Espace client : mettre à disposition / retirer ----------------------
+  const toggleClientVisibility = async (invoice) => {
+    const visible = !invoice.client_visible;
+    try {
+      const { data } = await apiClient.post(`/client-space/invoices/${invoice.id}/visibility`, { visible, notify: true });
+      const n = data.notification;
+      toast.success(visible
+        ? `Mis à disposition du client${n ? (n.ok ? " — client prévenu" : ` — notification non envoyée : ${n.error}`) : ""}`
+        : "Retiré de l'espace client");
       await load();
     } catch (err) { toast.error(extractError(err)); }
   };
@@ -246,11 +270,15 @@ export default function AdminBilling() {
   const submitPayment = async () => {
     if (!payTarget || !payForm.amount) { toast.error("Montant requis"); return; }
     try {
-      await apiClient.post("/billing/payments", {
+      const { data } = await apiClient.post("/billing/payments", {
         invoice_id: payTarget.id, amount: Number(payForm.amount),
         method: payForm.method, reference: payForm.reference || null,
       });
-      toast.success("Encaissement enregistré");
+      // Chaque encaissement délivre un reçu : on propose de l'ouvrir tout de suite.
+      const receipt = data.receipt;
+      toast.success(receipt ? `Encaissement enregistré — reçu ${receipt.number} délivré` : "Encaissement enregistré", {
+        action: receipt ? { label: "Voir le reçu", onClick: () => openPdfBlob(receipt) } : undefined,
+      });
       setOpenPay(false);
       setPayForm({ amount: "", method: "cash", reference: "" });
       await load();
@@ -406,7 +434,8 @@ export default function AdminBilling() {
                       <SelectTrigger data-testid="invoice-doctype-select"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="facture">Facture</SelectItem>
-                        <SelectItem value="recu">Reçu de caisse</SelectItem>
+                        {/* Délivrer un reçu : Caissier uniquement */}
+                        {canEncaisser && <SelectItem value="recu">Reçu de caisse</SelectItem>}
                         <SelectItem value="proforma">Proforma</SelectItem>
                       </SelectContent>
                     </Select>
@@ -450,6 +479,13 @@ export default function AdminBilling() {
                       </div>
                     ))}
                   </div>
+                  {/* Mise à disposition immédiate dans l'espace du client (+ notification WhatsApp) */}
+                  {canShareToClient && (
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" checked={invForm.client_visible} onChange={(e) => setInvForm({ ...invForm, client_visible: e.target.checked })} data-testid="invoice-client-visible" />
+                      Mettre à disposition dans l'espace du client (le client est prévenu)
+                    </label>
+                  )}
                 </div>
                 <DialogFooter>
                   <Button variant="outline" onClick={() => setOpenInv(false)}>Annuler</Button>
@@ -485,7 +521,11 @@ export default function AdminBilling() {
                         {i.document_type === "recu" ? "Reçu" : i.document_type === "proforma" ? "Proforma" : "Facture"}
                       </span>
                     </TableCell>
-                    <TableCell>{i.title}</TableCell>
+                    <TableCell>
+                      {i.title}
+                      {/* Visible par le client dans son espace */}
+                      {i.client_visible && <span className="ml-2 albarka-chip text-[10px] bg-[#0F6B4A]/10 text-[#0F6B4A]" data-testid={`invoice-shared-${i.id}`}>Espace client</span>}
+                    </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{fmtDateTime(i.created_at)}</TableCell>
                     <TableCell className="text-xs text-muted-foreground">{fmtDateTime(i.updated_at)}</TableCell>
                     <TableCell className="text-right">{Number(i.total).toLocaleString()} {i.currency}</TableCell>
@@ -498,8 +538,16 @@ export default function AdminBilling() {
                     </span></TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1.5">
-                        {i.status !== "paid" && i.status !== "proforma" && (
+                        {/* Encaisser : factures non soldées, Caissier uniquement */}
+                        {canEncaisser && i.document_type === "facture" && i.status !== "paid" && (
                           <Button size="sm" variant="outline" onClick={() => { setPayTarget(i); setOpenPay(true); }} data-testid={`pay-invoice-${i.id}`}>Encaisser</Button>
+                        )}
+                        {/* Mettre à disposition du client / retirer de son espace */}
+                        {canShareToClient && (
+                          <Button size="sm" variant="ghost" className="px-2" title={i.client_visible ? "Retirer de l'espace client" : "Mettre à disposition du client"}
+                            onClick={() => toggleClientVisibility(i)} data-testid={`invoice-share-${i.id}`}>
+                            {i.client_visible ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                          </Button>
                         )}
                         {canActOnPdf && (
                           <DropdownMenu>

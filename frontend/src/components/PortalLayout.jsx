@@ -27,6 +27,9 @@ import {
   ScrollText,
   Zap,
   CreditCard,
+  ClipboardCheck,
+  FolderOpen,
+  FolderUp,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -40,16 +43,26 @@ const BADGES_POLL_MS = 15000;
 
 // Doit rester identique à PAYMENTS_ROLES côté backend (albarka_models.py).
 const PAYMENTS_ROLES = ["caissier"];
+// Doit rester identique à FORMS_ROLES côté backend (albarka_models.py).
+const FORMS_ROLES = ["formulaires"];
 
 // Client sidebar (unchanged for pure clients).
+// `module` = clé du module (CLIENT_PORTAL_MODULES côté backend) que le cabinet
+// peut fermer client par client ; sans `module`, le lien est toujours visible.
 const CLIENT_LINKS = [
   { to: "/portal", label: "Tableau de bord", icon: LayoutDashboard, end: true },
-  { to: "/portal/documents", label: "Mes pièces", icon: FileText },
-  { to: "/portal/missions", label: "Mes missions", icon: Briefcase },
-  { to: "/portal/echeances", label: "Échéances", icon: CalendarClock },
-  { to: "/portal/historique", label: "Historique", icon: History },
+  { to: "/portal/documents", label: "Mes pièces", icon: FileText, module: "documents" },
+  // Factures, reçus, rapports… mis à disposition par le cabinet
+  { to: "/portal/documents-cabinet", label: "Factures & documents", icon: FolderOpen, module: "cabinet_documents" },
+  { to: "/portal/missions", label: "Mes missions", icon: Briefcase, module: "missions" },
+  { to: "/portal/echeances", label: "Échéances", icon: CalendarClock, module: "echeances" },
+  { to: "/portal/historique", label: "Historique", icon: History, module: "historique" },
+  // Formulaires envoyés par le cabinet (à remplir / déjà répondus)
+  { to: "/portal/formulaires", label: "Mes formulaires", icon: ClipboardCheck, module: "formulaires" },
   { to: "/portal/mon-compte", label: "Mon compte", icon: UserCog },
 ];
+// Doit rester identique à CLIENT_SPACE_ROLES côté backend (albarka_models.py).
+const CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", "comptable", "fiscaliste", "aide_comptable", "caissier"];
 
 // Staff menu items with the roles that grant access. `superviseur` = full access.
 const STAFF_MENU = [
@@ -75,12 +88,18 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "comptable", "fiscaliste"] },
   { to: "/admin/contrats", label: "Contrats clients", icon: FileSignature,
     roles: ["superviseur", "direction", "administrateur", "secretariat"] },
+  // Caisse : le Caissier y accède aussi (seul habilité à encaisser / délivrer un reçu).
   { to: "/admin/caisse", label: "Caisse", icon: Receipt,
-    roles: ["superviseur", "direction", "administrateur", "comptable", "secretariat"] },
+    roles: ["superviseur", "direction", "administrateur", "comptable", "secretariat", "caissier"] },
   // Réservé au rôle "caissier" — masqué pour tous les autres, y compris les
   // rôles Caisse ci-dessus (paiements mobile money, distinct de la caisse
   // manuelle). Le passe-droit "superviseur" standard reste appliqué.
   { to: "/admin/paiements", label: "Paiements", icon: CreditCard, roles: PAYMENTS_ROLES },
+  // Formulaires : visible UNIQUEMENT pour les collaborateurs ayant coché le
+  // rôle « Formulaires » dans leur fiche (plus le superviseur, passe-droit standard).
+  { to: "/admin/forms", label: "Formulaires", icon: ClipboardCheck, roles: FORMS_ROLES },
+  // Déposer des documents faits hors du portail dans l'espace d'un client
+  { to: "/admin/espace-client", label: "Dépôt espace client", icon: FolderUp, roles: CLIENT_SPACE_ROLES },
   { to: "/admin/comptabilite", label: "Comptabilité OHADA", icon: BookOpen,
     roles: ["superviseur", "direction", "administrateur", "comptable", "aide_comptable", "fiscaliste"] },
   { to: "/admin/messagerie", label: "Diffusion", icon: Send, badgeKey: "diffusion_new",
@@ -111,7 +130,8 @@ export default function PortalLayout({ admin = false }) {
   const roles = user?.roles || [];
   const links = admin
     ? STAFF_MENU.filter((l) => allowedFor(l, roles))
-    : CLIENT_LINKS;
+    // Espace client : seuls les modules ouverts par le cabinet (aucun réglage = tous)
+    : CLIENT_LINKS.filter((l) => !l.module || !Array.isArray(user?.portal_modules) || user.portal_modules.includes(l.module));
   const canUsePayments = roles.includes("superviseur") || roles.some((r) => PAYMENTS_ROLES.includes(r));
 
   // Badges non-lus (WhatsApp/Diffusion) affichés à côté du lien correspondant

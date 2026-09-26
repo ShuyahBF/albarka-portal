@@ -28,6 +28,12 @@ const STAFF_ROLES = [
   // Rôle transversal cumulable : accorde le droit de télécharger les pièces
   // client quel que soit le métier principal du collaborateur.
   { value: "telechargement", label: "Téléchargement" },
+  // Rôle cumulable : donne accès au menu et au module Formulaires
+  // (création, envoi aux clients, réponses, statistiques).
+  { value: "formulaires", label: "Formulaires" },
+  // Rôle cumulable : seul habilité à encaisser et à délivrer un reçu
+  // (ex. une secrétaire avec ce rôle en plus peut encaisser).
+  { value: "caissier", label: "Caissier" },
 ];
 
 const emptyForm = () => ({
@@ -48,10 +54,12 @@ export default function AdminStaff() {
   const [editing, setEditing] = useState(null); // null = create mode
   const [form, setForm] = useState(emptyForm());
 
-  // Rôles proposés dans le formulaire : masque "administrateur" pour les non-admins.
+  // Rôles proposés dans le formulaire : jamais "administrateur" — ce rôle est
+  // réservé au compte admin du portail, qui le porte d'office (voir
+  // effective_roles côté backend, albarka_models.py).
   const visibleRoles = useMemo(
-    () => (isAdmin ? STAFF_ROLES : STAFF_ROLES.filter((r) => r.value !== "administrateur")),
-    [isAdmin],
+    () => STAFF_ROLES.filter((r) => r.value !== "administrateur"),
+    [],
   );
   // Table filtrée : masque les comptes administrateurs pour les non-admins.
   const visibleItems = useMemo(
@@ -186,6 +194,8 @@ export default function AdminStaff() {
                     </label>
                   ))}
                 </div>
+                {/* Rappel : le rôle Administrateur n'est pas attribuable */}
+                <p className="text-[11px] text-muted-foreground mt-2">Le rôle Administrateur est réservé au compte admin du portail.</p>
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer pt-1">
                 <Checkbox

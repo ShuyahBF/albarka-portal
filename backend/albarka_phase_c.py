@@ -23,7 +23,9 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from albarka_admin_settings import get_settings_doc
 from albarka_auth import get_current_user, require_roles, require_staff
-from albarka_models import CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, is_client
+from albarka_models import (
+    CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, can_encaisser, is_client,
+)
 from db import db, serialize, serialize_many
 
 logger = logging.getLogger("albarka.phase_c")
@@ -218,6 +220,9 @@ class InvoiceCreate(BaseModel):
         description="facture | reçu | proforma — chaque type a sa propre numérotation",
     )
 
+    # Case « Visible dans l'espace client » du formulaire de création.
+    client_visible: bool = False
+
     @field_validator("document_type")
     @classmethod
     def _valid_doc_type(cls, v):
@@ -241,6 +246,11 @@ def _invoice_totals(items: list[dict]) -> dict:
 
 
 _DOC_PREFIX = {"facture": "FAC", "recu": "REC", "proforma": "PRO"}
+# Filtre Mongo excluant les reçus délivrés automatiquement à l'encaissement
+# (champ payment_id) des totaux et de la situation de compte.
+_NOT_PAYMENT_RECEIPT = {"payment_id": {"$exists": False}}
+# Libellés des moyens de paiement repris sur le reçu délivré à l'encaissement.
+_METHOD_LABELS = {"cash": "espèces", "mobile_money": "Mobile Money", "bank": "virement", "other": "autre moyen"}
 
 
 @billing_router.get("/invoices")
@@ -258,27 +268,32 @@ async def list_invoices(
     return serialize_many(items)
 
 
-@billing_router.post("/invoices")
-async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_staff())):
-    items = [i.model_dump() for i in payload.items]
+async def _new_billing_document(
+    *, document_type: str, tenant_id: str, title: str, items: list[dict], user: dict,
+    currency: str = "XOF", due_date: Optional[str] = None, notes: Optional[str] = None,
+    extra: Optional[dict] = None,
+) -> dict:
+    """Crée une facture / un reçu / un proforma : numéro, statut, PDF, journal,
+    archive. Utilisé par la création manuelle ET par l'encaissement (reçu
+    délivré automatiquement), pour que les deux suivent exactement les mêmes règles."""
     totals = _invoice_totals(items)
     # Numéro : {FAC|REC|PRO}-YYYYMM-NNNN (compteur mensuel PAR type)
     month_key = datetime.now(timezone.utc).strftime("%Y%m")
-    prefix = _DOC_PREFIX[payload.document_type]
-    key = f"{payload.document_type}:{month_key}"
+    prefix = _DOC_PREFIX[document_type]
+    key = f"{document_type}:{month_key}"
     res = await db.report_series.find_one_and_update(
         {"key": key},
-        {"$inc": {"seq": 1}, "$setOnInsert": {"kind": payload.document_type, "month_key": month_key}},
+        {"$inc": {"seq": 1}, "$setOnInsert": {"kind": document_type, "month_key": month_key}},
         upsert=True, return_document=True,
     )
     seq = int(res.get("seq") or 1)
     number = f"{prefix}-{month_key}-{seq:04d}"
     # Un reçu est réputé déjà payé au moment de l'émission ; un proforma
     # n'est pas payable (indicatif). Une facture reste "unpaid" par défaut.
-    if payload.document_type == "recu":
+    if document_type == "recu":
         status = "paid"
         paid_amount = totals["total"]
-    elif payload.document_type == "proforma":
+    elif document_type == "proforma":
         status = "proforma"
         paid_amount = 0.0
     else:
@@ -287,13 +302,13 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_st
     doc = {
         "id": secrets.token_urlsafe(12),
         "number": number,
-        "document_type": payload.document_type,
-        "tenant_id": payload.tenant_id,
-        "title": payload.title,
+        "document_type": document_type,
+        "tenant_id": tenant_id,
+        "title": title,
         "items": items,
-        "currency": payload.currency,
-        "due_date": payload.due_date,
-        "notes": payload.notes,
+        "currency": currency,
+        "due_date": due_date,
+        "notes": notes,
         "status": status,
         "paid_amount": paid_amount,
         **totals,
@@ -302,6 +317,10 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_st
         "created_by": user["id"],
         "pdf_storage_id": None,
         "pdf_storage_path": None,
+        # Espace client : un document n'y apparaît que si le cabinet l'a mis
+        # à disposition (voir albarka_client_space.py).
+        "client_visible": False,
+        **(extra or {}),
     }
     await db.invoices.insert_one(doc.copy())
     from albarka_billing_docs import ensure_invoice_pdf
@@ -309,25 +328,50 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_st
         await ensure_invoice_pdf(doc)
     except Exception:  # noqa: BLE001 — best-effort ; régénérable via /pdf/regenerate
         logger.exception("Échec génération PDF à la création de %s", doc["id"])
-    await _log_platform_event(user=user, action=f"{payload.document_type}.create",
+    await _log_platform_event(user=user, action=f"{document_type}.create",
                               entity_type="invoice", entity_id=doc["id"],
                               meta={"total": doc["total"], "number": number})
     # Point 2 — auto-archive
     await _auto_archive(
-        title=f"{payload.document_type.title()} {number} — {payload.title}",
+        title=f"{document_type.title()} {number} — {title}",
         category="caisse",
-        tags=[payload.document_type, month_key],
+        tags=[document_type, month_key],
         source={"kind": "invoice", "id": doc["id"], "number": number, "tenant_id": doc["tenant_id"]},
         user=user,
     )
+    return doc
+
+
+@billing_router.post("/invoices")
+async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_staff())):
+    # Délivrer un reçu = encaisser : rôle "caissier" obligatoire, même pour un superviseur.
+    if payload.document_type == "recu" and not can_encaisser(user):
+        raise HTTPException(status_code=403, detail="Seul un collaborateur Caissier peut délivrer un reçu")
+    doc = await _new_billing_document(
+        document_type=payload.document_type, tenant_id=payload.tenant_id, title=payload.title,
+        items=[i.model_dump() for i in payload.items], user=user, currency=payload.currency,
+        due_date=payload.due_date, notes=payload.notes,
+    )
+    # Mise à disposition immédiate dans l'espace du client (case cochée à la
+    # création) : le client est prévenu par WhatsApp selon les modèles réglés.
+    if payload.client_visible:
+        from albarka_client_space import publish_invoice
+        doc = await publish_invoice(doc, user=user, notify=True)
     return serialize(doc)
 
 
 @billing_router.post("/payments")
 async def create_payment(payload: PaymentCreate, user: dict = Depends(require_staff())):
+    """Encaissement sur une facture — réservé au Caissier (sans passe-droit
+    superviseur). Délivre automatiquement un reçu (REC-…) du montant encaissé,
+    avec son PDF."""
+    if not can_encaisser(user):
+        raise HTTPException(status_code=403, detail="Seul un collaborateur Caissier peut encaisser")
     invoice = await db.invoices.find_one({"id": payload.invoice_id}, {"_id": 0})
     if not invoice:
         raise HTTPException(status_code=404, detail="Facture introuvable")
+    if invoice.get("document_type") != "facture":
+        raise HTTPException(status_code=400, detail="Seule une facture peut être encaissée")
     payment = {
         "id": secrets.token_urlsafe(12),
         "invoice_id": payload.invoice_id,
@@ -356,7 +400,23 @@ async def create_payment(payload: PaymentCreate, user: dict = Depends(require_st
     await _log_platform_event(user=user, action="payment.create",
                               entity_type="invoice", entity_id=invoice["id"],
                               meta={"amount": payment["amount"], "method": payment["method"]})
-    return serialize(payment)
+    # Reçu délivré au client pour CE paiement (hors taxe : le montant encaissé
+    # est déjà TTC). Il suit la visibilité de sa facture dans l'espace client.
+    receipt = await _new_billing_document(
+        document_type="recu", tenant_id=invoice["tenant_id"],
+        title=f"Règlement {invoice['number']} — {invoice.get('title') or ''}".strip(" —"),
+        items=[{"label": f"Règlement de la facture {invoice['number']} ({_METHOD_LABELS.get(payload.method, payload.method)})",
+                "quantity": 1, "unit_price": float(payload.amount), "tax_rate": 0}],
+        user=user, currency=invoice.get("currency") or "XOF",
+        notes=f"Référence : {payload.reference}" if payload.reference else None,
+        extra={"invoice_id": invoice["id"], "payment_id": payment["id"]},
+    )
+    await db.payments.update_one({"id": payment["id"]}, {"$set": {"receipt_id": receipt["id"], "receipt_number": receipt["number"]}})
+    payment.update(receipt_id=receipt["id"], receipt_number=receipt["number"])
+    if invoice.get("client_visible"):
+        from albarka_client_space import publish_invoice
+        receipt = await publish_invoice(receipt, user=user, notify=True)
+    return {**serialize(payment), "receipt": serialize(receipt)}
 
 
 def _is_caisse_date_privileged(user: dict) -> bool:
@@ -421,7 +481,10 @@ async def billing_summary(
     strictement les encaissements visibles par l'utilisateur : journée en
     cours pour un collaborateur ordinaire, période choisie — ou "Depuis
     toujours" — pour Administrateur/DG/Superviseur, voir _payments_date_bounds)."""
-    inv_q: dict = {}
+    # Les reçus délivrés à l'encaissement (liés à une facture) ne sont pas une
+    # nouvelle vente : les compter doublerait le « Facturé » (le paiement est
+    # déjà porté par la facture et par db.payments).
+    inv_q: dict = dict(_NOT_PAYMENT_RECEIPT)
     if tenant_id: inv_q["tenant_id"] = tenant_id
     invoices = await db.invoices.find(inv_q, {"_id": 0, "total": 1, "paid_amount": 1, "status": 1}).to_list(2000)
     total = sum(float(i.get("total", 0)) for i in invoices)
@@ -474,7 +537,8 @@ async def _build_statement(
         if not client:
             raise HTTPException(status_code=404, detail="Client introuvable")
 
-    inv_q: dict = {"tenant_id": tenant_id} if tenant_id else {}
+    # Hors reçus d'encaissement : le paiement figure déjà dans la liste des encaissements.
+    inv_q: dict = {**_NOT_PAYMENT_RECEIPT, **({"tenant_id": tenant_id} if tenant_id else {})}
     invoices = await db.invoices.find(inv_q, {"_id": 0}).sort("created_at", -1).to_list(2000)
     total_billed = sum(float(i.get("total", 0)) for i in invoices)
     outstanding = sum(float(i.get("total", 0)) - float(i.get("paid_amount", 0)) for i in invoices)

@@ -15,6 +15,7 @@ from jose import JWTError, jwt
 
 from albarka_models import (
     AuthTokenResponse,
+    effective_roles,
     LoginRequest,
     LoginResponse,
     OtpVerifyRequest,
@@ -101,6 +102,8 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_securi
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Compte désactivé")
+    # Rôles effectifs : "administrateur" réservé au compte admin (albarka_models).
+    user["roles"] = effective_roles(user)
     return user
 
 
@@ -188,6 +191,7 @@ async def verify_otp(payload: OtpVerifyRequest):
         {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
     )
     token = create_access_token(user["id"])
+    user["roles"] = effective_roles(user)  # mêmes rôles effectifs que get_current_user
     return AuthTokenResponse(access_token=token, user=User(**user))
 
 
