@@ -9,13 +9,12 @@ from datetime import datetime, timedelta, timezone
 from typing import List
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 from albarka_models import (
     AuthTokenResponse,
-    effective_roles,
     LoginRequest,
     LoginResponse,
     OtpVerifyRequest,
@@ -52,9 +51,14 @@ def generate_session_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def create_access_token(user_id: str) -> str:
+def create_access_token(user_id: str, not_after: datetime = None) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    payload = {"sub": user_id, "exp": expire}
+    # Accès temporaire : la session ne dure pas plus longtemps que le jeton
+    if not_after is not None and not_after < expire:
+        expire = not_after
+    # iat (émis le) : permet d'invalider les sessions ouvertes avant une
+    # réinitialisation du mot de passe (voir password_changed_at ci-dessous).
+    payload = {"sub": user_id, "exp": expire, "iat": int(datetime.now(timezone.utc).timestamp())}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -102,8 +106,16 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_securi
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Compte désactivé")
-    # Rôles effectifs : "administrateur" réservé au compte admin (albarka_models).
-    user["roles"] = effective_roles(user)
+    # Mot de passe réinitialisé par le cabinet : les sessions ouvertes avant
+    # (jeton émis plus tôt, ou ancien jeton sans date) ne sont plus valables.
+    changed = user.get("password_changed_at")
+    if changed:
+        try:
+            changed_ts = datetime.fromisoformat(changed).timestamp()
+        except ValueError:
+            changed_ts = None
+        if changed_ts and (payload.get("iat") or 0) < int(changed_ts):
+            raise HTTPException(status_code=401, detail="Session expirée : mot de passe réinitialisé, reconnectez-vous")
     return user
 
 
@@ -161,7 +173,7 @@ async def login(payload: LoginRequest):
 
 
 @router.post("/verify-otp", response_model=AuthTokenResponse)
-async def verify_otp(payload: OtpVerifyRequest):
+async def verify_otp(payload: OtpVerifyRequest, request: Request):
     otp = await db.otps.find_one({"session_token": payload.session_token, "used": False})
     if not otp:
         raise HTTPException(status_code=400, detail="Session invalide ou expirée")
@@ -174,6 +186,11 @@ async def verify_otp(payload: OtpVerifyRequest):
     user = await db.users.find_one({"id": otp["user_id"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    # Liste blanche du personnel (appareils / IP / jeton temporaire) — après
+    # mot de passe ET OTP ; refus = fausse « ERREUR 404 » (albarka_access.py).
+    from albarka_access import check_staff_access
+    access_until = await check_staff_access(user, request=request, device_id=payload.device_id,
+                                            access_code=payload.access_code)
     # Feature 14 — clients cannot log in without an active contract.
     roles = set(user.get("roles") or [])
     if "client" in roles and len(roles) == 1:
@@ -190,8 +207,7 @@ async def verify_otp(payload: OtpVerifyRequest):
         {"id": user["id"]},
         {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
     )
-    token = create_access_token(user["id"])
-    user["roles"] = effective_roles(user)  # mêmes rôles effectifs que get_current_user
+    token = create_access_token(user["id"], not_after=access_until)
     return AuthTokenResponse(access_token=token, user=User(**user))
 
 

@@ -24,7 +24,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from albarka_admin_settings import get_settings_doc
 from albarka_auth import get_current_user, require_roles, require_staff
 from albarka_models import (
-    CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, can_encaisser, is_client,
+    CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, NOT_TEST_ACCOUNT, can_encaisser, is_client,
 )
 from db import db, serialize, serialize_many
 
@@ -139,6 +139,7 @@ async def list_chat_threads(user: dict = Depends(require_staff())):
     result = []
     for t in visible:
         last = last_by_thread.get(t["id"])
+        peer_id = None  # discussion directe : l'interlocuteur (présence en ligne affichée)
         if t.get("kind") == "dm":
             peer_id = next((p for p in (t.get("participants") or []) if p != user["id"]), None)
             peer = await db.users.find_one({"id": peer_id}, {"_id": 0, "full_name": 1}) if peer_id else None
@@ -146,7 +147,7 @@ async def list_chat_threads(user: dict = Depends(require_staff())):
         else:
             title = t["title"]
         result.append({
-            "thread_id": t["id"], "title": title, "kind": t.get("kind", "group"),
+            "thread_id": t["id"], "title": title, "kind": t.get("kind", "group"), "peer_id": peer_id,
             "last_at": last["last_at"] if last else t["created_at"],
             "last_author": last["last_author"] if last else None,
             "last_body": (last["last_body"][:120] if last else ""),
@@ -848,8 +849,12 @@ async def _log_platform_event(
 ):
     """Interne — enregistre un événement d'audit (best-effort)."""
     try:
+        from albarka_request_ctx import request_info  # IP + navigateur de la requête en cours
+        info = request_info()
         await db.platform_logs.insert_one({
             "id": secrets.token_urlsafe(12),
+            "ip": info.get("ip") or (meta or {}).get("ip"),
+            "user_agent": info.get("user_agent"),
             "action": action,
             "entity_type": entity_type,
             "entity_id": entity_id,
@@ -1024,15 +1029,15 @@ async def send_broadcast(
     """
     if payload.scope == "clients":
         recipients = await db.users.find(
-            {"roles": "client", "is_active": {"$ne": False}}, {"_id": 0},
+            {"roles": "client", "is_active": {"$ne": False}, **NOT_TEST_ACCOUNT}, {"_id": 0},
         ).to_list(1000)
     elif payload.scope == "staff":
         recipients = await db.users.find(
-            {"roles": {"$nin": ["client"]}, "is_active": {"$ne": False}}, {"_id": 0},
+            {"roles": {"$nin": ["client"]}, "is_active": {"$ne": False}, **NOT_TEST_ACCOUNT}, {"_id": 0},
         ).to_list(1000)
-    else:  # all
+    else:  # all — jamais les comptes de test (NOT_TEST_ACCOUNT)
         recipients = await db.users.find(
-            {"is_active": {"$ne": False}}, {"_id": 0},
+            {"is_active": {"$ne": False}, **NOT_TEST_ACCOUNT}, {"_id": 0},
         ).to_list(2000)
 
     bid = secrets.token_urlsafe(12)

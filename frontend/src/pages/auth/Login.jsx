@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { apiClient, extractError } from "@/lib/api";
+import { saveAccessCode, getAccessCode } from "@/lib/device";
 
 export default function Login() {
   const [step, setStep] = useState("credentials"); // credentials | otp
@@ -23,6 +24,13 @@ export default function Login() {
   const captchaRef = useRef(null);
   const { loginStart, loginVerify, isStaff } = useAuth();
   const navigate = useNavigate();
+  // Accès temporaire : lien reçu /login?acces=CODE (gardé pour l'étape du code OTP)
+  const [accessCode, setAccessCode] = useState(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get("acces");
+    if (fromUrl) saveAccessCode(fromUrl.trim());
+    return fromUrl || getAccessCode() || "";
+  });
+  const [showAccessField, setShowAccessField] = useState(!!accessCode);
 
   useEffect(() => {
     apiClient.get("/auth/captcha-config").then(({ data }) => setCaptchaCfg(data)).catch(() => {});
@@ -76,11 +84,13 @@ export default function Login() {
     }
     setLoading(true);
     try {
-      const user = await loginVerify(session.session_token, code);
+      const user = await loginVerify(session.session_token, code, accessCode.trim() || null);
       toast.success(`Bienvenue, ${user.full_name}`);
       const staff = !(user.roles?.length === 1 && user.roles[0] === "client");
       navigate(staff ? "/admin" : "/portal", { replace: true });
     } catch (err) {
+      // Collaborateur hors liste blanche : page d'erreur neutre
+      if (err?.response?.status === 404) { navigate("/erreur-404", { replace: true }); return; }
       toast.error(extractError(err, "Code invalide"));
     } finally {
       setLoading(false);
@@ -246,6 +256,18 @@ export default function Login() {
                   </InputOTP>
                 </div>
               </div>
+
+              {/* Code d'accès temporaire (reçu par e-mail / WhatsApp) — facultatif */}
+              {showAccessField ? (
+                <div>
+                  <Label>Code d'accès temporaire</Label>
+                  <Input value={accessCode} onChange={(e) => setAccessCode(e.target.value.toUpperCase())} className="mt-2 font-mono tracking-widest" placeholder="Facultatif" data-testid="access-code-input" />
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowAccessField(true)} className="text-xs text-muted-foreground hover:text-[#0F6B4A]" data-testid="show-access-code">
+                  J'ai un code d'accès temporaire
+                </button>
+              )}
 
               <Button
                 type="submit"

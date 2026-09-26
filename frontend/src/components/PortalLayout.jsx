@@ -36,6 +36,9 @@ import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api";
 import ChatBubble from "@/components/ChatBubble";
 import PaymentBubble from "@/components/PaymentBubble";
+import { usePresenceHeartbeat, sendOffline } from "@/components/Presence";
+import AutoLogoutGate from "@/components/AutoLogoutGate";
+import SidebarInfoBar from "@/components/SidebarInfoBar";
 
 // Actualisation des badges non-lus (WhatsApp/Diffusion) par polling — pas de
 // WebSocket/SSE dans l'application, même convention que ChatBubble.jsx.
@@ -110,8 +113,8 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable"] },
   { to: "/admin/logs", label: "Journal plateforme", icon: ScrollText,
     roles: ["superviseur", "direction", "administrateur"] },
-  { to: "/admin/settings", label: "Paramètres", icon: Settings,
-    roles: ["superviseur", "direction", "administrateur"] },
+  // Paramètres : Superviseur uniquement (SETTINGS_ROLES côté backend)
+  { to: "/admin/settings", label: "Paramètres", icon: Settings, roles: ["superviseur"] },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —
   // voir allowedFor() ci-dessous.
   { to: "/admin/mon-compte", label: "Mon compte", icon: UserCog, alwaysAllowed: true },
@@ -125,6 +128,8 @@ function allowedFor(link, roles) {
 
 export default function PortalLayout({ admin = false }) {
   const { user, logout } = useAuth();
+  // Keep-alive : signale au cabinet que ce compte (client ou collaborateur) est connecté
+  usePresenceHeartbeat(!!user);
   const [openSidebar, setOpenSidebar] = useState(false);
   const navigate = useNavigate();
   const roles = user?.roles || [];
@@ -153,7 +158,8 @@ export default function PortalLayout({ admin = false }) {
     setBadges((b) => ({ ...b, [`${page === "diffusion" ? "diffusion_new" : page}`]: 0 }));
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await sendOffline(); // hors ligne tout de suite, avant de perdre le jeton
     logout();
     navigate("/login");
   };
@@ -176,6 +182,8 @@ export default function PortalLayout({ admin = false }) {
           openSidebar ? "translate-x-0" : "-translate-x-full"
         }`}
       >
+        {/* Barre jaune : date/heure en temps réel à gauche, n° de version à droite */}
+        <SidebarInfoBar />
         <div className="px-5 py-6 border-b border-white/10 flex items-center gap-2.5 shrink-0">
           <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-[#0F6B4A] to-[#E5A24B] flex items-center justify-center">
             <Sprout className="w-5 h-5 text-white" />
@@ -308,6 +316,8 @@ export default function PortalLayout({ admin = false }) {
       </div>
       {/* Chat interne — strictement réservé aux collaborateurs, jamais aux clients */}
       {admin && <ChatBubble />}
+      {/* Déconnexion automatique après inactivité (sauf tâche en cours) */}
+      <AutoLogoutGate />
       {/* Bulle Paiements — accès rapide à un lien PawaPay, réservée au rôle caissier */}
       {admin && canUsePayments && <PaymentBubble />}
     </div>

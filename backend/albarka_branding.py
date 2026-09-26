@@ -12,6 +12,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
+from albarka_models import SETTINGS_ROLES
 from albarka_auth import require_roles
 from albarka_storage import delete_object, get_object, put_object
 from db import db
@@ -20,7 +21,8 @@ logger = logging.getLogger("albarka.branding")
 
 router = APIRouter(prefix="/admin/branding", tags=["Branding cabinet"])
 
-_ADMIN_ROLES = ["superviseur", "direction", "administrateur"]
+# Paramètres : superviseur uniquement (SETTINGS_ROLES, albarka_models.py)
+_ADMIN_ROLES = SETTINGS_ROLES
 BRANDING_KINDS = {"logo", "letterhead", "dg_signature", "watermark"}
 ALLOWED_MIMES = {"image/png", "image/jpeg", "image/webp"}
 MAX_SIZE = 5 * 1024 * 1024  # 5 MB

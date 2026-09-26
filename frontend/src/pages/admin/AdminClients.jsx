@@ -14,6 +14,8 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import AccountActions, { AccountDates } from "@/components/AccountActions";
+import { usePresence, PresenceLabel } from "@/components/Presence";
 
 // Doivent rester identiques aux listes équivalentes côté backend (albarka_models.py).
 const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
@@ -28,6 +30,10 @@ export default function AdminClients() {
   const { user } = useAuth();
   const myRoles = user?.roles || [];
   const canManage = myRoles.some((r) => CLIENT_MANAGE_ROLES.includes(r));
+  // Supprimer un client : admin uniquement (super-utilisateur du portail)
+  const isAdminAccount = (user?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
+  // Présence en temps réel des clients (rafraîchie toutes les 15 s)
+  const presence = usePresence();
   const canVerifyPhone = myRoles.some((r) => VERIFY_PHONE_ROLES.includes(r));
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -130,7 +136,8 @@ export default function AdminClients() {
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
           <h1 className="font-display text-3xl md:text-4xl text-foreground">Clients</h1>
-          <p className="text-muted-foreground mt-1">Gérez les comptes des entreprises accompagnées.</p>
+          <p className="text-muted-foreground mt-1">Gérez les comptes des entreprises accompagnées.
+            <span className="ml-2 text-emerald-700" data-testid="client-online-count">· {presence.counts.client_online} client(s) en ligne</span></p>
         </div>
         {canManage && (
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
@@ -204,13 +211,14 @@ export default function AdminClients() {
               <TableHead>Téléphone</TableHead>
               <TableHead>WhatsApp</TableHead>
               <TableHead>Statut</TableHead>
+              <TableHead>Connexion / modification</TableHead>
               <TableHead>ID (tenant)</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && items.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+            {!loading && items.length === 0 && <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
             {items.map((c) => (
               <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">{c.full_name}</TableCell>
@@ -250,6 +258,10 @@ export default function AdminClients() {
                     : <span className="albarka-chip bg-emerald-100 text-emerald-800">Actif</span>}
                 </TableCell>
                 <TableCell>
+                  <PresenceLabel presence={presence.items[c.id]} />
+                  <AccountDates account={c} />
+                </TableCell>
+                <TableCell>
                   <button onClick={() => copyId(c.id)} className="text-xs font-mono flex items-center gap-1 hover:text-[#0F6B4A]" data-testid={`copy-tenant-${c.id}`}>
                     {c.id.slice(0, 10)}… <Copy className="w-3 h-3" />
                   </button>
@@ -260,6 +272,8 @@ export default function AdminClients() {
                       <Pencil className="w-4 h-4" />
                     </Button>
                   )}
+                  {/* Désactiver / réinitialiser le mot de passe ; Supprimer : admin uniquement */}
+                  <AccountActions account={c} onChanged={load} canManage={canManage} canDelete={isAdminAccount} deleteLabel="ce client" />
                   <Link to={`/admin/clients/${c.id}`}>
                     <Button variant="outline" size="sm" data-testid={`view-client-${c.id}`}>Ouvrir</Button>
                   </Link>

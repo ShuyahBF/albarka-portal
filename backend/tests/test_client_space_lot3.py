@@ -1,8 +1,7 @@
-"""Lot 3 (suite) — Caissier, administrateur réservé au compte admin, espace client.
+"""Lot 3 (suite) — Caissier, espace client.
 
 - Caissier : seul habilité à encaisser et à délivrer un reçu ; chaque
   encaissement délivre un reçu automatiquement ;
-- Administrateur : rôle ignoré sur tout autre compte que le compte admin ;
 - Espace client : dépôts sans OCR, mise à disposition des factures de la
   Caisse, modules ouverts par client, notification WhatsApp à modèles
   réglables (message libre dans la fenêtre de 24 h, modèle Meta sinon,
@@ -40,7 +39,6 @@ import albarka_missions  # noqa: E402
 import albarka_phase_c  # noqa: E402
 import albarka_storage  # noqa: E402
 from albarka_auth import get_current_user  # noqa: E402
-from albarka_models import effective_roles  # noqa: E402
 from albarka_notifications import _assert_safe_email  # noqa: E402
 
 ADMIN = {"id": "u-admin", "email": "admin@sawalismartsystems.com", "full_name": "Admin", "roles": ["superviseur", "direction"], "is_active": True}
@@ -124,13 +122,12 @@ def env(monkeypatch):
         api.include_router(r)
     app.include_router(api)
 
-    # Connexion simulée : X-User choisit le compte ; rôles effectifs comme en production
+    # Connexion simulée : X-User choisit le compte
     async def fake_user(x_user: str = Header(default="")):
         if x_user not in USERS:
             raise HTTPException(status_code=401, detail="Non connecté")
         u = asyncio.get_event_loop()  # noqa: F841 — garde la signature asynchrone
         doc = await mock_db.users.find_one({"id": USERS[x_user]["id"]}, {"_id": 0})
-        doc["roles"] = effective_roles(doc)
         return doc
     app.dependency_overrides[get_current_user] = fake_user
     with TestClient(app, headers={"Origin": "https://albarka-bf.com"}) as client:
@@ -175,28 +172,6 @@ def test_receipt_document_reserved_to_caissier(env):
     pro = _invoice(env, document_type="proforma")
     assert env.c.post("/api/billing/payments", headers=_h("secr_caisse"),
                       json={"invoice_id": pro["id"], "amount": 10}).status_code == 400
-
-
-# ------------------------------------------------------------------ Administrateur
-def test_administrateur_only_for_admin_account(env):
-    assert "administrateur" in effective_roles(ADMIN)
-    assert "administrateur" not in effective_roles(USERS["faux_admin"])
-    # Création / attribution refusées sur tout autre compte, même par l'admin
-    staff = {"email": "x@albarka.bf", "full_name": "X", "roles": ["administrateur"], "password": "motdepasse1"}
-    assert env.c.post("/api/clients/staff", headers=_h("admin"), json=staff).status_code == 403
-    assert env.c.patch("/api/clients/u-compta", headers=_h("admin"), json={"roles": ["comptable", "administrateur"]}).status_code == 403
-    # La case Caissier s'attribue normalement
-    assert env.c.patch("/api/clients/u-secr", headers=_h("admin"), json={"roles": ["secretariat", "caissier"]}).status_code == 200
-    # Liste du personnel : rôles effectifs (le « faux » administrateur n'apparaît plus)
-    listed = {u["id"]: u["roles"] for u in env.c.get("/api/clients/staff", headers=_h("admin")).json()}
-    assert "administrateur" not in listed["u-fa"] and "administrateur" in listed["u-admin"]
-
-
-def test_real_get_current_user_applies_effective_roles(env):
-    from fastapi.security import HTTPAuthorizationCredentials
-    token = albarka_auth.create_access_token("u-fa")
-    u = asyncio.run(albarka_auth.get_current_user(HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)))
-    assert u["roles"] == ["dg"]
 
 
 # ------------------------------------------------------------------ Espace client
@@ -327,3 +302,27 @@ def test_superviseur_without_caissier_cannot_encaisser(env):
     # Un superviseur à qui l'on coche aussi « Caissier » peut encaisser
     asyncio.run(env.db.users.update_one({"id": "u-sup"}, {"$set": {"roles": ["superviseur", "caissier"]}}))
     assert env.c.post("/api/billing/payments", headers=_h("sup"), json={"invoice_id": inv["id"], "amount": 1000}).status_code == 200
+
+
+def test_upload_same_document_to_several_clients(env):
+    """Note des impôts envoyée à une liste de clients : un seul dépôt, une
+    fiche et une notification par client, fichier stocké une seule fois."""
+    f = [("files", ("note-impots-2026.pdf", b"%PDF-note", "application/pdf"))]
+    stored_before = len(env.sent["files"])
+    r = env.c.post("/api/client-space/documents/multi", headers=_h("compta"), files=f,
+                   data={"tenant_ids": "c1,c2,c3", "category": "courrier", "title": "Note des impôts 2026"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["clients"] == 3 and body["documents"] == 3 and body["notified"] == 2
+    assert body["not_notified"][0]["name"] == "Refus notifs"          # c3 a refusé les notifications
+    assert len(env.sent["files"]) == stored_before + 1                  # une seule copie stockée
+    for who in ("c1", "c2"):
+        mine = env.c.get("/api/me/space", headers=_h(who)).json()["items"]
+        assert [i["title"] for i in mine] == ["Note des impôts 2026"]
+    assert env.c.get("/api/me/space/upload/" + env.c.get("/api/me/space", headers=_h("c2")).json()["items"][0]["id"]
+                     + "/file", headers=_h("c2")).content == b"%PDF-note"
+    # Contrôles : client inconnu, reçu réservé au Caissier
+    assert env.c.post("/api/client-space/documents/multi", headers=_h("compta"), files=f,
+                      data={"tenant_ids": "c1,inconnu"}).status_code == 404
+    assert env.c.post("/api/client-space/documents/multi", headers=_h("compta"), files=f,
+                      data={"tenant_ids": "c1", "category": "recu"}).status_code == 403

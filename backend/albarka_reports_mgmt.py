@@ -844,7 +844,8 @@ async def bulk_generate_reports(
         ).to_list(500)
     else:
         clients = await db.users.find(
-            {"roles": "client", "is_active": {"$ne": False}},
+            # « Tous les clients » : jamais les comptes de test
+            {"roles": "client", "is_active": {"$ne": False}, "is_test_account": {"$ne": True}},
             {"_id": 0, "id": 1, "full_name": 1},
         ).to_list(500)
     generated: list[dict] = []

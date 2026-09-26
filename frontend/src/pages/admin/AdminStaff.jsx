@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { toast } from "sonner";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, FlaskConical } from "lucide-react";
+import AccountActions, { AccountDates } from "@/components/AccountActions";
+import { usePresence, PresenceLabel } from "@/components/Presence";
+import TemporaryAccessButton from "@/components/TemporaryAccessButton";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -47,6 +50,19 @@ export default function AdminStaff() {
   // Point 10 — filtrage selon le rôle du visiteur.
   const isAdmin = myRoles.includes("administrateur");
   const canEdit = isAdmin || myRoles.includes("superviseur") || myRoles.includes("direction");
+  // Superviseur : supprime un compte du personnel, gère les comptes de test.
+  const isSuperviseur = myRoles.includes("superviseur");
+  // Compte admin du portail : SEUL habilité à cocher / décocher « Superviseur »
+  // (doit rester identique à ADMIN_ACCOUNT_EMAIL côté backend).
+  const isAdminAccount = (me?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
+  // Ligne du tableau : compte admin / compte Superviseur (protégés)
+  const isAdminAccountRow = (s) => (s.email || "").toLowerCase() === "admin@sawalismartsystems.com";
+  const isSupRow = (s) => (s.roles || []).includes("superviseur");
+  // Présence en temps réel (rafraîchie toutes les 15 s)
+  const presence = usePresence();
+  // Accès temporaires : admin ou adresse désignée par admin (GET /access/me)
+  const [canIssueTokens, setCanIssueTokens] = useState(false);
+  useEffect(() => { apiClient.get("/access/me").then(({ data }) => setCanIssueTokens(!!data.can_issue_tokens)).catch(() => {}); }, []);
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -54,13 +70,17 @@ export default function AdminStaff() {
   const [editing, setEditing] = useState(null); // null = create mode
   const [form, setForm] = useState(emptyForm());
 
-  // Rôles proposés dans le formulaire : jamais "administrateur" — ce rôle est
-  // réservé au compte admin du portail, qui le porte d'office (voir
-  // effective_roles côté backend, albarka_models.py).
+  // Rôles proposés dans le formulaire : masque "administrateur" pour les non-admins.
   const visibleRoles = useMemo(
-    () => STAFF_ROLES.filter((r) => r.value !== "administrateur"),
-    [],
+    () => (isAdmin ? STAFF_ROLES : STAFF_ROLES.filter((r) => r.value !== "administrateur")),
+    [isAdmin],
   );
+  // Comptes de test (bouton « Créer comptes de test »)
+  const [openTest, setOpenTest] = useState(false);
+  const [testForm, setTestForm] = useState({ email: me?.email || "", password: "", client1_whatsapp: "", client2_whatsapp: "" });
+  const [testResult, setTestResult] = useState(null);
+  const [testBusy, setTestBusy] = useState(false);
+
   // Table filtrée : masque les comptes administrateurs pour les non-admins.
   const visibleItems = useMemo(
     () => (isAdmin ? items : items.filter((s) => !(s.roles || []).includes("administrateur"))),
@@ -144,14 +164,46 @@ export default function AdminStaff() {
     }
   };
 
+  // --- Comptes de test (superviseur) --------------------------------------------
+  const createTestAccounts = async () => {
+    if (!testForm.email || testForm.password.length < 8) { toast.error("E-mail et mot de passe (8 caractères min.) requis"); return; }
+    setTestBusy(true);
+    try {
+      const { data } = await apiClient.post("/clients/test-accounts", {
+        email: testForm.email, password: testForm.password,
+        client1_whatsapp: testForm.client1_whatsapp || null, client2_whatsapp: testForm.client2_whatsapp || null,
+      });
+      setTestResult(data.accounts);
+      toast.success("Comptes de test prêts");
+      await load();
+    } catch (err) { toast.error(extractError(err)); } finally { setTestBusy(false); }
+  };
+  const deleteTestAccounts = async () => {
+    setTestBusy(true);
+    try {
+      const { data } = await apiClient.delete("/clients/test-accounts");
+      toast.success(`${data.deleted} compte(s) de test supprimé(s)`);
+      setTestResult(null);
+      await load();
+    } catch (err) { toast.error(extractError(err)); } finally { setTestBusy(false); }
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-staff-page">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
           <h1 className="font-display text-3xl md:text-4xl text-foreground">Personnels</h1>
-          <p className="text-muted-foreground mt-1">Équipe du cabinet et leurs rôles.</p>
+          <p className="text-muted-foreground mt-1">Équipe du cabinet et leurs rôles.
+            <span className="ml-2 text-emerald-700" data-testid="staff-online-count">· {presence.counts.staff_online} collaborateur(s) en ligne</span></p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        {/* Comptes de test de la recette : superviseur uniquement */}
+        {isSuperviseur && (
+          <Button variant="outline" onClick={() => { setTestResult(null); setOpenTest(true); }} data-testid="test-accounts-btn">
+            <FlaskConical className="w-4 h-4 mr-2" />Créer comptes de test
+          </Button>
+        )}
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
           {canEdit && (
             <DialogTrigger asChild>
@@ -188,14 +240,16 @@ export default function AdminStaff() {
                       <Checkbox
                         checked={form.roles.includes(r.value)}
                         onCheckedChange={() => toggleRole(r.value)}
+                        // Superviseur : case verrouillée sauf pour le compte admin du portail
+                        disabled={r.value === "superviseur" && !isAdminAccount}
                         data-testid={`role-${r.value}`}
                       />
                       {r.label}
                     </label>
                   ))}
                 </div>
-                {/* Rappel : le rôle Administrateur n'est pas attribuable */}
-                <p className="text-[11px] text-muted-foreground mt-2">Le rôle Administrateur est réservé au compte admin du portail.</p>
+                {/* Rappel : le rôle Superviseur n'est attribuable que par le compte admin */}
+                {!isAdminAccount && <p className="text-[11px] text-muted-foreground mt-2">Le rôle Superviseur ne peut être donné ou retiré que par le compte admin du portail.</p>}
               </div>
               <label className="flex items-center gap-2 text-sm cursor-pointer pt-1">
                 <Checkbox
@@ -224,6 +278,7 @@ export default function AdminStaff() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
 
       <div className="albarka-card overflow-hidden">
@@ -235,15 +290,20 @@ export default function AdminStaff() {
               <TableHead>Rôles</TableHead>
               <TableHead>Téléphone</TableHead>
               <TableHead>Statut</TableHead>
+              <TableHead>Connexion / modification</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && visibleItems.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">Aucun personnel.</TableCell></TableRow>}
+            {!loading && visibleItems.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Aucun personnel.</TableCell></TableRow>}
             {visibleItems.map((s) => (
               <TableRow key={s.id} className="hover:bg-[#0F6B4A]/5">
-                <TableCell className="font-medium">{s.full_name}</TableCell>
+                <TableCell className="font-medium">
+                  {s.full_name}
+                  {/* Compte de test : visible du superviseur uniquement */}
+                  {s.is_test_account && <span className="ml-2 albarka-chip text-[10px] bg-amber-100 text-amber-800" data-testid={`test-badge-${s.id}`}>TEST</span>}
+                </TableCell>
                 <TableCell className="text-sm">{s.email}</TableCell>
                 <TableCell className="text-xs">
                   <div className="flex flex-wrap gap-1">
@@ -258,7 +318,11 @@ export default function AdminStaff() {
                     ? <span className="albarka-chip bg-slate-100 text-slate-500">Inactif</span>
                     : <span className="albarka-chip bg-emerald-100 text-emerald-800">Actif</span>}
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell>
+                  <PresenceLabel presence={presence.items[s.id]} />
+                  <AccountDates account={s} />
+                </TableCell>
+                <TableCell className="text-right whitespace-nowrap">
                   {canEdit && (
                     <Button
                       variant="ghost"
@@ -270,12 +334,58 @@ export default function AdminStaff() {
                       <Pencil className="w-4 h-4" />
                     </Button>
                   )}
+                  {/* Désactiver / réinitialiser le mot de passe (jamais sur soi ; compte admin :
+                      lui seul ; superviseur : superviseur ou admin) + Supprimer (superviseur) */}
+                  {/* Accès temporaire (hors liste blanche) — pas utile pour superviseur/admin, jamais bloqués */}
+                  {canIssueTokens && s.id !== me?.id && !isSupRow(s) && !isAdminAccountRow(s) && <TemporaryAccessButton account={s} />}
+                  {s.id !== me?.id && (!isAdminAccountRow(s) || isAdminAccount) && (!isSupRow(s) || isSuperviseur || isAdminAccount) && (
+                    <AccountActions account={s} onChanged={load} canManage={canEdit} deleteLabel="ce compte du personnel"
+                      canDelete={isSuperviseur && !isAdminAccountRow(s) && (!isSupRow(s) || isAdminAccount)} />
+                  )}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
+
+      {/* Création des comptes de test */}
+      <Dialog open={openTest} onOpenChange={setOpenTest}>
+        <DialogContent data-testid="test-accounts-dialog">
+          <DialogHeader><DialogTitle>Comptes de test de la recette</DialogTitle></DialogHeader>
+          {!testResult ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Crée TEST Secrétaire A, TEST Secrétaire B (caissière), TEST Collaborateur Formulaires, TEST Comptable,
+                TEST Client 1 et TEST Client 2{isAdminAccount ? ", et TEST Superviseur" : ""}. Ils ne sont visibles que du superviseur.
+                Chaque compte reçoit une adresse « +alias » de l'e-mail ci-dessous : tous les codes de connexion arrivent dans cette boîte.
+              </p>
+              <div><Label>E-mail qui recevra les codes de connexion</Label><Input value={testForm.email} onChange={(e) => setTestForm({ ...testForm, email: e.target.value })} data-testid="test-email" /></div>
+              <div><Label>Mot de passe commun (8 caractères min.)</Label><Input type="password" value={testForm.password} onChange={(e) => setTestForm({ ...testForm, password: e.target.value })} data-testid="test-password" /></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div><Label>WhatsApp Client 1 (+226…)</Label><Input value={testForm.client1_whatsapp} onChange={(e) => setTestForm({ ...testForm, client1_whatsapp: e.target.value })} placeholder="a écrit au cabinet < 24 h" /></div>
+                <div><Label>WhatsApp Client 2 (+226…)</Label><Input value={testForm.client2_whatsapp} onChange={(e) => setTestForm({ ...testForm, client2_whatsapp: e.target.value })} placeholder="n'a pas écrit depuis 24 h" /></div>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto" data-testid="test-accounts-result">
+              {testResult.map((a) => (
+                <div key={a.email} className="text-sm border rounded-md p-2">
+                  <div className="font-medium">{a.name} <span className="text-xs text-muted-foreground">— {a.status}</span></div>
+                  <div className="text-xs font-mono break-all">{a.email}</div>
+                  {a.detail && <div className="text-xs text-amber-700">{a.detail}</div>}
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">Connexion : l'adresse ci-dessus + le mot de passe choisi ; le code arrive dans votre boîte.</p>
+            </div>
+          )}
+          <DialogFooter className="flex-wrap gap-2">
+            <Button variant="outline" className="text-red-600 mr-auto" onClick={deleteTestAccounts} disabled={testBusy} data-testid="delete-test-accounts">Supprimer les comptes de test</Button>
+            <Button variant="outline" onClick={() => setOpenTest(false)}>Fermer</Button>
+            {!testResult && <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={createTestAccounts} disabled={testBusy} data-testid="create-test-accounts">Créer / remettre à neuf</Button>}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

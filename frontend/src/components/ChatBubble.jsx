@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquare, X, Send, Users, Mic, Square, Search, Paperclip, Loader2, Plus, FileText, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient, extractError, API } from "@/lib/api";
+import { usePresence, PresenceLabel } from "@/components/Presence";
+import { beginTask } from "@/lib/busyTasks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -51,11 +53,16 @@ export default function ChatBubble() {
   const [uploadingFile, setUploadingFile] = useState(false);
   const scrollRef = useRef(null);
   const mediaRef = useRef(null);
+  const recordingTaskRef = useRef(null); // fin de la tâche « enregistrement » (busyTasks)
   const chunksRef = useRef([]);
   const fileInputRef = useRef(null);
   const messageRefs = useRef({});
 
   const threadTitle = (threadId) => threads.find((t) => t.thread_id === threadId)?.title || threadId;
+  // Présence en temps réel (sondée seulement quand la bulle est ouverte)
+  const presence = usePresence(open);
+  const presenceMark = (id) => ({ online: "● ", away: "◐ ", offline: "○ " }[presence.items[id]?.status || "offline"]);
+  const activePeerId = threads.find((t) => t.thread_id === activeThread)?.peer_id;
 
   const loadThreads = async () => {
     if (!user) return;
@@ -189,11 +196,15 @@ export default function ChatBubble() {
       };
       mediaRef.current = rec;
       rec.start();
+      // Enregistrement en cours : pas de déconnexion automatique pour inactivité
+      recordingTaskRef.current = beginTask();
       setRecording(true);
     } catch (err) { toast.error("Accès micro refusé"); }
   };
   const stopRecording = () => {
     mediaRef.current?.stop();
+    recordingTaskRef.current?.(); // fin de la tâche « enregistrement »
+    recordingTaskRef.current = null;
     setRecording(false);
   };
 
@@ -292,7 +303,7 @@ export default function ChatBubble() {
               <Users className="w-3 h-3 text-slate-500 shrink-0" />
               <select className="flex-1 h-7 text-xs bg-white rounded border border-input px-1" value={activeThread || ""} onChange={(e) => setActiveThread(e.target.value)} data-testid="chat-bubble-thread-select">
                 <option value="">— Choisir un fil —</option>
-                {threads.map((t) => (<option key={t.thread_id} value={t.thread_id}>{t.title}</option>))}
+                {threads.map((t) => (<option key={t.thread_id} value={t.thread_id}>{t.peer_id ? presenceMark(t.peer_id) : ""}{t.title}</option>))}
               </select>
             </div>
           )}
@@ -306,7 +317,9 @@ export default function ChatBubble() {
               data-testid="chat-bubble-dm-select"
             >
               <option value="">— Discuter avec un collègue —</option>
-              {colleagues.map((c) => (<option key={c.id} value={c.id}>{c.full_name}</option>))}
+              {/* ● en ligne · ◐ absent · ○ hors ligne ; les collègues en ligne d'abord */}
+              {[...colleagues].sort((a, b) => (presence.items[b.id]?.status === "online") - (presence.items[a.id]?.status === "online"))
+                .map((c) => (<option key={c.id} value={c.id}>{presenceMark(c.id)}{c.full_name}</option>))}
             </select>
             <Button
               size="sm" variant="outline" className="h-7 px-2 text-xs"
@@ -336,6 +349,12 @@ export default function ChatBubble() {
             </div>
           )}
 
+          {/* Discussion directe : l'interlocuteur est-il connecté ? */}
+          {activePeerId && (
+            <div className="px-3 py-1.5 border-b border-border bg-white" data-testid="chat-peer-presence">
+              <PresenceLabel presence={presence.items[activePeerId]} />
+            </div>
+          )}
           <div ref={scrollRef} className="flex-1 p-3 overflow-y-auto space-y-2 bg-slate-50" data-testid="chat-bubble-messages">
             {!activeThread && (
               <div className="text-xs text-muted-foreground text-center py-10">

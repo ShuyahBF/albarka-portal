@@ -96,6 +96,14 @@ export default function ClientDocsNotifPanel({ settings, setSettings, save, savi
 
       <div className="flex items-center justify-between">
         <div>
+          <div className="font-medium">Notification push sur les appareils du client</div>
+          <div className="text-sm text-muted-foreground">En plus de WhatsApp, si le client a activé les notifications (page « Factures & documents »). iPhone : portail ajouté à l'écran d'accueil.</div>
+        </div>
+        <Switch checked={settings.client_docs_push_enabled !== false} onCheckedChange={(v) => setSettings({ ...settings, client_docs_push_enabled: v })} data-testid="cd-push-switch" />
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
           <div className="font-medium">Prévenir par e-mail si WhatsApp est impossible</div>
           <div className="text-sm text-muted-foreground">Pas de numéro WhatsApp, hors fenêtre de 24 h sans modèle, ou échec d'envoi.</div>
         </div>
@@ -109,6 +117,7 @@ export default function ClientDocsNotifPanel({ settings, setSettings, save, savi
         client_docs_wa_template_lang: settings.client_docs_wa_template_lang || "fr",
         client_docs_wa_template_params: settings.client_docs_wa_template_params || "",
         client_docs_email_fallback: settings.client_docs_email_fallback !== false,
+        client_docs_push_enabled: settings.client_docs_push_enabled !== false,
       })} disabled={saving} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="save-client-docs-notif">
         <Save className="w-4 h-4 mr-2" /> Enregistrer
       </Button>

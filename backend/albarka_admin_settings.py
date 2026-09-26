@@ -1,8 +1,8 @@
 """Paramètres administrateur (settings globaux) — WABA config, notifications, etc.
 
 Document unique en base : `settings` avec `_id="global"` (compatible avec le
-pattern du repo d'origine). Seul un utilisateur ayant l'un des rôles
-`superviseur`, `direction` ou `administrateur` peut lire/écrire les paramètres.
+pattern du repo d'origine). Seul le Superviseur peut lire/écrire les
+paramètres (SETTINGS_ROLES).
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 import re
+from albarka_models import SETTINGS_ROLES
 from albarka_auth import get_current_user, require_roles
 from db import db
 
@@ -23,7 +24,8 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
-_ADMIN_ROLES = ["superviseur", "direction", "administrateur"]
+# Paramètres : superviseur uniquement (SETTINGS_ROLES, albarka_models.py)
+_ADMIN_ROLES = SETTINGS_ROLES
 
 # Champs sensibles : masqués sur lecture (******** = présent).
 SENSITIVE_FIELDS = {"wa_access_token", "recaptcha_secret_key", "pawapay_api_token_sandbox", "pawapay_api_token_production"}
@@ -103,6 +105,19 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "client_docs_wa_template_lang": "fr",
     "client_docs_wa_template_params": "client,nombre,lien",
     "client_docs_email_fallback": True,
+    # Notification push (navigateur / téléphone du client, voir albarka_push.py)
+    "client_docs_push_enabled": True,
+    # Déconnexion automatique après N minutes sans activité (clavier, souris,
+    # défilement, toucher) — clients et collaborateurs. 0 = désactivée.
+    # Jamais pendant une tâche en cours (envoi, enregistrement…). Repris de Sawali.
+    "auto_logout_minutes": 30,
+    # Accès du personnel (albarka_access.py). Désactivée par défaut : le
+    # superviseur enregistre d'abord les appareils / IP du cabinet, puis active.
+    "staff_whitelist_enabled": False,
+    "staff_ip_whitelist": [],            # adresses ou plages CIDR (ex. 41.207.12.0/24)
+    # Adresses e-mail autorisées, en plus d'admin, à créer des jetons d'accès
+    # temporaires. Modifiable par admin (admin@sawalismartsystems.com) seulement.
+    "access_token_issuer_emails": [],
 }
 
 
@@ -198,6 +213,13 @@ class SettingsUpdate(BaseModel):
     client_docs_wa_template_lang: Optional[str] = Field(None, max_length=10)
     client_docs_wa_template_params: Optional[str] = Field(None, max_length=200)
     client_docs_email_fallback: Optional[bool] = None
+    client_docs_push_enabled: Optional[bool] = None
+    # Déconnexion automatique (minutes d'inactivité, 0 = désactivée, 120 max)
+    auto_logout_minutes: Optional[int] = Field(None, ge=0, le=120)
+    # Accès du personnel
+    staff_whitelist_enabled: Optional[bool] = None
+    staff_ip_whitelist: Optional[list[str]] = None
+    access_token_issuer_emails: Optional[list[str]] = None
 
 
 @router.get("/settings")
@@ -208,10 +230,8 @@ async def get_settings(user: dict = Depends(require_roles(_ADMIN_ROLES))):
 @router.put("/settings")
 async def update_settings(payload: SettingsUpdate, user: dict = Depends(require_roles(_ADMIN_ROLES))):
     changes = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
-    # L'activation/désactivation du RGPD est réservée au rôle "administrateur"
-    # littéral — contrairement à require_roles, pas de passe-droit superviseur ici.
-    if "rgpd_masking_enabled" in changes and "administrateur" not in (user.get("roles") or []):
-        raise HTTPException(status_code=403, detail="Seul un compte Administrateur peut activer/désactiver le RGPD")
+    # RGPD : les Paramètres étant réservés au Superviseur (SETTINGS_ROLES), il
+    # est le seul à pouvoir activer/désactiver le masquage des numéros.
     # Never persist the masked sentinel back.
     for k in SENSITIVE_FIELDS:
         if changes.get(k) == "********":
@@ -239,6 +259,19 @@ async def update_settings(payload: SettingsUpdate, user: dict = Depends(require_
         if bad:
             raise HTTPException(status_code=400, detail=f"Variable inconnue pour le modèle Meta : {', '.join(bad)}")
         changes["client_docs_wa_template_params"] = ",".join(params)
+    # Accès du personnel : IP validées ; émetteurs de jetons = admin seul
+    if "staff_ip_whitelist" in changes:
+        from albarka_access import normalize_ip_list
+        changes["staff_ip_whitelist"] = normalize_ip_list(changes["staff_ip_whitelist"])
+    if "access_token_issuer_emails" in changes:
+        from albarka_models import is_admin_account
+        if not is_admin_account(user):
+            raise HTTPException(status_code=403, detail="Seul admin peut désigner qui crée les accès temporaires")
+        emails = [e.strip().lower() for e in changes["access_token_issuer_emails"] if (e or "").strip()]
+        bad = [e for e in emails if not _EMAIL_RE.match(e)]
+        if bad:
+            raise HTTPException(status_code=400, detail=f"Adresse e-mail invalide : {bad[0]}")
+        changes["access_token_issuer_emails"] = list(dict.fromkeys(emails))
     if not changes:
         return _mask(await _load_settings())
     await _load_settings()

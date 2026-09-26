@@ -309,9 +309,9 @@ export function AdminPlatformLogs() {
       </div>
       <div className="albarka-card overflow-hidden">
         <Table>
-          <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Action</TableHead><TableHead>Entité</TableHead><TableHead>Auteur</TableHead><TableHead>Rôle</TableHead><TableHead>Métadonnées</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Action</TableHead><TableHead>Entité</TableHead><TableHead>Auteur</TableHead><TableHead>Rôle</TableHead><TableHead>Adresse IP</TableHead><TableHead>Métadonnées</TableHead></TableRow></TableHeader>
           <TableBody>
-            {items.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Aucun événement.</TableCell></TableRow>}
+            {items.length === 0 && <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucun événement.</TableCell></TableRow>}
             {items.map((l) => (
               <TableRow key={l.id}>
                 <TableCell className="text-xs">{l.created_at?.slice(0, 19).replace("T", " ")}</TableCell>
@@ -326,6 +326,8 @@ export function AdminPlatformLogs() {
                     {(!l.actor_roles || l.actor_roles.length === 0) && <span className="text-muted-foreground">—</span>}
                   </div>
                 </TableCell>
+                {/* Adresse IP de l'auteur au moment de l'action (navigateur au survol) */}
+                <TableCell className="text-xs font-mono whitespace-nowrap" title={l.user_agent || ""} data-testid={`log-ip-${l.id}`}>{l.ip || "—"}</TableCell>
                 <TableCell className="text-xs font-mono truncate max-w-xs">{JSON.stringify(l.meta || {}).slice(0, 120)}</TableCell>
               </TableRow>
             ))}

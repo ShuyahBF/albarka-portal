@@ -42,6 +42,12 @@ from albarka_phase_c import (  # noqa: E402
     messaging_router,
 )
 from albarka_public import router as public_router  # noqa: E402
+# Accès du personnel : liste blanche (appareils + IP) et jetons temporaires
+from albarka_access import ensure_access_indexes, router as access_router  # noqa: E402
+# Notifications push (Web Push, navigateur / téléphone)
+from albarka_push import ensure_push_indexes, router as push_router  # noqa: E402
+# Présence en temps réel (keep-alive : connectés / déconnectés)
+from albarka_presence import ensure_presence_indexes, router as presence_router  # noqa: E402
 # Espace client : documents déposés / mis à disposition par le cabinet
 from albarka_client_space import (  # noqa: E402
     ensure_client_space_indexes,
@@ -69,6 +75,17 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("albarka.app")
 
 app = FastAPI(title="Portail ALBARKA — API", version="1.0.0")
+
+
+@app.middleware("http")
+async def _remember_client_ip(request, call_next):
+    """Retient l'IP réelle (derrière le proxy : X-Forwarded-For) et le
+    navigateur de chaque requête, pour le Journal plateforme."""
+    from albarka_request_ctx import set_request_info
+    fwd = request.headers.get("x-forwarded-for") or ""
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "")
+    set_request_info(ip, request.headers.get("user-agent") or "")
+    return await call_next(request)
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
@@ -112,6 +129,12 @@ api_router.include_router(wa_inbox_router)
 api_router.include_router(wa_extras_router)
 # Endpoints publics (bouton wa.me — Partie 0)
 api_router.include_router(public_router)
+# Accès du personnel (liste blanche, jetons d'accès temporaires)
+api_router.include_router(access_router)
+# Notifications push : abonnement des appareils, clé publique, essai
+api_router.include_router(push_router)
+# Présence : battements des pages ouvertes + état lu par le cabinet
+api_router.include_router(presence_router)
 # Espace client : dépôts du cabinet (factures, rapports… faits ailleurs) + page client
 api_router.include_router(client_space_router)
 api_router.include_router(client_space_me_router)
@@ -189,6 +212,12 @@ async def _ensure_indexes():
         await ensure_forms_indexes()
         # Espace client (documents du cabinet par client)
         await ensure_client_space_indexes()
+        # Présence (keep-alive)
+        await ensure_presence_indexes()
+        # Accès du personnel
+        await ensure_access_indexes()
+        # Notifications push
+        await ensure_push_indexes()
     except Exception:
         logger.exception("Échec création index Mongo (non bloquant)")
 

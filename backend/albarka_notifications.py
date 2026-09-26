@@ -627,6 +627,7 @@ async def notify_upload(db, *, document: dict, tenant: dict) -> dict:
         {
             "roles": {"$nin": ["client"]},
             "is_active": True,
+            "is_test_account": {"$ne": True},  # comptes de test : jamais alertés
             "$or": [
                 {"can_receive_notifications": {"$exists": False}},
                 {"can_receive_notifications": True},

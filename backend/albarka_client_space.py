@@ -181,6 +181,31 @@ def _notif_email_html(*, cabinet: str, client_name: str, lines: List[str], link:
 
 
 async def notify_client(client: Dict[str, Any], items: List[Dict[str, Any]], *, link: str) -> Dict[str, Any]:
+    """Prévient le client : notification push sur ses appareils abonnés (si
+    activée), PUIS WhatsApp / e-mail comme avant. Le résultat indique en plus
+    `push` = nombre d'appareils atteints ; ok si au moins un canal a abouti."""
+    settings = await get_settings_doc()
+    push = {"sent": 0, "failed": 0, "devices": 0}
+    allowed = (settings.get("client_docs_notify_enabled", True) and client.get("can_receive_notifications") is not False
+               and client.get("is_active", True))
+    if allowed and settings.get("client_docs_push_enabled", True):
+        try:
+            from albarka_push import send_push_to_user
+            cabinet = settings.get("cabinet_name") or "Cabinet ALBARKA"
+            values = template_values(client=client, items=items, cabinet=cabinet, link=link)
+            title = (f"{values['categorie']} disponible" if len(items) == 1 else f"{len(items)} nouveaux documents")
+            push = await send_push_to_user(client["id"], title=f"{title} — {cabinet}",
+                                           body=values["liste"].replace("• ", ""), url=CLIENT_PAGE_PATH, tag="client-docs")
+        except Exception:  # noqa: BLE001 — le push ne doit jamais empêcher WhatsApp / e-mail
+            logger.exception("[push] échec de la notification push")
+    result = await _notify_whatsapp_or_email(client, items, link=link)
+    result["push"] = push["sent"]
+    if not result["ok"] and push["sent"]:
+        result.update(ok=True, channel="push")
+    return result
+
+
+async def _notify_whatsapp_or_email(client: Dict[str, Any], items: List[Dict[str, Any]], *, link: str) -> Dict[str, Any]:
     """Prévient le client des documents qu'il vient de recevoir.
     1. WhatsApp : message libre (texte réglé) si la fenêtre de 24 h est
        ouverte ; sinon le modèle Meta réglé, s'il y en a un ;
@@ -428,6 +453,99 @@ async def upload_documents(
     await _log(user, "client_space.upload", created[0]["id"],
                {"tenant_id": tenant_id, "count": len(created), "category": category, "visible": bool(visible)})
     return {"items": [_upload_item(d) for d in created], "notification": notification}
+
+
+MAX_MULTI_CLIENTS = 300
+
+
+@router.post("/documents/multi", status_code=201)
+async def upload_documents_multi(
+    request: Request,
+    tenant_ids: str = Form(...),            # identifiants des clients, séparés par des virgules
+    category: str = Form("autre"),
+    title: str = Form(""),
+    reference: str = Form(""),
+    amount: str = Form(""),
+    doc_date: str = Form(""),
+    visible: bool = Form(True),
+    notify: bool = Form(True),
+    files: List[UploadFile] = File(...),
+    user: dict = Depends(require_roles(CLIENT_SPACE_ROLES)),
+):
+    """Dépose le(s) même(s) document(s) dans l'espace de PLUSIEURS clients
+    (ex. une note des impôts pour une liste de clients). Chaque fichier est
+    stocké une seule fois ; chaque client reçoit sa propre fiche et sa propre
+    notification. Aucune analyse OCR."""
+    _check_category_rights(user, category)
+    ids = list(dict.fromkeys(t.strip() for t in tenant_ids.split(",") if t.strip()))
+    if not ids:
+        raise HTTPException(status_code=400, detail="Choisissez au moins un client")
+    if len(ids) > MAX_MULTI_CLIENTS:
+        raise HTTPException(status_code=400, detail=f"{MAX_MULTI_CLIENTS} clients maximum par dépôt")
+    clients = {c["id"]: c for c in await db.users.find({"id": {"$in": ids}, "roles": "client"},
+                                                      {"_id": 0, "password_hash": 0}).to_list(MAX_MULTI_CLIENTS)}
+    missing = [i for i in ids if i not in clients]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"{len(missing)} client(s) introuvable(s)")
+    if not files or len(files) > MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Entre 1 et {MAX_FILES} fichiers")
+    try:
+        amount_val = float(amount.replace(" ", "").replace(",", ".")) if amount.strip() else None
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Montant invalide")
+    # 1. Stockage : une seule copie de chaque fichier, partagée par les fiches
+    stored_files = []
+    for f in files:
+        name = f.filename or "document"
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"« {name} » : format non accepté (.{ext or '?'})")
+        data = await f.read()
+        if len(data) > MAX_FILE_BYTES:
+            raise HTTPException(status_code=413, detail=f"« {name} » dépasse 20 Mo")
+        stored = await albarka_storage.save_and_log(
+            db, data=data, kind="client_space", tenant_id="multi-clients", ext=ext,
+            content_type=albarka_storage.guess_content_type(ext, f.content_type or "application/octet-stream"),
+            original_filename=name, user_id=user["id"])
+        stored_files.append((name, stored))
+    # 2. Une fiche par client et par fichier, puis une notification par client
+    now = datetime.now(timezone.utc).isoformat()
+    link = _portal_link(request)
+    summary = {"clients": len(ids), "documents": 0, "notified": 0, "not_notified": [], "module_closed": []}
+    for tid in ids:
+        client = clients[tid]
+        created = []
+        for idx, (name, stored) in enumerate(stored_files):
+            base_title = title.strip()
+            doc_title = (f"{base_title} ({idx + 1})" if base_title and len(stored_files) > 1 else base_title) \
+                or name.rsplit(".", 1)[0]
+            doc = {
+                "id": secrets.token_urlsafe(12), "tenant_id": tid, "category": category,
+                "title": doc_title[:200], "reference": reference.strip()[:80] or None, "amount": amount_val,
+                "currency": "XOF", "doc_date": doc_date.strip()[:10] or None,
+                "storage_id": stored["id"], "storage_path": stored["path"], "content_type": stored["content_type"],
+                "size": stored["size"], "original_filename": name, "visible": bool(visible),
+                "published_at": now if visible else None, "uploaded_by": user["id"],
+                "uploaded_by_name": user.get("full_name") or user.get("email"), "created_at": now,
+                "viewed_at": None, "is_deleted": False, "notifications": [], "batch": True,
+            }
+            await db.client_documents.insert_one(dict(doc))
+            created.append(doc)
+        summary["documents"] += len(created)
+        # Module « Factures & documents » fermé pour ce client : signalé au cabinet
+        if "cabinet_documents" not in client_modules(client):
+            summary["module_closed"].append(client.get("full_name"))
+        if visible and notify:
+            n = await notify_client(client, [_upload_item(d) for d in created], link=link)
+            await db.client_documents.update_many({"id": {"$in": [d["id"] for d in created]}},
+                                                  {"$push": {"notifications": n}})
+            if n.get("ok"):
+                summary["notified"] += 1
+            else:
+                summary["not_notified"].append({"name": client.get("full_name"), "error": n.get("error")})
+    await _log(user, "client_space.upload_multi", ids[0],
+               {"clients": len(ids), "files": len(stored_files), "category": category, "visible": bool(visible)})
+    return summary
 
 
 async def _doc_or_404(doc_id: str) -> Dict[str, Any]:

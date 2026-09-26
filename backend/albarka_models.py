@@ -198,10 +198,9 @@ def whatsapp_number_of(user_doc: dict) -> Optional[str]:
     return user_doc.get("whatsapp_number") or user_doc.get("phone")
 
 
-# Le rôle "administrateur" est réservé au seul compte admin du portail :
-# sur tout autre compte il est ignoré (sans rien effacer en base), et ce
-# compte le porte d'office. Voir effective_roles(), appliqué à chaque requête
-# par get_current_user() (albarka_auth.py).
+# Compte admin du portail : le SEUL qui peut attribuer ou retirer le rôle
+# "superviseur" (rôle qui a tous les droits via le passe-droit de
+# require_roles). Voir albarka_clients.py.
 ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com"
 
 
@@ -209,13 +208,35 @@ def is_admin_account(user: dict) -> bool:
     return (user.get("email") or "").strip().lower() == ADMIN_ACCOUNT_EMAIL
 
 
-def effective_roles(user: dict) -> List[str]:
-    """Rôles réellement appliqués : "administrateur" retiré partout sauf sur
-    le compte admin, où il est ajouté d'office."""
-    roles = [r for r in (user.get("roles") or []) if r != "administrateur"]
-    if is_admin_account(user):
-        roles.append("administrateur")
-    return roles
+def modification_stamp(actor: dict) -> dict:
+    """Champs « dernière modification » d'un compte (affichés dans Clients et
+    Personnels) : quand et par qui."""
+    from datetime import datetime as _dt, timezone as _tz
+    return {"updated_at": _dt.now(_tz.utc).isoformat(), "updated_by": actor.get("id"),
+            "updated_by_name": actor.get("full_name") or actor.get("email")}
+
+
+def is_test_account(user: dict) -> bool:
+    """Compte créé par le bouton « Créer comptes de test » (Personnels)."""
+    return bool(user.get("is_test_account"))
+
+
+def hide_test_accounts_filter(viewer: dict) -> dict:
+    """Filtre Mongo des listes d'utilisateurs : les comptes de test ne sont
+    visibles que du superviseur ; pour tout autre viewer ils sont exclus."""
+    if "superviseur" in (viewer.get("roles") or []):
+        return {}
+    return {"is_test_account": {"$ne": True}}
+
+
+# Menu « Paramètres » (réglages globaux, image de marque, certificats de
+# signature, tests de configuration) : réservé au Superviseur.
+SETTINGS_ROLES = ["superviseur"]
+
+
+# Exclut les comptes de test des envois de masse (diffusion, rapports en masse,
+# alertes au personnel), quel que soit l'utilisateur qui les lance.
+NOT_TEST_ACCOUNT = {"is_test_account": {"$ne": True}}
 
 
 def is_superviseur(user: dict) -> bool:
@@ -255,6 +276,10 @@ class LoginResponse(BaseModel):
 class OtpVerifyRequest(BaseModel):
     session_token: str
     code: str
+    # Liste blanche du personnel (albarka_access.py) : identifiant de
+    # l'appareil (généré par le navigateur) et code d'accès temporaire éventuel.
+    device_id: Optional[str] = None
+    access_code: Optional[str] = None
 
 
 class AuthTokenResponse(BaseModel):

@@ -13,6 +13,8 @@ import Missions from "@/pages/public/Missions";
 import Contact from "@/pages/public/Contact";
 // Remplissage d'un formulaire par lien (sans connexion)
 import FillForm from "@/pages/public/FillForm";
+// Page d'erreur neutre (connexion refusée par la liste blanche du personnel)
+import Error404 from "@/pages/public/Error404";
 
 // Auth
 import Login from "@/pages/auth/Login";
@@ -79,6 +81,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           {/* Formulaire à remplir via un lien reçu ou partagé — public, sans connexion */}
           <Route path="/f/:token" element={<FillForm />} />
+          <Route path="/erreur-404" element={<Error404 />} />
 
           {/* Client portal */}
           <Route path="/portal" element={<ProtectedRoute><PortalLayout admin={false} /></ProtectedRoute>}>

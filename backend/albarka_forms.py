@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import Request
 
 from albarka_auth import get_current_user, require_roles
-from albarka_models import FORMS_ROLES, client_modules, whatsapp_number_of
+from albarka_models import FORMS_ROLES, client_modules, hide_test_accounts_filter, whatsapp_number_of
 from albarka_notifications import _get_from_name, send_email, send_whatsapp
 from albarka_phase_c import _log_platform_event
 import albarka_storage
@@ -143,7 +143,8 @@ class AlbarkaFormsAdapter(FormsAdapter):
 
     async def list_recipients(self, user: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Clients actifs proposés dans la liste d'envoi (triés par nom)."""
-        cur = self.db.users.find({"roles": "client", "is_active": {"$ne": False}},
+        # Comptes de test proposés au superviseur uniquement
+        cur = self.db.users.find({"roles": "client", "is_active": {"$ne": False}, **hide_test_accounts_filter(user)},
                                  {"_id": 0, "password_hash": 0}).sort("full_name", 1)
         return [self._as_recipient(u) for u in await cur.to_list(5000)]
 

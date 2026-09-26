@@ -1,0 +1,14 @@
+{
+  "name": "ALBARKA — Portail client",
+  "short_name": "ALBARKA",
+  "description": "Portail du cabinet ALBARKA : documents, factures, échéances.",
+  "start_url": "/portal",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FBFAF4",
+  "theme_color": "#0F6B4A",
+  "lang": "fr",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

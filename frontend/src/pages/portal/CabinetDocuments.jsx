@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { FolderOpen, Download, Eye, Loader2 } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import PushOptIn from "@/components/PushOptIn";
 
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "");
 const fmtAmount = (n) => `${Math.round(Number(n || 0)).toLocaleString("fr-FR")} FCFA`;
@@ -58,6 +59,8 @@ export default function CabinetDocuments() {
           {data === null ? "" : newCount ? `${newCount} nouveau(x) document(s) du cabinet.` : "Les documents que le cabinet a mis à votre disposition."}
         </p>
       </div>
+      {/* Notifications push sur cet appareil (téléphone, ordinateur) */}
+      <PushOptIn />
       {tabs.length > 1 && (
         <div className="flex flex-wrap gap-2">
           {tabs.map((t) => (

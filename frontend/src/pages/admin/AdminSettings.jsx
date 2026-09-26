@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ClientDocsNotifPanel from "@/pages/admin/ClientDocsNotifPanel";
+import StaffAccessPanel from "@/pages/admin/StaffAccessPanel";
 import CertificatesPanel from "@/pages/admin/CertificatesPanel";
 import BrandingPanel from "@/pages/admin/BrandingPanel";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,7 +21,8 @@ const FIELDS_TABS = ["cabinet", "whatsapp", "notifications", "rapports"];
 
 export default function AdminSettings() {
   const { user } = useAuth();
-  const isAdministrateur = (user?.roles || []).includes("administrateur");
+  // RGPD : modifiable par le Superviseur (seul à accéder aux Paramètres)
+  const isAdministrateur = (user?.roles || []).includes("superviseur");
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -183,6 +185,8 @@ export default function AdminSettings() {
           <TabsTrigger value="paiements" data-testid="tab-paiements">
             <CreditCard className="w-4 h-4 mr-1.5" /> Paiements
           </TabsTrigger>
+          {/* Liste blanche du personnel (appareils, IP) et accès temporaires */}
+          <TabsTrigger value="acces" data-testid="tab-acces">Accès du personnel</TabsTrigger>
         </TabsList>
 
         {/* --- CABINET --- */}
@@ -238,8 +242,21 @@ export default function AdminSettings() {
               </div>
             </div>
 
+            {/* Déconnexion automatique après inactivité (clients et collaborateurs) */}
+            <div className="pt-2 border-t">
+              <Label>Déconnexion automatique après inactivité (minutes)</Label>
+              <Input type="number" min={0} max={120} value={settings.auto_logout_minutes ?? 30}
+                onChange={(e) => setSettings({ ...settings, auto_logout_minutes: Math.max(0, Math.min(120, parseInt(e.target.value || "0", 10))) })}
+                className="w-32" data-testid="auto-logout-input" />
+              <div className="text-xs text-muted-foreground mt-1">
+                Sans clavier, souris ni défilement pendant ce délai, la session se ferme (avertissement 30 s avant).
+                Jamais pendant une tâche en cours (envoi de fichier, enregistrement…). 0 = désactivée, 120 max.
+              </div>
+            </div>
+
             <Button
               onClick={() => save({
+                auto_logout_minutes: settings.auto_logout_minutes ?? 30,
                 cabinet_name: settings.cabinet_name,
                 cabinet_email: settings.cabinet_email,
                 cabinet_phone: settings.cabinet_phone,
@@ -262,7 +279,7 @@ export default function AdminSettings() {
                   <div className="text-sm text-muted-foreground max-w-md">
                     Une fois activé, seuls Administrateur/Superviseur/DG/Direction/Secrétariat
                     voient les numéros de téléphone et WhatsApp des clients en clair — les autres
-                    collaborateurs les voient masqués. Réservé au rôle Administrateur.
+                    collaborateurs les voient masqués. Réservé au Superviseur.
                   </div>
                 </div>
                 <Switch
@@ -274,7 +291,7 @@ export default function AdminSettings() {
               </div>
               {!isAdministrateur && (
                 <div className="text-xs text-amber-700 mt-2">
-                  Seul un compte Administrateur peut modifier ce réglage.
+                  Seul le Superviseur peut modifier ce réglage.
                 </div>
               )}
               {isAdministrateur && (
@@ -583,6 +600,11 @@ export default function AdminSettings() {
           </div>
           {/* Modèles de notification des documents mis à disposition des clients */}
           <ClientDocsNotifPanel settings={settings} setSettings={setSettings} save={save} saving={saving} />
+        </TabsContent>
+
+        {/* --- ACCÈS DU PERSONNEL --- */}
+        <TabsContent value="acces" className="pt-6">
+          <StaffAccessPanel settings={settings} setSettings={setSettings} save={save} saving={saving} />
         </TabsContent>
 
         {/* --- RAPPORTS --- */}

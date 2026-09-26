@@ -14,6 +14,7 @@ import httpx
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from albarka_models import SETTINGS_ROLES
 from albarka_auth import require_roles
 from albarka_payments import PAWAPAY_HOSTS, _pawapay_str
 
@@ -23,7 +24,8 @@ router = APIRouter(prefix="/admin/settings/test", tags=["Paramètres — tests"]
 
 # Même rôles que la lecture/écriture des Paramètres (albarka_admin_settings._ADMIN_ROLES),
 # dupliqué ici pour éviter d'exposer un symbole privé entre modules.
-_ADMIN_ROLES = ["superviseur", "direction", "administrateur"]
+# Paramètres : superviseur uniquement (SETTINGS_ROLES, albarka_models.py)
+_ADMIN_ROLES = SETTINGS_ROLES
 
 
 class RecaptchaTestPayload(BaseModel):

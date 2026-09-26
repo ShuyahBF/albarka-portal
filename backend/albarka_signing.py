@@ -279,12 +279,14 @@ def decrypt_passphrase(cipher: str) -> str:
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from albarka_models import SETTINGS_ROLES
 from albarka_auth import require_roles
 from db import db, serialize, serialize_many
 
 router = APIRouter(prefix="/admin/certificates", tags=["Signature électronique"])
 
-_ADMIN_ROLES = ["superviseur", "direction", "administrateur"]
+# Paramètres : superviseur uniquement (SETTINGS_ROLES, albarka_models.py)
+_ADMIN_ROLES = SETTINGS_ROLES
 
 
 class CertificateCreate(BaseModel):
@@ -414,4 +416,3 @@ async def resolve_passphrase(cert_id: str) -> Optional[str]:
     except Exception:
         logger.exception("Déchiffrement passphrase échoué pour cert %s", cert_id)
         return None
-

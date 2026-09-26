@@ -7,6 +7,7 @@ import {
   Zap, Plus, Trash2, Pencil, Tag, BellRing, BellOff, BarChart3, UserPlus,
 } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
+import { PresenceDot, PresenceLabel } from "@/components/Presence";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -220,6 +221,19 @@ export default function AdminWhatsAppConversations() {
     }
   };
 
+  // Présence portail des contacts qui sont des clients (par numéro, toutes les 15 s)
+  const [portalPresence, setPortalPresence] = useState({});
+  const phonesKey = conversations.map((c) => c.phone).slice(0, 200).join(",");
+  useEffect(() => {
+    if (!phonesKey) return undefined;
+    let alive = true;
+    const load = () => apiClient.get("/presence/by-phone", { params: { phones: phonesKey.split(",") }, paramsSerializer: { indexes: null } })
+      .then(({ data }) => { if (alive) setPortalPresence(data.items || {}); }).catch(() => {});
+    load();
+    const t = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, [phonesKey]);
+
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
     return conversations.filter((c) => {
@@ -407,6 +421,8 @@ export default function AdminWhatsAppConversations() {
                     <div className="font-medium text-sm truncate flex items-center gap-1.5">
                       {lbl && <span className={`inline-block w-2 h-2 rounded-full ${lbl.dot}`} title={lbl.text} />}
                       {c.contact_name || c.phone}
+                      {/* Client connecté au portail en ce moment */}
+                      {portalPresence[c.phone] && portalPresence[c.phone].status !== "offline" && <PresenceDot presence={portalPresence[c.phone]} />}
                     </div>
                     <div className="text-[10px] text-muted-foreground shrink-0">{fmtDate(c.last_at)}</div>
                   </div>
@@ -451,7 +467,11 @@ export default function AdminWhatsAppConversations() {
                 ><ArrowLeft className="w-4 h-4" /></button>
                 <div className="min-w-0 flex-1">
                   <div className="font-semibold text-sm truncate">{selectedConv?.contact_name || selectedPhone}</div>
-                  <div className="text-[11px] opacity-80">{selectedPhone}</div>
+                  <div className="text-[11px] opacity-80 flex items-center gap-2">
+                    {selectedPhone}
+                    {/* Présence sur le portail (contact = client du cabinet) */}
+                    {portalPresence[selectedPhone] && <span className="bg-white rounded px-1.5 py-0.5" data-testid="wa-portal-presence"><PresenceLabel presence={portalPresence[selectedPhone]} /></span>}
+                  </div>
                 </div>
                 {/* Étiquette */}
                 <DropdownMenu>

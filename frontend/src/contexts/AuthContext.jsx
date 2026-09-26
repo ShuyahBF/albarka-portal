@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
+import { getDeviceId, getAccessCode, clearAccessCode } from "@/lib/device";
 
 const AuthContext = createContext(null);
 
@@ -38,8 +39,12 @@ export function AuthProvider({ children }) {
     return data; // { session_token, dev_otp, message }
   };
 
-  const loginVerify = async (session_token, code) => {
-    const { data } = await apiClient.post("/auth/verify-otp", { session_token, code });
+  const loginVerify = async (session_token, code, access_code = null) => {
+    // Liste blanche du personnel : appareil + code d'accès temporaire éventuel
+    const { data } = await apiClient.post("/auth/verify-otp", {
+      session_token, code, device_id: getDeviceId(), access_code: access_code || getAccessCode(),
+    });
+    clearAccessCode();
     localStorage.setItem("albarka_token", data.access_token);
     setUser(data.user);
     return data.user;

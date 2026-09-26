@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 
 from albarka_auth import get_current_user
-from albarka_models import is_client, tenant_id_of
+from albarka_models import hide_test_accounts_filter, is_client, tenant_id_of
 from db import db, serialize_many
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -29,8 +29,10 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
     clients_total = None
     staff_total = None
     if not is_client(user):
-        clients_total = await db.users.count_documents({"roles": "client"})
-        staff_total = await db.users.count_documents({"roles": {"$nin": ["client"]}})
+        # Comptes de test comptés pour le superviseur seulement
+        hide = hide_test_accounts_filter(user)
+        clients_total = await db.users.count_documents({"roles": "client", **hide})
+        staff_total = await db.users.count_documents({"roles": {"$nin": ["client"]}, **hide})
 
     return {
         "documents_total": documents_total,
@@ -92,4 +94,3 @@ async def dashboard_dispatches(user: dict = Depends(get_current_user)):
         "signatures": signatures,
         "reports_generated": reports_generated,
     }
-

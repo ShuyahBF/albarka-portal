@@ -30,13 +30,25 @@ from pydantic import BaseModel, Field
 
 from albarka_ai import analyze_document
 from albarka_auth import get_current_user, hash_password, verify_password
-from albarka_models import is_client
+from albarka_models import modification_stamp, is_client
 from albarka_storage import guess_content_type, presigned_url, save_and_log
 from db import db, serialize
 
 logger = logging.getLogger("albarka.myaccount")
 
 router = APIRouter(prefix="/me", tags=["Mon compte"])
+
+# Avertissement affiché avant la déconnexion automatique (secondes)
+IDLE_WARNING_SECONDS = 30
+
+
+@router.get("/idle-config")
+async def idle_config(user: dict = Depends(get_current_user)):
+    """Délai de déconnexion automatique pour inactivité (réglé dans Paramètres)."""
+    from albarka_admin_settings import get_settings_doc
+    settings = await get_settings_doc()
+    return {"auto_logout_minutes": int(settings.get("auto_logout_minutes") or 0),
+            "warning_seconds": IDLE_WARNING_SECONDS}
 
 KYC_DOC_TYPES = {"id_photo", "id_card", "letterhead"}
 ALLOWED_KYC_EXT = {"jpg", "jpeg", "png", "webp", "pdf"}
@@ -68,7 +80,7 @@ async def update_my_account(payload: AccountUpdate, user: dict = Depends(get_cur
     changes = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if not changes:
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
-    await db.users.update_one({"id": user["id"]}, {"$set": changes})
+    await db.users.update_one({"id": user["id"]}, {"$set": {**changes, **modification_stamp(user)}})
     doc = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
     return serialize(doc)
 
@@ -79,7 +91,7 @@ async def change_my_password(payload: PasswordChange, user: dict = Depends(get_c
     if not full or not verify_password(payload.current_password, full["password_hash"]):
         raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
     await db.users.update_one(
-        {"id": user["id"]}, {"$set": {"password_hash": hash_password(payload.new_password)}},
+        {"id": user["id"]}, {"$set": {"password_hash": hash_password(payload.new_password), **modification_stamp(user)}},
     )
     return {"ok": True}
 
