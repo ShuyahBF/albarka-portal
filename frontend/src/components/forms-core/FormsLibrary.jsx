@@ -2,7 +2,9 @@
   forms-core — module commun (NE PAS MODIFIER DANS UN SITE).
 
   FormsLibrary : page « Formulaires » des gestionnaires.
-    - vue d'ensemble (formulaires, réponses sur 30 jours, taux de réponse) ;
+    - vue d'ensemble GRAPHIQUE (1.2.0) : indicateurs colorés à chiffres animés,
+      courbe des réponses des 30 derniers jours, classement des formulaires
+      les plus remplis (un clic ouvre leurs statistiques) ;
     - catégories (pastilles filtrantes + gestion : ajout, couleur, suppression) ;
     - recherche, formulaires actifs / archivés ;
     - une carte par formulaire : numéro, statut (ouvert, clos, lien public),
@@ -20,6 +22,8 @@ import { Plus, Search, Send, BarChart3, Inbox, Copy, Archive, RotateCcw, FileTex
 import { apiClient } from "@/lib/api";
 import { errorText, formatDateTime } from "./fieldTypes";
 import { ui, cx } from "./ui";
+import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from "recharts";
+import { PALETTE, ChartStyles, KpiCard, ChartCard, ChartTip } from "./charts";
 
 const COLORS = ["#0F6B4A", "#2563eb", "#7c3aed", "#db2777", "#ea580c", "#ca8a04", "#0891b2", "#475569"];
 
@@ -68,6 +72,68 @@ function CategoriesManager({ apiBase, categories, onClose, onChanged }) {
           </div>
           <div className="flex gap-1.5">{COLORS.map((c) => <button key={c} type="button" onClick={() => setColor(c)} className={cx("h-6 w-6 rounded-full transition", color === c && "ring-2 ring-offset-2 ring-slate-500")} style={{ background: c }} aria-label={c} />)}</div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Vue d'ensemble graphique de tous les formulaires actifs
+function OverviewCharts({ overview, onOpenStats }) {
+  const inv = overview.invitations || {};
+  const series = overview.series_30d || [];
+  const top = (overview.top_forms || []).filter((f) => f.submissions > 0);
+  const shortDay = (d) => (d || "").slice(5).split("-").reverse().join("/");
+  return (
+    <div className="space-y-4" data-testid="forms-overview">
+      <ChartStyles />
+      {/* Indicateurs colorés à chiffres animés */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KpiCard label="Formulaires actifs" value={overview.forms} icon={FileText} theme="indigo" delay={0} />
+        <KpiCard label="Réponses (total)" value={overview.submissions_total} icon={Database} theme="emerald" delay={60} />
+        <KpiCard label="Réponses sur 30 jours" value={overview.submissions_30d} icon={Inbox} theme="sky" delay={120} />
+        <KpiCard label="Taux de réponse des invités" value={inv.response_pct || 0} decimals={(inv.response_pct || 0) % 1 ? 1 : 0} suffix=" %" icon={BarChart3} theme="rose" delay={180}
+          hint={`${inv.answered || 0} réponse(s) sur ${inv.sent || 0} invitation(s)`} />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Courbe des réponses des 30 derniers jours, tous formulaires confondus */}
+        <ChartCard title="Réponses des 30 derniers jours" subtitle="Tous formulaires confondus." icon={Inbox} color="#6366F1" className="lg:col-span-2" delay={100} testId="forms-overview-30d">
+          <div className="h-44">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={series} margin={{ left: -22, right: 6, top: 6 }}>
+                <defs>
+                  <linearGradient id="fcOverviewGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#6366F1" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="#6366F1" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#64748B" }} tickFormatter={shortDay} minTickGap={18} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTip labelFormatter={(d) => new Date(d).toLocaleDateString("fr-FR")} />} />
+                <Area type="monotone" dataKey="count" name="Réponses" stroke="#6366F1" strokeWidth={2.5} fill="url(#fcOverviewGrad)" animationDuration={1100} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
+        {/* Formulaires les plus remplis : un clic sur une barre ouvre ses statistiques */}
+        <ChartCard title="Les plus remplis" subtitle="Cliquez pour voir les statistiques." icon={BarChart3} color="#10B981" delay={160} testId="forms-overview-top">
+          {top.length === 0 ? <p className={ui.empty}>Aucune réponse pour l'instant.</p> : (
+            <div style={{ height: Math.max(120, top.length * 34) }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={top} layout="vertical" margin={{ left: 0, right: 30 }}>
+                  <XAxis type="number" hide allowDecimals={false} />
+                  <YAxis type="category" dataKey="title" width={110} tick={{ fontSize: 10, fill: "#475569" }} axisLine={false} tickLine={false}
+                    tickFormatter={(t) => (t && t.length > 18 ? `${t.slice(0, 17)}…` : t)} />
+                  <Tooltip cursor={{ fill: "#F1F5F9" }} content={<ChartTip />} />
+                  <Bar dataKey="submissions" name="Réponses" radius={[0, 6, 6, 0]} barSize={16} animationDuration={900} className="cursor-pointer"
+                    label={{ position: "right", fontSize: 11, fill: "#334155" }} onClick={(d) => { const id = d?.id || d?.payload?.id; if (id) onOpenStats(id); }}>
+                    {top.map((f, i) => <Cell key={f.id} fill={PALETTE[i % PALETTE.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </ChartCard>
       </div>
     </div>
   );
@@ -129,18 +195,8 @@ export default function FormsLibrary({ apiBase = "/forms", basePath = "/admin/fo
         <button type="button" onClick={() => setCreating(true)} className={ui.btnPrimary} data-testid="forms-new"><Plus className="h-4 w-4" /> Nouveau formulaire</button>
       </div>
 
-      {/* Vue d'ensemble chiffrée */}
-      {overview && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3" data-testid="forms-overview">
-          {[["Formulaires actifs", overview.forms, FileText], ["Réponses (total)", overview.submissions_total, Database], ["Réponses sur 30 jours", overview.submissions_30d, Inbox],
-            ["Taux de réponse des invités", `${overview.invitations?.response_pct || 0} %`, BarChart3]].map(([l, v, Icon]) => (
-            <div key={l} className={ui.stat}>
-              <p className={cx(ui.statLabel, "flex items-center gap-1.5")}><Icon className="h-3 w-3 text-primary" /> {l}</p>
-              <p className={ui.statValue}>{v}</p>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Vue d'ensemble graphique (indicateurs + courbe 30 jours + top formulaires) */}
+      {overview && <OverviewCharts overview={overview} onOpenStats={(id) => navigate(`${basePath}/${id}?tab=stats`)} />}
 
       {/* Onglets soulignés : formulaires actifs / archivés */}
       <div className={ui.tabs}>

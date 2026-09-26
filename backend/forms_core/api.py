@@ -16,6 +16,7 @@ Collections Mongo (préfixe réglable, `forms` par défaut) :
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 import io
 import logging
 import re
@@ -222,11 +223,18 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
                                                                               "submissions_count": 1, "views": 1}).to_list(1000)
         ids = [f["id"] for f in all_forms]
         since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
-        last30 = await subs.count_documents({"form_id": {"$in": ids}, "created_at": {"$gte": since}}) if ids else 0
+        recent_subs = await subs.find({"form_id": {"$in": ids}, "created_at": {"$gte": since}},
+                                      {"_id": 0, "created_at": 1, "form_id": 1}).to_list(50000) if ids else []
+        last30 = len(recent_subs)
+        # Réponses par jour sur 30 jours (jours sans réponse inclus, à 0) pour le graphique global
+        per_day = Counter((s.get("created_at") or "")[:10] for s in recent_subs)
+        today = datetime.now(timezone.utc).date()
+        days = [(today - timedelta(days=i)).isoformat() for i in range(29, -1, -1)]
         inv = await invs.find({"form_id": {"$in": ids}}, {"_id": 0, "opened_at": 1, "answered_at": 1, "revoked": 1}).to_list(20000) if ids else []
         top = sorted(all_forms, key=lambda f: -(f.get("submissions_count") or 0))[:5]
         return {"forms": len(all_forms), "submissions_total": sum(f.get("submissions_count") or 0 for f in all_forms),
                 "submissions_30d": last30, "invitations": invitation_stats(inv),
+                "series_30d": [{"date": d, "count": per_day.get(d, 0)} for d in days],
                 "top_forms": [{"id": f["id"], "number": f.get("number"), "title": f.get("title"),
                                "submissions": f.get("submissions_count") or 0} for f in top]}
 
