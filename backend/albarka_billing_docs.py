@@ -52,10 +52,39 @@ async def build_pdf_bytes(invoice: dict) -> bytes:
     client = None
     if invoice.get("tenant_id"):
         client = await db.users.find_one({"id": invoice["tenant_id"]}, {"_id": 0, "password_hash": 0})
+    # Lot 7 : factures et proformas au format du modèle du cabinet (papier à
+    # en-tête, QR code de vérification, somme en lettres, signataire).
+    if invoice.get("document_type") in ("facture", "proforma"):
+        return await build_model_pdf(invoice, client)
     payments = await db.payments.find(
         {"invoice_id": invoice["id"]}, {"_id": 0},
     ).sort("paid_at", 1).to_list(500)
     return build_invoice_document_pdf(invoice=invoice, client=client, payments=payments)
+
+
+async def build_model_pdf(invoice: dict, client: Optional[dict]) -> bytes:
+    """PDF d'une facture / proforma au format du modèle (voir albarka_invoice_layout)."""
+    from albarka_branding import load_branding_images
+    from albarka_docgen import get_doc_settings, load_letterhead, new_verify_token, qr_png, verify_url
+    from albarka_invoice_layout import build_invoice_model_pdf
+
+    # Jeton de vérification (documents créés avant le lot 7 : créé à la volée)
+    if not invoice.get("verify_token"):
+        invoice["verify_token"] = new_verify_token()
+        await db.invoices.update_one({"id": invoice["id"]}, {"$set": {"verify_token": invoice["verify_token"]}})
+    kyc = await db.client_kyc.find_one({"tenant_id": invoice.get("tenant_id")}, {"_id": 0}) if invoice.get("tenant_id") else None
+    settings = await get_doc_settings()
+    letterhead = await load_letterhead(invoice.get("letterhead_id"))
+    # Signature du DG : seulement si l'option est activée dans Paramètres → Branding
+    signature = None
+    try:
+        branding = await load_branding_images()
+        if (branding.get("toggles") or {}).get("apply_dg_signature") and branding.get("dg_signature"):
+            signature = branding["dg_signature"]["bytes"]
+    except Exception:  # noqa: BLE001 — branding absent : pas de signature
+        signature = None
+    return build_invoice_model_pdf(invoice=invoice, client=client, kyc=kyc, letterhead=letterhead, settings=settings,
+                                   qr_bytes=qr_png(verify_url(invoice["verify_token"])), signature_bytes=signature)
 
 
 async def ensure_invoice_pdf(invoice: dict) -> dict:

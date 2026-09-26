@@ -14,6 +14,16 @@ from db import db, serialize, serialize_many
 router = APIRouter(prefix="/missions", tags=["Missions"])
 
 
+def _description_fields(html: Optional[str], text: Optional[str]) -> dict:
+    """Lot 7 : description mise en forme. Le HTML est nettoyé (liste blanche)
+    et une version texte est gardée dans `description` (listes, rapports)."""
+    if html is None:
+        return {"description": text} if text is not None else {}
+    from albarka_letters import html_to_text, sanitize_html
+    clean = sanitize_html(html)
+    return {"description_html": clean, "description": html_to_text(clean)}
+
+
 @router.get("")
 async def list_missions(tenant_id: Optional[str] = None, user: dict = Depends(get_current_user)):
     query: dict = {}
@@ -36,6 +46,7 @@ async def create_mission(payload: MissionCreate, user: dict = Depends(require_st
         "title": payload.title,
         "type": payload.type,
         "description": payload.description,
+        **_description_fields(payload.description_html, payload.description),
         "assigned_to": payload.assigned_to or [],
         "due_date": payload.due_date,
         "status": payload.status,
@@ -60,6 +71,8 @@ async def get_mission(mission_id: str, user: dict = Depends(get_current_user)):
 @router.patch("/{mission_id}")
 async def update_mission(mission_id: str, payload: MissionUpdate, user: dict = Depends(require_staff())):
     update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    if "description_html" in update:
+        update.update(_description_fields(update.pop("description_html"), update.get("description")))
     if not update:
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
     update["updated_at"] = datetime.now(timezone.utc).isoformat()

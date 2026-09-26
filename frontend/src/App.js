@@ -47,6 +47,8 @@ import AdminWhatsAppConversations from "@/pages/admin/AdminWhatsAppConversations
 import AdminWhatsAppStats from "@/pages/admin/AdminWhatsAppStats";
 import { AdminFormsLibrary, AdminFormDetail } from "@/pages/admin/AdminForms";
 import AdminClientSpace from "@/pages/admin/AdminClientSpace";
+import AdminTemplates from "@/pages/admin/AdminTemplates";
+import VerifyDocument from "@/pages/public/VerifyDocument";
 import { AdminDashboard, AdminDocuments, AdminMissions, AdminEcheances } from "@/pages/admin/AdminShared";
 
 function RootRedirect() {
@@ -81,6 +83,8 @@ function App() {
           <Route path="/login" element={<Login />} />
           {/* Formulaire à remplir via un lien reçu ou partagé — public, sans connexion */}
           <Route path="/f/:token" element={<FillForm />} />
+          {/* Lot 7 : page ouverte par le QR code imprimé sur les documents */}
+          <Route path="/verifier/:token" element={<VerifyDocument />} />
           <Route path="/erreur-404" element={<Error404 />} />
 
           {/* Client portal */}
@@ -104,6 +108,7 @@ function App() {
             <Route path="staff" element={<AdminStaff />} />
             <Route path="documents" element={<AdminDocuments />} />
             <Route path="missions" element={<AdminMissions />} />
+            <Route path="modeles" element={<AdminTemplates />} />
             <Route path="echeances" element={<AdminEcheances />} />
             <Route path="rapports" element={<AdminReports />} />
             <Route path="rapports/bulk" element={<AdminBulkReports />} />

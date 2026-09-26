@@ -30,7 +30,12 @@ const ENCAISSEMENT_ROLES = ["caissier"];
 // qui peut mettre un document à disposition dans l'espace d'un client.
 const CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", "comptable", "fiscaliste", "aide_comptable", "caissier"];
 
-const emptyItem = () => ({ label: "", quantity: 1, unit_price: "", tax_rate: 18 });
+// Ligne de document : "line" = ligne chiffrée, "section" = ligne de titre sans montant ;
+// detail = texte sur plusieurs lignes sous la description (lot 7)
+const emptyItem = () => ({ kind: "line", label: "", detail: "", quantity: 1, unit_price: "", tax_rate: 18 });
+// Réglages du format « modèle » d'une facture / proforma (lot 7)
+const emptyModel = () => ({ tva_rate: 18, withholding: false, withholding_rate: 5, bill_to: "", letterhead_id: "", issue_date: "" });
+const fcfa = (v) => Math.round(Number(v) || 0).toLocaleString("fr-FR");
 
 function fmtDateTime(iso) {
   if (!iso) return "—";
@@ -57,7 +62,9 @@ export default function AdminBilling() {
   const [openInv, setOpenInv] = useState(false);
   const [openPay, setOpenPay] = useState(false);
   const [payTarget, setPayTarget] = useState(null);
-  const [invForm, setInvForm] = useState({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()] });
+  const [invForm, setInvForm] = useState({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()], ...emptyModel() });
+  const [letterheads, setLetterheads] = useState([]);
+  const [docDefaults, setDocDefaults] = useState({ tva: 18, withholding: 5 });
   const [payForm, setPayForm] = useState({ amount: "", method: "cash", reference: "" });
   const [filterTenantId, setFilterTenantId] = useState("");
   // Résout tenant_id -> {company, full_name} pour la colonne Client à
@@ -183,14 +190,38 @@ export default function AdminBilling() {
 
   const addItem = () => setInvForm((f) => ({ ...f, items: [...f.items, emptyItem()] }));
   const removeItem = (idx) => setInvForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+  // Échange une ligne avec sa voisine (d = -1 : monter, +1 : descendre)
+  const moveItem = (idx, d) => setInvForm((f) => {
+    const items = [...f.items]; const j = idx + d;
+    if (j < 0 || j >= items.length) return f;
+    [items[idx], items[j]] = [items[j], items[idx]];
+    return { ...f, items };
+  });
   const updateItem = (idx, patch) => setInvForm((f) => ({
     ...f, items: f.items.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
   }));
 
+  // Papiers à en-tête et taux par défaut (Paramètres → Documents)
+  useEffect(() => {
+    apiClient.get("/admin/letterheads").then(({ data }) => setLetterheads(data)).catch(() => {});
+    apiClient.get("/admin/doc-settings").then(({ data }) => setDocDefaults({ tva: data.default_tva_rate ?? 18, withholding: data.default_withholding_rate || 5 })).catch(() => {});
+  }, []);
+  // Facture et proforma : format du modèle (TVA unique en fin de document)
+  const isModel = invForm.document_type !== "recu";
+  // Totaux affichés pendant la saisie (même calcul que le serveur)
+  const liveTotals = (() => {
+    const lines = invForm.items.filter((it) => it.kind !== "section");
+    const subtotal = Math.round(lines.reduce((s2, it) => s2 + (Number(it.quantity) || 0) * (Number(it.unit_price) || 0), 0));
+    const tax = Math.round(subtotal * (Number(invForm.tva_rate) || 0) / 100);
+    const total = subtotal + tax;
+    const withholding = invForm.withholding ? Math.round(subtotal * (Number(invForm.withholding_rate) || 0) / 100) : 0;
+    return { subtotal, tax, total, withholding, net: total - withholding };
+  })();
+
   const submitInvoice = async () => {
-    const items = invForm.items.filter((it) => it.label && it.unit_price !== "");
-    if (!invForm.tenant_id || !invForm.title || items.length === 0) {
-      toast.error("Client, titre et au moins une ligne (description + prix) requis"); return;
+    const items = invForm.items.filter((it) => it.label && (it.kind === "section" || it.unit_price !== ""));
+    if (!invForm.tenant_id || !invForm.title || !items.some((it) => it.kind !== "section")) {
+      toast.error("Client, titre et au moins une ligne chiffrée (description + prix) requis"); return;
     }
     try {
       await apiClient.post("/billing/invoices", {
@@ -198,13 +229,20 @@ export default function AdminBilling() {
         document_type: invForm.document_type,
         client_visible: invForm.client_visible, // mis à disposition dès la création (client prévenu)
         items: items.map((it) => ({
-          label: it.label, quantity: Number(it.quantity) || 1,
-          unit_price: Number(it.unit_price) || 0, tax_rate: Number(it.tax_rate) || 0,
+          kind: isModel ? it.kind : "line", label: it.label, detail: isModel ? (it.detail || null) : null,
+          quantity: Number(it.quantity) || (it.kind === "section" ? 0 : 1),
+          unit_price: it.kind === "section" ? 0 : Number(it.unit_price) || 0, tax_rate: Number(it.tax_rate) || 0,
         })),
+        // Format du modèle : TVA unique, retenue sur le hors-taxe, « Facturer à », papier à en-tête
+        ...(isModel ? {
+          tva_rate: Number(invForm.tva_rate) || 0,
+          withholding_rate: invForm.withholding ? Number(invForm.withholding_rate) || 0 : 0,
+          bill_to: invForm.bill_to || null, letterhead_id: invForm.letterhead_id || null, issue_date: invForm.issue_date || null,
+        } : {}),
       });
       toast.success(`${invForm.document_type === "recu" ? "Reçu" : invForm.document_type === "proforma" ? "Proforma" : "Facture"} créé(e)`);
       setOpenInv(false);
-      setInvForm({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()] });
+      setInvForm({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()], ...emptyModel(), tva_rate: docDefaults.tva, withholding_rate: docDefaults.withholding });
       await load();
     } catch (err) { toast.error(extractError(err)); }
   };
@@ -425,7 +463,7 @@ export default function AdminBilling() {
               <DialogTrigger asChild>
                 <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-invoice-btn"><Plus className="w-4 h-4 mr-2" />Nouvelle facture</Button>
               </DialogTrigger>
-              <DialogContent data-testid="invoice-dialog">
+              <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto" data-testid="invoice-dialog">
                 <DialogHeader><DialogTitle>Nouveau document caisse</DialogTitle></DialogHeader>
                 <div className="space-y-3">
                   <div>
@@ -442,14 +480,71 @@ export default function AdminBilling() {
                   </div>
                   <div><Label>Client</Label><EntitySelect value={invForm.tenant_id} onChange={(v) => setInvForm({ ...invForm, tenant_id: v })} testId="invoice-tenant-input" /></div>
                   <div><Label>Titre</Label><Input value={invForm.title} onChange={(e) => setInvForm({ ...invForm, title: e.target.value })} data-testid="invoice-title-input" /></div>
+                  {isModel && (
+                    // Format du modèle : date, papier à en-tête, encadré « Facturer à »
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div><Label>Date de la facture</Label><Input type="date" value={invForm.issue_date} onChange={(e) => setInvForm({ ...invForm, issue_date: e.target.value })} data-testid="invoice-issue-date" /></div>
+                      <div className="md:col-span-2"><Label>Papier à en-tête</Label>
+                        <select value={invForm.letterhead_id} onChange={(e) => setInvForm({ ...invForm, letterhead_id: e.target.value })} className="mt-1 h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm" data-testid="invoice-letterhead">
+                          <option value="">Papier par défaut</option><option value="none">Aucun en-tête (papier préimprimé)</option>
+                          {letterheads.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                        </select></div>
+                      <div className="md:col-span-3"><Label>Facturer à (facultatif)</Label>
+                        <textarea value={invForm.bill_to} onChange={(e) => setInvForm({ ...invForm, bill_to: e.target.value })} rows={3} data-testid="invoice-bill-to"
+                          placeholder={"Laisser vide = fiche du client (raison sociale, adresse, IFU, RCCM)\nex. ALIMENTATION MINI PRIX\n07 BP 5257 OUAGA 07\nIFU : 00027128S\nREGIME/RSI"}
+                          className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></div>
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
                       <Label>Lignes</Label>
-                      <Button type="button" size="sm" variant="outline" onClick={addItem} data-testid="invoice-add-line-btn">
-                        <Plus className="w-3.5 h-3.5 mr-1" />Ajouter une ligne
-                      </Button>
+                      <div className="flex gap-2">
+                        {isModel && (
+                          <Button type="button" size="sm" variant="outline" onClick={() => setInvForm({ ...invForm, items: [...invForm.items, { ...emptyItem(), kind: "section", quantity: "" }] })} data-testid="invoice-add-section-btn">
+                            <Plus className="w-3.5 h-3.5 mr-1" />Ligne de titre
+                          </Button>
+                        )}
+                        <Button type="button" size="sm" variant="outline" onClick={addItem} data-testid="invoice-add-line-btn">
+                          <Plus className="w-3.5 h-3.5 mr-1" />Ajouter une ligne
+                        </Button>
+                      </div>
                     </div>
-                    {invForm.items.map((it, idx) => (
+                    {isModel ? invForm.items.map((it, idx) => (
+                      // Ligne du modèle : quantité, description + détail sur plusieurs lignes, prix unitaire, total
+                      <div key={idx} className={`rounded-lg border p-2 ${it.kind === "section" ? "border-sky-200 bg-sky-50/50" : "border-slate-200"}`} data-testid={`invoice-line-${idx}`}>
+                        <div className="grid grid-cols-12 gap-2 items-end">
+                          <div className="col-span-2">
+                            <Label className="text-[10px]">Quantité</Label>
+                            <Input type="number" value={it.quantity} onChange={(e) => updateItem(idx, { quantity: e.target.value })} data-testid={`invoice-line-qty-${idx}`} />
+                          </div>
+                          <div className={it.kind === "section" ? "col-span-9" : "col-span-5"}>
+                            <Label className="text-[10px]">{it.kind === "section" ? "Titre (sans montant)" : "Description"}</Label>
+                            <Input value={it.label} onChange={(e) => updateItem(idx, { label: e.target.value })} data-testid={`invoice-line-label-${idx}`} />
+                          </div>
+                          {it.kind !== "section" && (
+                            <>
+                              <div className="col-span-2">
+                                <Label className="text-[10px]">Prix unitaire</Label>
+                                <Input type="number" value={it.unit_price} onChange={(e) => updateItem(idx, { unit_price: e.target.value })} data-testid={`invoice-line-price-${idx}`} />
+                              </div>
+                              <div className="col-span-2 text-right text-sm font-semibold tabular-nums pb-2">{fcfa((Number(it.quantity) || 0) * (Number(it.unit_price) || 0))}</div>
+                            </>
+                          )}
+                          <div className="col-span-1 flex flex-col items-end">
+                            {/* Déplacer la ligne (un titre se place au-dessus de ses lignes détaillées) */}
+                            <div className="flex">
+                              <button type="button" title="Monter" disabled={idx === 0} onClick={() => moveItem(idx, -1)} className="px-1 text-slate-500 hover:text-slate-900 disabled:opacity-30" data-testid={`invoice-line-up-${idx}`}>▲</button>
+                              <button type="button" title="Descendre" disabled={idx === invForm.items.length - 1} onClick={() => moveItem(idx, 1)} className="px-1 text-slate-500 hover:text-slate-900 disabled:opacity-30">▼</button>
+                            </div>
+                            <Button type="button" variant="ghost" size="sm" className="px-2" disabled={invForm.items.length <= 1}
+                              onClick={() => removeItem(idx)} data-testid={`invoice-line-remove-${idx}`}><X className="w-4 h-4" /></Button>
+                          </div>
+                        </div>
+                        <textarea value={it.detail || ""} onChange={(e) => updateItem(idx, { detail: e.target.value })} rows={2}
+                          placeholder="Détail sur plusieurs lignes (facultatif) — ex. AOUT - 2024" data-testid={`invoice-line-detail-${idx}`}
+                          className="mt-2 w-full rounded-md border border-slate-200 px-2 py-1 text-xs" />
+                      </div>
+                    )) : invForm.items.map((it, idx) => (
                       <div key={idx} className="grid grid-cols-12 gap-2 items-end" data-testid={`invoice-line-${idx}`}>
                         <div className="col-span-5">
                           {idx === 0 && <Label className="text-[10px]">Description</Label>}
@@ -468,17 +563,34 @@ export default function AdminBilling() {
                           <Input type="number" value={it.tax_rate} onChange={(e) => updateItem(idx, { tax_rate: e.target.value })} data-testid={`invoice-line-tax-${idx}`} />
                         </div>
                         <div className="col-span-1">
-                          <Button
-                            type="button" variant="ghost" size="sm" className="px-2"
-                            disabled={invForm.items.length <= 1}
-                            onClick={() => removeItem(idx)} data-testid={`invoice-line-remove-${idx}`}
-                          >
-                            <X className="w-4 h-4" />
-                          </Button>
+                          <Button type="button" variant="ghost" size="sm" className="px-2" disabled={invForm.items.length <= 1}
+                            onClick={() => removeItem(idx)} data-testid={`invoice-line-remove-${idx}`}><X className="w-4 h-4" /></Button>
                         </div>
                       </div>
                     ))}
                   </div>
+                  {isModel && (
+                    // TVA en fin de facture, retenue facultative, totaux calculés en direct
+                    <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 rounded-lg bg-slate-50 p-3">
+                      <div className="space-y-2 text-sm">
+                        <label className="flex items-center gap-2">TVA
+                          <Input type="number" value={invForm.tva_rate} onChange={(e) => setInvForm({ ...invForm, tva_rate: e.target.value })} className="w-20 h-8" data-testid="invoice-tva-rate" /> %</label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="checkbox" checked={invForm.withholding} onChange={(e) => setInvForm({ ...invForm, withholding: e.target.checked })} data-testid="invoice-withholding" />
+                          Retenue à la source
+                          <Input type="number" value={invForm.withholding_rate} disabled={!invForm.withholding} onChange={(e) => setInvForm({ ...invForm, withholding_rate: e.target.value })} className="w-20 h-8" data-testid="invoice-withholding-rate" /> % du hors-taxe</label>
+                      </div>
+                      <table className="text-sm min-w-[240px]" data-testid="invoice-live-totals">
+                        <tbody>
+                          <tr><td className="pr-6 text-slate-500">Sous-total</td><td className="text-right tabular-nums">{fcfa(liveTotals.subtotal)}</td></tr>
+                          <tr><td className="pr-6 text-slate-500">TVA {invForm.tva_rate || 0} %</td><td className="text-right tabular-nums">{fcfa(liveTotals.tax)}</td></tr>
+                          <tr className="font-semibold"><td className="pr-6">TOTAL</td><td className="text-right tabular-nums">{fcfa(liveTotals.total)}</td></tr>
+                          {invForm.withholding && <tr><td className="pr-6 text-slate-500">Retenue {invForm.withholding_rate || 0} %</td><td className="text-right tabular-nums">− {fcfa(liveTotals.withholding)}</td></tr>}
+                          {invForm.withholding && <tr className="font-bold text-[#0F6B4A]"><td className="pr-6">NET À PAYER</td><td className="text-right tabular-nums">{fcfa(liveTotals.net)}</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                   {/* Mise à disposition immédiate dans l'espace du client (+ notification WhatsApp) */}
                   {canShareToClient && (
                     <label className="flex items-center gap-2 text-sm cursor-pointer">

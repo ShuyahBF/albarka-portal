@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Plus } from "lucide-react";
+import { Plus, Pencil, FileSignature, ChevronDown, ChevronRight } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import RichTextEditor from "@/components/RichTextEditor";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -49,6 +50,8 @@ const defaultMissionForm = (tenantIdOverride) => ({
   title: "",
   type: "tenue_comptable",
   description: "",
+  // Lot 7 : description mise en forme (éditeur « comme Word »)
+  description_html: "",
   due_date: "",
   status: "en_attente",
 });
@@ -60,6 +63,9 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
   const [form, setForm] = useState(defaultMissionForm(tenantIdOverride));
   const { isClient } = useAuth();
   const canCreate = staffMode || !isClient;
+  const navigate = useNavigate();
+  const [editingId, setEditingId] = useState(null);   // mission modifiée (null = création)
+  const [expanded, setExpanded] = useState(null);     // mission dont la description est dépliée
 
   const load = async () => {
     setLoading(true);
@@ -82,8 +88,16 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
       return;
     }
     try {
-      await apiClient.post("/missions", form);
-      toast.success("Mission créée");
+      if (editingId) {
+        // Modification : titre, type, échéance et description mise en forme
+        const { title, type, due_date, description_html } = form;
+        await apiClient.patch(`/missions/${editingId}`, { title, type, due_date: due_date || null, description_html });
+        toast.success("Mission modifiée");
+      } else {
+        await apiClient.post("/missions", form);
+        toast.success("Mission créée");
+      }
+      setEditingId(null);
       setOpen(false);
       setForm(defaultMissionForm(tenantIdOverride));
       await load();
@@ -113,18 +127,18 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
           <p className="text-muted-foreground mt-1">Suivi des dossiers ouverts, en revue et terminés.</p>
         </div>
         {canCreate && (
-          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v) setForm(defaultMissionForm(tenantIdOverride)); }}>
+          <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (v && !editingId) setForm(defaultMissionForm(tenantIdOverride)); if (!v) setEditingId(null); }}>
             <DialogTrigger asChild>
-              <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-mission-btn">
+              <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-mission-btn" onClick={() => setEditingId(null)}>
                 <Plus className="w-4 h-4 mr-2" />Nouvelle mission
               </Button>
             </DialogTrigger>
-            <DialogContent data-testid="mission-dialog">
+            <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto" data-testid="mission-dialog">
               <DialogHeader>
-                <DialogTitle>Nouvelle mission</DialogTitle>
+                <DialogTitle>{editingId ? "Modifier la mission" : "Nouvelle mission"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                {!tenantIdOverride && (
+                {!tenantIdOverride && !editingId && (
                   <div>
                     <Label>Client</Label>
                     <EntitySelect
@@ -155,12 +169,16 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
                 </div>
                 <div>
                   <Label>Description</Label>
-                  <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} data-testid="mission-desc-input" />
+                  {/* Éditeur « comme Word » : gras, listes, retraits, tableaux, images… */}
+                  <div className="mt-1">
+                    <RichTextEditor value={form.description_html} onChange={(html) => setForm((f) => ({ ...f, description_html: html }))}
+                      minHeight={220} testId="mission-desc" placeholder="Décrivez la mission…" />
+                  </div>
                 </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button onClick={submit} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="mission-submit-btn">Créer</Button>
+                <Button onClick={submit} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="mission-submit-btn">{editingId ? "Enregistrer" : "Créer"}</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -185,7 +203,18 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
               <TableRow key={m.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell>
                   <div className="font-medium">{m.title}</div>
-                  {m.description && <div className="text-xs text-muted-foreground max-w-md truncate">{m.description}</div>}
+                  {m.description && (
+                    // Clic : déplie la description mise en forme (HTML déjà nettoyé par le serveur)
+                    <button type="button" onClick={() => setExpanded(expanded === m.id ? null : m.id)} className="flex items-start gap-1 text-left text-xs text-muted-foreground max-w-md" data-testid={`mission-desc-toggle-${m.id}`}>
+                      {expanded === m.id ? <ChevronDown className="h-3.5 w-3.5 shrink-0 mt-0.5" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 mt-0.5" />}
+                      <span className={expanded === m.id ? "" : "truncate"}>{expanded === m.id ? "Masquer la description" : m.description}</span>
+                    </button>
+                  )}
+                  {expanded === m.id && (
+                    m.description_html
+                      ? <div className="mission-desc-html mt-2 rounded-lg border border-slate-200 bg-white p-3 text-sm" dangerouslySetInnerHTML={{ __html: m.description_html }} />
+                      : <div className="mt-2 whitespace-pre-line text-sm">{m.description}</div>
+                  )}
                 </TableCell>
                 <TableCell className="text-sm">{TYPES.find((t) => t.value === m.type)?.label || m.type}</TableCell>
                 <TableCell className="text-sm">{m.due_date || "—"}</TableCell>
@@ -195,7 +224,17 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
                   </span>
                 </TableCell>
                 {canCreate && (
-                  <TableCell>
+                  <TableCell className="space-y-1.5">
+                    <div className="flex gap-1">
+                      {/* Modifier la mission (description mise en forme comprise) */}
+                      <button type="button" title="Modifier" data-testid={`mission-edit-${m.id}`}
+                        onClick={() => { setEditingId(m.id); setForm({ ...defaultMissionForm(m.tenant_id), ...m, due_date: m.due_date || "", description_html: m.description_html || (m.description || "").replace(/\n/g, "<br>") }); setOpen(true); }}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded bg-slate-900 text-white hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" /></button>
+                      {/* Générer un ordre / avis de mission à partir d'un modèle */}
+                      <button type="button" title="Générer un document (ordre, avis de mission…)" data-testid={`mission-doc-${m.id}`}
+                        onClick={() => navigate(`/admin/modeles?mission=${m.id}&tenant=${m.tenant_id}`)}
+                        className="inline-flex h-7 items-center gap-1 rounded bg-sky-600 px-2 text-[11px] text-white hover:bg-sky-700"><FileSignature className="h-3.5 w-3.5" /> Document</button>
+                    </div>
                     <Select value={m.status} onValueChange={(v) => updateStatus(m.id, v)}>
                       <SelectTrigger className="w-36 h-8" data-testid={`mission-status-${m.id}`}>
                         <SelectValue />

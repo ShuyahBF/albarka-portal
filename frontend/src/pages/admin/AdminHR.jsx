@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import EntitySelect from "@/components/EntitySelect";
+import PayrollTable from "@/components/PayrollTable";
+import { Table2 } from "lucide-react";
 
 export default function AdminHR() {
   const [employees, setEmployees] = useState([]);
@@ -70,14 +72,20 @@ export default function AdminHR() {
       <div>
         <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
         <h1 className="font-display text-3xl md:text-4xl">Paie & RH</h1>
-        <p className="text-muted-foreground mt-1">Employés des clients et bulletins de paie.</p>
+        <p className="text-muted-foreground mt-1">Employés des clients, bulletins de paie et tableau mensuel du personnel.</p>
       </div>
 
       <Tabs defaultValue="employees">
         <TabsList>
           <TabsTrigger value="employees" data-testid="tab-hr-employees"><Users className="w-4 h-4 mr-2" />Employés</TabsTrigger>
           <TabsTrigger value="payslips" data-testid="tab-hr-payslips"><FileText className="w-4 h-4 mr-2" />Bulletins</TabsTrigger>
+          {/* Lot 7 : liste actualisée du personnel (fiche de renseignement) */}
+          <TabsTrigger value="table" data-testid="tab-hr-table"><Table2 className="w-4 h-4 mr-2" />Tableau de paie</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="table" className="pt-4">
+          <PayrollTable />
+        </TabsContent>
 
         <TabsContent value="employees" className="pt-4 space-y-3">
           <div className="flex justify-end">

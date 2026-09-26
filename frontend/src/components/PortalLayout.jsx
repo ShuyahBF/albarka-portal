@@ -30,6 +30,7 @@ import {
   ClipboardCheck,
   FolderOpen,
   FolderUp,
+  FilePen,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -81,6 +82,9 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   { to: "/admin/missions", label: "Missions", icon: Briefcase,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable"] },
+  // Lot 7 : ordres / avis de mission, courriers… rédigés comme dans Word, modèles à variables
+  { to: "/admin/modeles", label: "Documents & modèles", icon: FilePen,
+    roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   { to: "/admin/echeances", label: "Échéances fiscales", icon: Scale,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable"] },
   { to: "/admin/paie", label: "Paie & RH", icon: Wallet,

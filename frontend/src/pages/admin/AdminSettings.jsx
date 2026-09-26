@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Save, Send, Building, MessageCircle, Bell, Hash, KeyRound, Image as ImageIcon,
-  CreditCard, FlaskConical, CheckCircle2, XCircle,
+  CreditCard, FlaskConical, CheckCircle2, XCircle, FileText,
 } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import ClientDocsNotifPanel from "@/pages/admin/ClientDocsNotifPanel";
 import StaffAccessPanel from "@/pages/admin/StaffAccessPanel";
 import CertificatesPanel from "@/pages/admin/CertificatesPanel";
 import BrandingPanel from "@/pages/admin/BrandingPanel";
+import DocSettingsPanel from "@/pages/admin/DocSettingsPanel";
 import { useAuth } from "@/contexts/AuthContext";
 
 const FIELDS_TABS = ["cabinet", "whatsapp", "notifications", "rapports"];
@@ -178,6 +179,10 @@ export default function AdminSettings() {
           </TabsTrigger>
           <TabsTrigger value="branding" data-testid="tab-branding">
             <ImageIcon className="w-4 h-4 mr-1.5" /> Branding
+          </TabsTrigger>
+          {/* Lot 7 : papiers à en-tête, signataire des factures et documents */}
+          <TabsTrigger value="documents" data-testid="tab-documents">
+            <FileText className="w-4 h-4 mr-1.5" /> Documents
           </TabsTrigger>
           <TabsTrigger value="signature" data-testid="tab-signature">
             <KeyRound className="w-4 h-4 mr-1.5" /> Signature
@@ -637,6 +642,11 @@ export default function AdminSettings() {
         {/* --- BRANDING --- */}
         <TabsContent value="branding" className="pt-6">
           <BrandingPanel />
+        </TabsContent>
+
+        {/* --- DOCUMENTS (papiers à en-tête, signataire) --- */}
+        <TabsContent value="documents" className="pt-6">
+          <DocSettingsPanel />
         </TabsContent>
 
         {/* --- SIGNATURE --- */}

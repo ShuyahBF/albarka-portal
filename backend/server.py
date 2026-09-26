@@ -142,6 +142,14 @@ api_router.include_router(client_space_me_router)
 api_router.include_router(forms_staff_router)
 api_router.include_router(forms_public_router)
 api_router.include_router(forms_portal_router)
+# Lot 7 : papiers à en-tête + vérification QR, documents à partir de modèles, tableau de paie
+from albarka_docgen import router as docgen_router, public_router as docgen_public_router  # noqa: E402
+from albarka_letters import router as letters_router  # noqa: E402
+from albarka_payroll import router as payroll_router  # noqa: E402
+api_router.include_router(docgen_router)
+api_router.include_router(docgen_public_router)
+api_router.include_router(letters_router)
+api_router.include_router(payroll_router)
 
 
 @api_router.get("/")
@@ -210,6 +218,9 @@ async def _ensure_indexes():
         await _db.contacts.create_index([("scope", 1), ("tenant_id", 1), ("is_primary", -1)])
         # Formulaires (jetons de lien uniques, réponses par formulaire, anti-abus)
         await ensure_forms_indexes()
+        # Lot 7 : index des documents et modèle « Avis de mission » fourni d'office
+        from albarka_letters import ensure_letters_setup
+        await ensure_letters_setup()
         # Espace client (documents du cabinet par client)
         await ensure_client_space_indexes()
         # Présence (keep-alive)

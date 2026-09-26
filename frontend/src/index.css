@@ -196,3 +196,14 @@ body.portal-ui .albarka-sidebar-link.active {
     padding-left: 1rem;
     box-shadow: 0 6px 18px -8px hsl(var(--primary) / 0.8);
 }
+
+/* Lot 7 — texte mis en forme affiché dans le portail (description de mission) :
+   listes, titres et tableaux retrouvent leur aspect (Tailwind les remet à zéro). */
+.mission-desc-html ul { list-style: disc; padding-left: 1.5em; }
+.mission-desc-html ol { list-style: decimal; padding-left: 1.5em; }
+.mission-desc-html h1 { font-size: 1.4em; font-weight: 700; }
+.mission-desc-html h2 { font-size: 1.2em; font-weight: 700; }
+.mission-desc-html h3 { font-size: 1.05em; font-weight: 700; }
+.mission-desc-html table { border-collapse: collapse; }
+.mission-desc-html img { max-width: 100%; }
+.mission-desc-html blockquote { margin-left: 40px; }

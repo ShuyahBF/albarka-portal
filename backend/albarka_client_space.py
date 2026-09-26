@@ -272,7 +272,8 @@ def _upload_item(d: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _invoice_item(inv: Dict[str, Any]) -> Dict[str, Any]:
-    total = float(inv.get("total") or 0)
+    # Montant dû : net à payer après retenue (lot 7), sinon total TTC
+    total = float(inv.get("net_to_pay", inv.get("total")) or 0)
     paid = float(inv.get("paid_amount") or 0)
     return {
         "source": "invoice", "id": inv["id"], "tenant_id": inv["tenant_id"], "category": inv["document_type"],

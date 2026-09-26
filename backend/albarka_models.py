@@ -325,6 +325,8 @@ class MissionCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     type: str = "tenue_comptable"
     description: Optional[str] = None
+    # Lot 7 : description mise en forme (éditeur « comme Word »), HTML nettoyé côté serveur
+    description_html: Optional[str] = None
     assigned_to: Optional[List[str]] = None  # user ids (staff)
     due_date: Optional[str] = None  # ISO
     status: str = "en_attente"
@@ -348,6 +350,7 @@ class MissionUpdate(BaseModel):
     title: Optional[str] = None
     type: Optional[str] = None
     description: Optional[str] = None
+    description_html: Optional[str] = None
     assigned_to: Optional[List[str]] = None
     due_date: Optional[str] = None
     status: Optional[str] = None

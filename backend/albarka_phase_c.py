@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from albarka_admin_settings import get_settings_doc
+from albarka_docgen import new_verify_token
 from albarka_auth import get_current_user, require_roles, require_staff
 from albarka_models import (
     BILLING_ROLES, CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, NOT_TEST_ACCOUNT, can_encaisser, is_client,
@@ -202,6 +203,15 @@ class InvoiceItem(BaseModel):
     quantity: float = 1
     unit_price: float = 0
     tax_rate: float = 0
+    # Lot 7 : détail sur plusieurs lignes sous la description (ex. « AOUT - 2024 »)
+    detail: Optional[str] = Field(None, max_length=1500)
+    # "line" = ligne chiffrée ; "section" = ligne de titre sans montant
+    kind: str = "line"
+
+    @field_validator("kind")
+    @classmethod
+    def _valid_kind(cls, v):
+        return v if v in ("line", "section") else "line"
 
     @property
     def line_total(self) -> float:
@@ -223,6 +233,17 @@ class InvoiceCreate(BaseModel):
 
     # Case « Visible dans l'espace client » du formulaire de création.
     client_visible: bool = False
+    # Lot 7 — format du modèle du cabinet :
+    # TVA unique calculée en fin de facture (18 % par défaut) ; retenue à la
+    # source facultative (ex. 5 %) calculée sur le sous-total hors taxe ;
+    # encadré « Facturer à » (texte libre, sinon fiche du client) ;
+    # papier à en-tête choisi (sinon celui par défaut, "none" = aucun).
+    tva_rate: Optional[float] = Field(None, ge=0, le=100)
+    withholding_rate: float = Field(0, ge=0, le=100)
+    withholding_label: str = Field("retenue", max_length=60)
+    bill_to: Optional[str] = Field(None, max_length=600)
+    letterhead_id: Optional[str] = None
+    issue_date: Optional[str] = None
 
     @field_validator("document_type")
     @classmethod
@@ -240,10 +261,28 @@ class PaymentCreate(BaseModel):
     reference: Optional[str] = None
 
 
-def _invoice_totals(items: list[dict]) -> dict:
-    subtotal = sum((i["quantity"] * i["unit_price"]) for i in items)
-    tax = sum((i["quantity"] * i["unit_price"] * (i.get("tax_rate", 0) / 100.0)) for i in items)
-    return {"subtotal": round(subtotal, 2), "tax": round(tax, 2), "total": round(subtotal + tax, 2)}
+def _invoice_totals(items: list[dict], tva_rate: Optional[float] = None, withholding_rate: float = 0) -> dict:
+    """Totaux d'un document. Lignes de titre ("section") exclues.
+    Avec `tva_rate` (lot 7) : TVA unique calculée en fin de facture sur le
+    sous-total, arrondie au franc ; retenue à la source sur le sous-total HT ;
+    net à payer = total TTC − retenue. Sans : calcul historique ligne par ligne."""
+    lines = [i for i in items if i.get("kind") != "section"]
+    subtotal = sum((i["quantity"] * i["unit_price"]) for i in lines)
+    if tva_rate is not None:
+        subtotal = round(subtotal)
+        tax = round(subtotal * tva_rate / 100.0)
+    else:
+        tax = sum((i["quantity"] * i["unit_price"] * (i.get("tax_rate", 0) / 100.0)) for i in lines)
+    total = round(subtotal + tax, 2)
+    withholding = round(subtotal * (withholding_rate or 0) / 100.0) if withholding_rate else 0
+    return {"subtotal": round(subtotal, 2), "tax": round(tax, 2), "total": total,
+            "withholding": withholding, "net_to_pay": round(total - withholding, 2)}
+
+
+def amount_due(invoice: dict) -> float:
+    """Somme réellement due par le client : net à payer (après retenue) pour
+    les documents du lot 7, total TTC pour les documents plus anciens."""
+    return float(invoice.get("net_to_pay", invoice.get("total", 0)) or 0)
 
 
 _DOC_PREFIX = {"facture": "FAC", "recu": "REC", "proforma": "PRO"}
@@ -272,12 +311,12 @@ async def list_invoices(
 async def _new_billing_document(
     *, document_type: str, tenant_id: str, title: str, items: list[dict], user: dict,
     currency: str = "XOF", due_date: Optional[str] = None, notes: Optional[str] = None,
-    extra: Optional[dict] = None,
+    extra: Optional[dict] = None, tva_rate: Optional[float] = None, withholding_rate: float = 0,
 ) -> dict:
     """Crée une facture / un reçu / un proforma : numéro, statut, PDF, journal,
     archive. Utilisé par la création manuelle ET par l'encaissement (reçu
     délivré automatiquement), pour que les deux suivent exactement les mêmes règles."""
-    totals = _invoice_totals(items)
+    totals = _invoice_totals(items, tva_rate, withholding_rate)
     # Numéro : {FAC|REC|PRO}-YYYYMM-NNNN (compteur mensuel PAR type)
     month_key = datetime.now(timezone.utc).strftime("%Y%m")
     prefix = _DOC_PREFIX[document_type]
@@ -293,7 +332,7 @@ async def _new_billing_document(
     # n'est pas payable (indicatif). Une facture reste "unpaid" par défaut.
     if document_type == "recu":
         status = "paid"
-        paid_amount = totals["total"]
+        paid_amount = totals["net_to_pay"]
     elif document_type == "proforma":
         status = "proforma"
         paid_amount = 0.0
@@ -321,6 +360,10 @@ async def _new_billing_document(
         # Espace client : un document n'y apparaît que si le cabinet l'a mis
         # à disposition (voir albarka_client_space.py).
         "client_visible": False,
+        # Lot 7 : taux affichés sur le PDF + jeton du QR code de vérification
+        "tva_rate": tva_rate,
+        "withholding_rate": withholding_rate or 0,
+        "verify_token": new_verify_token(),
         **(extra or {}),
     }
     await db.invoices.insert_one(doc.copy())
@@ -348,10 +391,22 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_ro
     # Délivrer un reçu = encaisser : rôle "caissier" obligatoire, même pour un superviseur.
     if payload.document_type == "recu" and not can_encaisser(user):
         raise HTTPException(status_code=403, detail="Seul un collaborateur Caissier peut délivrer un reçu")
+    items = [i.model_dump() for i in payload.items]
+    # TVA unique : chaque ligne chiffrée porte le taux du document
+    if payload.tva_rate is not None:
+        for it in items:
+            it["tax_rate"] = 0 if it.get("kind") == "section" else payload.tva_rate
+    for it in items:
+        if it.get("kind") == "section":
+            it["unit_price"] = 0
     doc = await _new_billing_document(
         document_type=payload.document_type, tenant_id=payload.tenant_id, title=payload.title,
-        items=[i.model_dump() for i in payload.items], user=user, currency=payload.currency,
+        items=items, user=user, currency=payload.currency,
         due_date=payload.due_date, notes=payload.notes,
+        tva_rate=payload.tva_rate, withholding_rate=payload.withholding_rate,
+        extra={"bill_to": (payload.bill_to or "").strip() or None, "letterhead_id": payload.letterhead_id,
+               "withholding_label": payload.withholding_label or "retenue",
+               "issue_date": payload.issue_date or None},
     )
     # Mise à disposition immédiate dans l'espace du client (case cochée à la
     # création) : le client est prévenu par WhatsApp selon les modèles réglés.
@@ -387,7 +442,7 @@ async def create_payment(payload: PaymentCreate, user: dict = Depends(require_ro
     }
     await db.payments.insert_one(payment.copy())
     new_paid = float(invoice.get("paid_amount", 0)) + float(payload.amount)
-    new_status = "paid" if new_paid >= float(invoice["total"]) - 0.01 else "partial"
+    new_status = "paid" if new_paid >= amount_due(invoice) - 0.01 else "partial"
     await db.invoices.update_one(
         {"id": payload.invoice_id},
         {"$set": {
@@ -489,7 +544,7 @@ async def billing_summary(
     if tenant_id: inv_q["tenant_id"] = tenant_id
     invoices = await db.invoices.find(inv_q, {"_id": 0, "total": 1, "paid_amount": 1, "status": 1}).to_list(2000)
     total = sum(float(i.get("total", 0)) for i in invoices)
-    outstanding = sum(float(i.get("total", 0)) - float(i.get("paid_amount", 0)) for i in invoices)
+    outstanding = sum(amount_due(i) - float(i.get("paid_amount", 0)) for i in invoices)
     unpaid_count = sum(1 for i in invoices if i.get("status") != "paid")
 
     low, high = _payments_date_bounds(user, date_from, date_to, all_time)
@@ -542,7 +597,7 @@ async def _build_statement(
     inv_q: dict = {**_NOT_PAYMENT_RECEIPT, **({"tenant_id": tenant_id} if tenant_id else {})}
     invoices = await db.invoices.find(inv_q, {"_id": 0}).sort("created_at", -1).to_list(2000)
     total_billed = sum(float(i.get("total", 0)) for i in invoices)
-    outstanding = sum(float(i.get("total", 0)) - float(i.get("paid_amount", 0)) for i in invoices)
+    outstanding = sum(amount_due(i) - float(i.get("paid_amount", 0)) for i in invoices)
 
     low, high = _payments_date_bounds(user, date_from, date_to, all_time)
     pay_q: dict = {}
