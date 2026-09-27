@@ -152,6 +152,10 @@ DOC_SETTINGS_DEFAULTS = {
     "thanks_text": "Nous vous remercions de votre confiance.",
     "default_tva_rate": 18.0,
     "default_withholding_rate": 0.0,
+    # Lot 8 — retenue à la source : libellé et taux selon le prestataire
+    "withholding_label": "retenue",
+    "withholding_rate_ifu": 5.0,        # prestataire avec numéro IFU
+    "withholding_rate_no_ifu": 10.0,    # prestataire sans numéro IFU
 }
 
 
@@ -164,6 +168,9 @@ class DocSettingsUpdate(BaseModel):
     thanks_text: Optional[str] = Field(None, max_length=200)
     default_tva_rate: Optional[float] = Field(None, ge=0, le=100)
     default_withholding_rate: Optional[float] = Field(None, ge=0, le=100)
+    withholding_label: Optional[str] = Field(None, max_length=60)
+    withholding_rate_ifu: Optional[float] = Field(None, ge=0, le=100)
+    withholding_rate_no_ifu: Optional[float] = Field(None, ge=0, le=100)
 
 
 async def get_doc_settings() -> dict:
@@ -417,4 +424,9 @@ async def verify_document(token: str):
         return {"valid": True, "issuer": issuer, "kind": "Tableau de paie", "number": payroll.get("period_month"),
                 "date": (payroll.get("generated_at") or "")[:10], "client": payroll.get("company") or "—",
                 "title": f"Liste du personnel — {payroll.get('period_label') or ''}".strip(" —")}
+    # Lot 8 : bulletin de paie
+    from albarka_paie import bulletin_for_verify
+    slip = await bulletin_for_verify(token)
+    if slip:
+        return {"valid": True, "issuer": issuer, **slip}
     raise HTTPException(status_code=404, detail="Document inconnu")

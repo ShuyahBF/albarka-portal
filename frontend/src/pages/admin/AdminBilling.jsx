@@ -34,7 +34,8 @@ const CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", 
 // detail = texte sur plusieurs lignes sous la description (lot 7)
 const emptyItem = () => ({ kind: "line", label: "", detail: "", quantity: 1, unit_price: "", tax_rate: 18 });
 // Réglages du format « modèle » d'une facture / proforma (lot 7)
-const emptyModel = () => ({ tva_rate: 18, withholding: false, withholding_rate: 5, bill_to: "", letterhead_id: "", issue_date: "" });
+// Lot 8 — retenue : type de prestataire (avec IFU / sans IFU / autre taux) et libellé modifiable
+const emptyModel = () => ({ tva_rate: 18, withholding: false, withholding_rate: 5, withholding_kind: "ifu", withholding_label: "retenue", bill_to: "", letterhead_id: "", issue_date: "" });
 const fcfa = (v) => Math.round(Number(v) || 0).toLocaleString("fr-FR");
 
 function fmtDateTime(iso) {
@@ -64,7 +65,7 @@ export default function AdminBilling() {
   const [payTarget, setPayTarget] = useState(null);
   const [invForm, setInvForm] = useState({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()], ...emptyModel() });
   const [letterheads, setLetterheads] = useState([]);
-  const [docDefaults, setDocDefaults] = useState({ tva: 18, withholding: 5 });
+  const [docDefaults, setDocDefaults] = useState({ tva: 18, withholding: 5, rateIfu: 5, rateNoIfu: 10, label: "retenue" });
   const [payForm, setPayForm] = useState({ amount: "", method: "cash", reference: "" });
   const [filterTenantId, setFilterTenantId] = useState("");
   // Résout tenant_id -> {company, full_name} pour la colonne Client à
@@ -204,7 +205,13 @@ export default function AdminBilling() {
   // Papiers à en-tête et taux par défaut (Paramètres → Documents)
   useEffect(() => {
     apiClient.get("/admin/letterheads").then(({ data }) => setLetterheads(data)).catch(() => {});
-    apiClient.get("/admin/doc-settings").then(({ data }) => setDocDefaults({ tva: data.default_tva_rate ?? 18, withholding: data.default_withholding_rate || 5 })).catch(() => {});
+    apiClient.get("/admin/doc-settings").then(({ data }) => {
+      const d = { tva: data.default_tva_rate ?? 18, rateIfu: data.withholding_rate_ifu ?? 5, rateNoIfu: data.withholding_rate_no_ifu ?? 10,
+        label: data.withholding_label || "retenue" };
+      d.withholding = d.rateIfu;
+      setDocDefaults(d);
+      setInvForm((f) => ({ ...f, tva_rate: d.tva, withholding_rate: d.rateIfu, withholding_label: d.label }));
+    }).catch(() => {});
   }, []);
   // Facture et proforma : format du modèle (TVA unique en fin de document)
   const isModel = invForm.document_type !== "recu";
@@ -237,12 +244,13 @@ export default function AdminBilling() {
         ...(isModel ? {
           tva_rate: Number(invForm.tva_rate) || 0,
           withholding_rate: invForm.withholding ? Number(invForm.withholding_rate) || 0 : 0,
+          withholding_label: (invForm.withholding_label || "").trim() || docDefaults.label,
           bill_to: invForm.bill_to || null, letterhead_id: invForm.letterhead_id || null, issue_date: invForm.issue_date || null,
         } : {}),
       });
       toast.success(`${invForm.document_type === "recu" ? "Reçu" : invForm.document_type === "proforma" ? "Proforma" : "Facture"} créé(e)`);
       setOpenInv(false);
-      setInvForm({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()], ...emptyModel(), tva_rate: docDefaults.tva, withholding_rate: docDefaults.withholding });
+      setInvForm({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()], ...emptyModel(), tva_rate: docDefaults.tva, withholding_rate: docDefaults.rateIfu, withholding_label: docDefaults.label });
       await load();
     } catch (err) { toast.error(extractError(err)); }
   };
@@ -577,15 +585,34 @@ export default function AdminBilling() {
                           <Input type="number" value={invForm.tva_rate} onChange={(e) => setInvForm({ ...invForm, tva_rate: e.target.value })} className="w-20 h-8" data-testid="invoice-tva-rate" /> %</label>
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input type="checkbox" checked={invForm.withholding} onChange={(e) => setInvForm({ ...invForm, withholding: e.target.checked })} data-testid="invoice-withholding" />
-                          Retenue à la source
-                          <Input type="number" value={invForm.withholding_rate} disabled={!invForm.withholding} onChange={(e) => setInvForm({ ...invForm, withholding_rate: e.target.value })} className="w-20 h-8" data-testid="invoice-withholding-rate" /> % du hors-taxe</label>
+                          Retenue à la source</label>
+                        {invForm.withholding && (
+                          <div className="pl-6 space-y-2" data-testid="invoice-withholding-options">
+                            {/* Taux selon le prestataire : avec IFU / sans IFU (Paramètres → Documents), ou autre taux */}
+                            <select value={invForm.withholding_kind} data-testid="invoice-withholding-kind"
+                              onChange={(e) => {
+                                const kind = e.target.value;
+                                const rate = kind === "ifu" ? docDefaults.rateIfu : kind === "no_ifu" ? docDefaults.rateNoIfu : invForm.withholding_rate;
+                                setInvForm({ ...invForm, withholding_kind: kind, withholding_rate: rate });
+                              }}
+                              className="h-8 rounded-md border border-input bg-white px-2 text-sm">
+                              <option value="ifu">Prestataire avec IFU ({docDefaults.rateIfu} %)</option>
+                              <option value="no_ifu">Prestataire sans IFU ({docDefaults.rateNoIfu} %)</option>
+                              <option value="custom">Autre taux</option>
+                            </select>
+                            <label className="flex items-center gap-2">Taux
+                              <Input type="number" value={invForm.withholding_rate} onChange={(e) => setInvForm({ ...invForm, withholding_rate: e.target.value, withholding_kind: "custom" })} className="w-20 h-8" data-testid="invoice-withholding-rate" /> % du hors-taxe</label>
+                            <label className="flex items-center gap-2">Libellé
+                              <Input value={invForm.withholding_label} onChange={(e) => setInvForm({ ...invForm, withholding_label: e.target.value })} className="h-8 w-48" data-testid="invoice-withholding-label" /></label>
+                          </div>
+                        )}
                       </div>
                       <table className="text-sm min-w-[240px]" data-testid="invoice-live-totals">
                         <tbody>
                           <tr><td className="pr-6 text-slate-500">Sous-total</td><td className="text-right tabular-nums">{fcfa(liveTotals.subtotal)}</td></tr>
                           <tr><td className="pr-6 text-slate-500">TVA {invForm.tva_rate || 0} %</td><td className="text-right tabular-nums">{fcfa(liveTotals.tax)}</td></tr>
                           <tr className="font-semibold"><td className="pr-6">TOTAL</td><td className="text-right tabular-nums">{fcfa(liveTotals.total)}</td></tr>
-                          {invForm.withholding && <tr><td className="pr-6 text-slate-500">Retenue {invForm.withholding_rate || 0} %</td><td className="text-right tabular-nums">− {fcfa(liveTotals.withholding)}</td></tr>}
+                          {invForm.withholding && <tr><td className="pr-6 text-slate-500">{invForm.withholding_label || "retenue"} {invForm.withholding_rate || 0} %</td><td className="text-right tabular-nums">− {fcfa(liveTotals.withholding)}</td></tr>}
                           {invForm.withholding && <tr className="font-bold text-[#0F6B4A]"><td className="pr-6">NET À PAYER</td><td className="text-right tabular-nums">{fcfa(liveTotals.net)}</td></tr>}
                         </tbody>
                       </table>

@@ -3,4 +3,4 @@
   de la sidebar (SidebarInfoBar). À modifier ici à chaque nouvelle livraison.
   Format : v<année>.<n° de lot>  (ex. v2026.7 = lot 5 de 2026)
 */
-export const APP_VERSION = "v2026.7";
+export const APP_VERSION = "v2026.8";

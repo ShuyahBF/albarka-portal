@@ -8,16 +8,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import EntitySelect from "@/components/EntitySelect";
 import PayrollTable from "@/components/PayrollTable";
-import { Table2 } from "lucide-react";
+import { Table2, BookOpen, SlidersHorizontal, Receipt } from "lucide-react";
+// Lot 8 : paie Burkina Faso paramétrable (cabinet + clients)
+import PaieEmployees from "@/components/paie/PaieEmployees";
+import { PaieBulletins, PaieLivre } from "@/components/paie/PaieBulletins";
+import PaieSettings from "@/components/paie/PaieSettings";
 
 export default function AdminHR() {
   const [employees, setEmployees] = useState([]);
   const [payslips, setPayslips] = useState([]);
-  const [openEmp, setOpenEmp] = useState(false);
   const [openPay, setOpenPay] = useState(false);
-  const [empForm, setEmpForm] = useState({ tenant_id: "", full_name: "", role: "", base_salary: "", email: "", phone: "" });
   const [payForm, setPayForm] = useState({ employee_id: "", period_month: "", gross_salary: "", deductions: 0, bonuses: 0, notes: "" });
 
   const load = async () => {
@@ -30,23 +31,6 @@ export default function AdminHR() {
     } catch (err) { toast.error(extractError(err)); }
   };
   useEffect(() => { load(); }, []);
-
-  const submitEmp = async () => {
-    if (!empForm.tenant_id || !empForm.full_name || !empForm.base_salary) {
-      toast.error("Client, nom et salaire de base requis"); return;
-    }
-    try {
-      await apiClient.post("/hr/employees", {
-        tenant_id: empForm.tenant_id, full_name: empForm.full_name,
-        role: empForm.role || null, base_salary: Number(empForm.base_salary),
-        email: empForm.email || null, phone: empForm.phone || null,
-      });
-      toast.success("Employé ajouté");
-      setOpenEmp(false);
-      setEmpForm({ tenant_id: "", full_name: "", role: "", base_salary: "", email: "", phone: "" });
-      await load();
-    } catch (err) { toast.error(extractError(err)); }
-  };
 
   const submitPay = async () => {
     if (!payForm.employee_id || !payForm.period_month || !payForm.gross_salary) {
@@ -72,65 +56,29 @@ export default function AdminHR() {
       <div>
         <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
         <h1 className="font-display text-3xl md:text-4xl">Paie & RH</h1>
-        <p className="text-muted-foreground mt-1">Employés des clients, bulletins de paie et tableau mensuel du personnel.</p>
+        <p className="text-muted-foreground mt-1">Paie du personnel du cabinet et des clients : salariés, bulletins, livre de paie, tableau mensuel et paramètres (modèles de configuration).</p>
       </div>
 
       <Tabs defaultValue="employees">
-        <TabsList>
-          <TabsTrigger value="employees" data-testid="tab-hr-employees"><Users className="w-4 h-4 mr-2" />Employés</TabsTrigger>
-          <TabsTrigger value="payslips" data-testid="tab-hr-payslips"><FileText className="w-4 h-4 mr-2" />Bulletins</TabsTrigger>
+        <TabsList className="flex-wrap h-auto">
+          <TabsTrigger value="employees" data-testid="tab-hr-employees"><Users className="w-4 h-4 mr-2" />Salariés</TabsTrigger>
+          <TabsTrigger value="bulletins" data-testid="tab-hr-bulletins"><Receipt className="w-4 h-4 mr-2" />Bulletins de paie</TabsTrigger>
+          <TabsTrigger value="livre" data-testid="tab-hr-livre"><BookOpen className="w-4 h-4 mr-2" />Livre de paie</TabsTrigger>
           {/* Lot 7 : liste actualisée du personnel (fiche de renseignement) */}
           <TabsTrigger value="table" data-testid="tab-hr-table"><Table2 className="w-4 h-4 mr-2" />Tableau de paie</TabsTrigger>
+          <TabsTrigger value="settings" data-testid="tab-hr-settings"><SlidersHorizontal className="w-4 h-4 mr-2" />Paramètres de paie</TabsTrigger>
+          {payslips.length > 0 && <TabsTrigger value="payslips" data-testid="tab-hr-payslips"><FileText className="w-4 h-4 mr-2" />Anciens bulletins</TabsTrigger>}
         </TabsList>
+
+        <TabsContent value="bulletins" className="pt-4"><PaieBulletins /></TabsContent>
+        <TabsContent value="livre" className="pt-4"><PaieLivre /></TabsContent>
+        <TabsContent value="settings" className="pt-4"><PaieSettings /></TabsContent>
 
         <TabsContent value="table" className="pt-4">
           <PayrollTable />
         </TabsContent>
 
-        <TabsContent value="employees" className="pt-4 space-y-3">
-          <div className="flex justify-end">
-            <Dialog open={openEmp} onOpenChange={setOpenEmp}>
-              <DialogTrigger asChild>
-                <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-employee-btn"><Plus className="w-4 h-4 mr-2" />Nouvel employé</Button>
-              </DialogTrigger>
-              <DialogContent data-testid="employee-dialog">
-                <DialogHeader><DialogTitle>Nouvel employé</DialogTitle></DialogHeader>
-                <div className="space-y-3">
-                  <div><Label>Client</Label><EntitySelect value={empForm.tenant_id} onChange={(v) => setEmpForm({ ...empForm, tenant_id: v })} testId="employee-tenant-input" /></div>
-                  <div><Label>Nom complet</Label><Input value={empForm.full_name} onChange={(e) => setEmpForm({ ...empForm, full_name: e.target.value })} data-testid="employee-name-input" /></div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label>Fonction</Label><Input value={empForm.role} onChange={(e) => setEmpForm({ ...empForm, role: e.target.value })} data-testid="employee-role-input" /></div>
-                    <div><Label>Salaire de base</Label><Input type="number" value={empForm.base_salary} onChange={(e) => setEmpForm({ ...empForm, base_salary: e.target.value })} data-testid="employee-salary-input" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label>Email</Label><Input type="email" value={empForm.email} onChange={(e) => setEmpForm({ ...empForm, email: e.target.value })} data-testid="employee-email-input" /></div>
-                    <div><Label>Téléphone</Label><Input value={empForm.phone} onChange={(e) => setEmpForm({ ...empForm, phone: e.target.value })} data-testid="employee-phone-input" /></div>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setOpenEmp(false)}>Annuler</Button>
-                  <Button onClick={submitEmp} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="employee-submit-btn">Ajouter</Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
-          </div>
-          <div className="albarka-card overflow-hidden">
-            <Table>
-              <TableHeader><TableRow><TableHead>Nom</TableHead><TableHead>Fonction</TableHead><TableHead className="text-right">Salaire base</TableHead><TableHead>Contact</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {employees.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Aucun employé.</TableCell></TableRow>}
-                {employees.map((e) => (
-                  <TableRow key={e.id}>
-                    <TableCell className="font-medium">{e.full_name}</TableCell>
-                    <TableCell>{e.role || "—"}</TableCell>
-                    <TableCell className="text-right">{Number(e.base_salary).toLocaleString()}</TableCell>
-                    <TableCell className="text-sm">{e.email || e.phone || "—"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
+        <TabsContent value="employees" className="pt-4"><PaieEmployees /></TabsContent>
 
         <TabsContent value="payslips" className="pt-4 space-y-3">
           <div className="flex justify-end">

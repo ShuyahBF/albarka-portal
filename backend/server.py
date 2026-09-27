@@ -150,6 +150,9 @@ api_router.include_router(docgen_router)
 api_router.include_router(docgen_public_router)
 api_router.include_router(letters_router)
 api_router.include_router(payroll_router)
+# Lot 8 : paie (modèles de configuration, bulletins, livre de paie)
+from albarka_paie import router as paie_router, ensure_paie_setup  # noqa: E402
+api_router.include_router(paie_router)
 
 
 @api_router.get("/")
@@ -229,6 +232,8 @@ async def _ensure_indexes():
         await ensure_access_indexes()
         # Notifications push
         await ensure_push_indexes()
+        # Lot 8 : paie (index + modèle « Burkina Faso — standard »)
+        await ensure_paie_setup()
     except Exception:
         logger.exception("Échec création index Mongo (non bloquant)")
 

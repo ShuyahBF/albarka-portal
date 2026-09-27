@@ -143,6 +143,16 @@ async def load_table(tenant_id: str, month: str) -> dict:
             emps = await db.employees.find({"tenant_id": tenant_id}, {"_id": 0}).sort("full_name", 1).to_list(500)
             rows = [{"employee_id": e["id"], "full_name": e.get("full_name"), "base_salary": e.get("base_salary") or 0} for e in emps]
             source = "employees" if emps else "empty"
+    # Lot 8 : net (et ancienneté) repris des bulletins calculés du mois quand ils ne sont pas saisis
+    slips = {b["employee_id"]: b.get("result") or {} async for b in db.paie_bulletins.find(
+        {"employer_id": tenant_id, "period_month": month}, {"_id": 0, "employee_id": 1, "result": 1})}
+    for r in rows:
+        res = slips.get(r.get("employee_id"))
+        if res:
+            if source != "saved" or r.get("net") in (None, "", 0):
+                r["net"] = res.get("net")
+            if source != "saved" or not r.get("seniority"):
+                r["seniority"] = res.get("seniority") or 0
     clean = []
     for r in rows:
         row = {k: r.get(k) for k in ("employee_id", "full_name", *[c for c, _ in AMOUNT_COLUMNS], "gross", "net")}

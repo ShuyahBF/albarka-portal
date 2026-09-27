@@ -261,6 +261,13 @@ class PaymentCreate(BaseModel):
     reference: Optional[str] = None
 
 
+def round_franc(value: float) -> int:
+    """Lot 8 — arrondi au franc le plus proche, 0,5 vers le haut (9 473,5 -> 9 474).
+    (round() de Python arrondit « au pair » : 0,5 pouvait descendre.)"""
+    from decimal import ROUND_HALF_UP, Decimal
+    return int(Decimal(str(value)).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
 def _invoice_totals(items: list[dict], tva_rate: Optional[float] = None, withholding_rate: float = 0) -> dict:
     """Totaux d'un document. Lignes de titre ("section") exclues.
     Avec `tva_rate` (lot 7) : TVA unique calculée en fin de facture sur le
@@ -269,12 +276,12 @@ def _invoice_totals(items: list[dict], tva_rate: Optional[float] = None, withhol
     lines = [i for i in items if i.get("kind") != "section"]
     subtotal = sum((i["quantity"] * i["unit_price"]) for i in lines)
     if tva_rate is not None:
-        subtotal = round(subtotal)
-        tax = round(subtotal * tva_rate / 100.0)
+        subtotal = round_franc(subtotal)
+        tax = round_franc(subtotal * tva_rate / 100.0)
     else:
         tax = sum((i["quantity"] * i["unit_price"] * (i.get("tax_rate", 0) / 100.0)) for i in lines)
     total = round(subtotal + tax, 2)
-    withholding = round(subtotal * (withholding_rate or 0) / 100.0) if withholding_rate else 0
+    withholding = round_franc(subtotal * (withholding_rate or 0) / 100.0) if withholding_rate else 0
     return {"subtotal": round(subtotal, 2), "tax": round(tax, 2), "total": total,
             "withholding": withholding, "net_to_pay": round(total - withholding, 2)}
 

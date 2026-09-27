@@ -81,6 +81,8 @@ export default function DocSettingsPanel() {
     try {
       const { data } = await apiClient.put("/admin/doc-settings", {
         ...settings, default_tva_rate: Number(settings.default_tva_rate) || 0, default_withholding_rate: Number(settings.default_withholding_rate) || 0,
+        withholding_rate_ifu: Number(settings.withholding_rate_ifu ?? 5) || 0, withholding_rate_no_ifu: Number(settings.withholding_rate_no_ifu ?? 10) || 0,
+        withholding_label: (settings.withholding_label || "").trim() || "retenue",
       });
       setSettings(data); toast.success("Réglages enregistrés");
     } catch (e) { toast.error(extractError(e)); } finally { setSaving(false); }
@@ -146,8 +148,13 @@ export default function DocSettingsPanel() {
             ))}
             <label className="block"><span className={ui.label}>TVA par défaut (%)</span>
               <input type="number" value={settings.default_tva_rate ?? 18} disabled={!canWrite} onChange={(e) => setSettings({ ...settings, default_tva_rate: e.target.value })} className={ui.input} /></label>
-            <label className="block"><span className={ui.label}>Retenue proposée (%)</span>
-              <input type="number" value={settings.default_withholding_rate ?? 0} disabled={!canWrite} onChange={(e) => setSettings({ ...settings, default_withholding_rate: e.target.value })} className={ui.input} /></label>
+            {/* Lot 8 — retenue à la source : taux selon le prestataire et libellé imprimé */}
+            <label className="block"><span className={ui.label}>Retenue — prestataire avec IFU (%)</span>
+              <input type="number" value={settings.withholding_rate_ifu ?? 5} disabled={!canWrite} onChange={(e) => setSettings({ ...settings, withholding_rate_ifu: e.target.value })} className={ui.input} data-testid="doc-setting-withholding-ifu" /></label>
+            <label className="block"><span className={ui.label}>Retenue — prestataire sans IFU (%)</span>
+              <input type="number" value={settings.withholding_rate_no_ifu ?? 10} disabled={!canWrite} onChange={(e) => setSettings({ ...settings, withholding_rate_no_ifu: e.target.value })} className={ui.input} data-testid="doc-setting-withholding-no-ifu" /></label>
+            <label className="block"><span className={ui.label}>Libellé de la retenue</span>
+              <input value={settings.withholding_label ?? "retenue"} disabled={!canWrite} onChange={(e) => setSettings({ ...settings, withholding_label: e.target.value })} className={ui.input} data-testid="doc-setting-withholding-label" /></label>
           </div>
           <p className="text-[11px] text-slate-400">La signature manuscrite du DG (Paramètres → Branding) est ajoutée sur les factures si l'option « signature du DG » est activée.</p>
           {canWrite && <div className="flex justify-end"><button type="button" onClick={saveSettings} disabled={saving} className={ui.btnPrimary} data-testid="doc-settings-save">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Enregistrer</button></div>}
