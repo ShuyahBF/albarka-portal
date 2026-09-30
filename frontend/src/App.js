@@ -28,6 +28,8 @@ import Historique from "@/pages/portal/Historique";
 import MyAccount from "@/pages/portal/MyAccount";
 import MyForms from "@/pages/portal/MyForms";
 import CabinetDocuments from "@/pages/portal/CabinetDocuments";
+// Lot 9 : Outils Numériques (clients et personnel)
+import OutilsNumeriques from "@/pages/portal/OutilsNumeriques";
 
 // Admin (staff)
 import AdminClients from "@/pages/admin/AdminClients";
@@ -48,6 +50,7 @@ import AdminWhatsAppStats from "@/pages/admin/AdminWhatsAppStats";
 import { AdminFormsLibrary, AdminFormDetail } from "@/pages/admin/AdminForms";
 import AdminClientSpace from "@/pages/admin/AdminClientSpace";
 import AdminTemplates from "@/pages/admin/AdminTemplates";
+import AdminOutilsNumeriques from "@/pages/admin/AdminOutilsNumeriques";
 import VerifyDocument from "@/pages/public/VerifyDocument";
 import { AdminDashboard, AdminDocuments, AdminMissions, AdminEcheances } from "@/pages/admin/AdminShared";
 
@@ -96,6 +99,7 @@ function App() {
             <Route path="historique" element={<Historique />} />
             <Route path="formulaires" element={<MyForms />} />
             <Route path="documents-cabinet" element={<CabinetDocuments />} />
+            <Route path="outils-numeriques" element={<OutilsNumeriques />} />
             <Route path="mon-compte" element={<MyAccount />} />
           </Route>
 
@@ -128,6 +132,9 @@ function App() {
             <Route path="espace-client" element={<AdminClientSpace />} />
             <Route path="logs" element={<AdminPlatformLogs />} />
             <Route path="settings" element={<AdminSettings />} />
+            {/* Lot 9 : outils à télécharger ; gestion + historique réservés au compte admin du portail */}
+            <Route path="outils-numeriques" element={<OutilsNumeriques admin />} />
+            <Route path="outils-numeriques/gestion" element={<AdminOutilsNumeriques />} />
             <Route path="mon-compte" element={<MyAccount />} />
           </Route>
 

@@ -31,6 +31,8 @@ import {
   FolderOpen,
   FolderUp,
   FilePen,
+  HardDriveDownload,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -63,6 +65,8 @@ const CLIENT_LINKS = [
   { to: "/portal/historique", label: "Historique", icon: History, module: "historique" },
   // Formulaires envoyés par le cabinet (à remplir / déjà répondus)
   { to: "/portal/formulaires", label: "Mes formulaires", icon: ClipboardCheck, module: "formulaires" },
+  // Lot 9 : logiciels, documents, applications à télécharger (toujours visible)
+  { to: "/portal/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload },
   { to: "/portal/mon-compte", label: "Mon compte", icon: UserCog },
 ];
 // Doit rester identique à CLIENT_SPACE_ROLES côté backend (albarka_models.py).
@@ -119,12 +123,22 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "administrateur"] },
   // Paramètres : Superviseur uniquement (SETTINGS_ROLES côté backend)
   { to: "/admin/settings", label: "Paramètres", icon: Settings, roles: ["superviseur"] },
+  // Lot 9 : gestion des outils + historique des téléchargements — compte
+  // admin du portail UNIQUEMENT (ni le Superviseur ni la Direction).
+  { to: "/admin/outils-numeriques/gestion", label: "Gestion des outils", icon: SlidersHorizontal, superAdminOnly: true },
+  // Lot 9 : outils à télécharger, pour tout collaborateur
+  { to: "/admin/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload, end: true, alwaysAllowed: true },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —
   // voir allowedFor() ci-dessous.
   { to: "/admin/mon-compte", label: "Mon compte", icon: UserCog, alwaysAllowed: true },
 ];
 
-function allowedFor(link, roles) {
+// Doit rester identique à ADMIN_ACCOUNT_EMAIL côté backend (albarka_models.py)
+const ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com";
+
+function allowedFor(link, roles, email = "") {
+  // Réservé au compte admin du portail, quel que soit le rôle
+  if (link.superAdminOnly) return (email || "").toLowerCase() === ADMIN_ACCOUNT_EMAIL;
   if (link.alwaysAllowed) return true;
   if (roles.includes("superviseur")) return true;
   // La DG a les mêmes liens que la Direction (droits identiques côté serveur)
@@ -148,7 +162,7 @@ export default function PortalLayout({ admin = false }) {
     apiClient.get("/access/me").then(({ data }) => setCanIssueTokens(!!data.can_issue_tokens)).catch(() => {});
   }, [admin]);
   const links = admin
-    ? STAFF_MENU.filter((l) => allowedFor(l, roles) || (canIssueTokens && l.to === "/admin/staff"))
+    ? STAFF_MENU.filter((l) => allowedFor(l, roles, user?.email) || (canIssueTokens && l.to === "/admin/staff"))
     // Espace client : seuls les modules ouverts par le cabinet (aucun réglage = tous)
     : CLIENT_LINKS.filter((l) => !l.module || !Array.isArray(user?.portal_modules) || user.portal_modules.includes(l.module));
   // Rôle sans « Tableau de bord » dans son menu (ex. Caissier, Communication,

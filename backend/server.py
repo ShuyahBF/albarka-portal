@@ -153,6 +153,9 @@ api_router.include_router(payroll_router)
 # Lot 8 : paie (modèles de configuration, bulletins, livre de paie)
 from albarka_paie import router as paie_router, ensure_paie_setup  # noqa: E402
 api_router.include_router(paie_router)
+# Lot 9 : espace « Outils Numériques » (téléchargements, historique réservé au super-admin)
+from albarka_outils import router as outils_router, ensure_outils_indexes  # noqa: E402
+api_router.include_router(outils_router)
 
 
 @api_router.get("/")
@@ -234,6 +237,8 @@ async def _ensure_indexes():
         await ensure_push_indexes()
         # Lot 8 : paie (index + modèle « Burkina Faso — standard »)
         await ensure_paie_setup()
+        # Lot 9 : outils numériques (ordre, historique des téléchargements)
+        await ensure_outils_indexes()
     except Exception:
         logger.exception("Échec création index Mongo (non bloquant)")
 
