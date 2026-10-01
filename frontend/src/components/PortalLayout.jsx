@@ -74,8 +74,11 @@ const CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", 
 
 // Staff menu items with the roles that grant access. `superviseur` = full access.
 const STAFF_MENU = [
+  // Tableau de bord du cabinet : doit rester identique à DASHBOARD_ROLES côté
+  // backend (albarka_models.py). Lot 10 : plus l'Administrateur seul (il arrive
+  // sur « Personnels ») ni le Caissier seul (il arrive sur la Caisse).
   { to: "/admin", label: "Tableau de bord", icon: LayoutDashboard, end: true,
-    roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
+    roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   { to: "/admin/clients", label: "Clients", icon: Users,
     roles: ["superviseur", "direction", "administrateur", "secretariat"] },
   { to: "/admin/contacts", label: "Contacts", icon: Contact,
@@ -165,14 +168,24 @@ export default function PortalLayout({ admin = false }) {
     ? STAFF_MENU.filter((l) => allowedFor(l, roles, user?.email) || (canIssueTokens && l.to === "/admin/staff"))
     // Espace client : seuls les modules ouverts par le cabinet (aucun réglage = tous)
     : CLIENT_LINKS.filter((l) => !l.module || !Array.isArray(user?.portal_modules) || user.portal_modules.includes(l.module));
-  // Rôle sans « Tableau de bord » dans son menu (ex. Caissier, Communication,
-  // Formulaires) : à l'arrivée sur /admin, on ouvre son premier lien autorisé.
+  // Rôle sans « Tableau de bord » dans son menu (ex. Administrateur, Caissier,
+  // Communication, Formulaires) : à l'arrivée sur /admin, on ouvre sa page
+  // d'accueil — « Personnels » s'il gère le personnel (Administrateur), sinon
+  // son premier lien autorisé (la Caisse pour le Caissier).
+  const path = location.pathname.replace(/\/+$/, "") || "/";
+  const leaveDashboard = admin && path === "/admin" && links.length > 0 && !links.some((l) => l.to === "/admin");
+  // Espace client : page d'un module fermé par le cabinet (adresse tapée ou
+  // ancien favori) → retour au tableau de bord du client.
+  const closedModulePage = !admin && CLIENT_LINKS.some((l) => l.module && l.to === path && !links.includes(l));
   useEffect(() => {
-    if (admin && location.pathname === "/admin" && links.length && !links.some((l) => l.to === "/admin")) {
-      navigate(links[0].to, { replace: true });
+    if (leaveDashboard) {
+      const home = links.find((l) => l.to === "/admin/staff" && allowedFor(l, roles, user?.email)) || links[0];
+      navigate(home.to, { replace: true });
+    } else if (closedModulePage) {
+      navigate("/portal", { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [admin, location.pathname, links.length]);
+  }, [leaveDashboard, closedModulePage]);
   const canUsePayments = roles.includes("superviseur") || roles.some((r) => PAYMENTS_ROLES.includes(r));
 
   // Badges non-lus (WhatsApp/Diffusion) affichés à côté du lien correspondant
@@ -354,7 +367,9 @@ export default function PortalLayout({ admin = false }) {
           </div>
         </header>
         <main className="flex-1 p-5 md:p-8 max-w-7xl w-full mx-auto">
-          <Outlet />
+          {/* Rien n'est affiché (ni chargé) pendant la redirection ci-dessus :
+              le tableau de bord ne s'ouvre pas, même un instant. */}
+          {!leaveDashboard && !closedModulePage && <Outlet />}
         </main>
       </div>
       {/* Chat interne — strictement réservé aux collaborateurs, jamais aux clients */}

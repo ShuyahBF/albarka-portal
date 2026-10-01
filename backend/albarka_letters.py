@@ -27,7 +27,7 @@ import io
 import logging
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime
 from html.parser import HTMLParser
 from typing import Any, Dict, List, Optional
 
@@ -270,15 +270,38 @@ def _extract_images(body: str):
     return body, arch
 
 
-def html_to_pdf(body: str, letterhead: dict, qr_text: Optional[str] = None) -> bytes:
+# Lot 11 — hauteur maximale des images du papier à en-tête : une image
+# d'en-tête plus haute que la page (ex. feuille A4 entière chargée comme
+# « en-tête ») ne laissait plus de place au texte (60 pages blanches).
+_MAX_HEADER_H = _A4[1] * 0.40
+_MAX_FOOTER_H = _A4[1] * 0.25
+
+
+def _image_box(data: Optional[bytes], max_h: float, label: str, warnings: Optional[list]) -> float:
+    """Hauteur (points) de l'image du papier sur toute la largeur, plafonnée."""
+    if not data:
+        return 0.0
+    h = letterhead_image_size(data, _A4[0])[1]
+    if h > max_h:
+        if warnings is not None:
+            warnings.append(f"Image {label} du papier à en-tête trop haute : réduite pour laisser la place au texte "
+                            "(chargez une image en bandeau, pas une page entière).")
+        return max_h
+    return h
+
+
+def html_to_pdf(body: str, letterhead: dict, qr_text: Optional[str] = None, warnings: Optional[list] = None) -> bytes:
     """PDF A4 : texte mis en forme, papier à en-tête sur chaque page, QR code
-    de vérification dans la marge droite de la première page."""
+    de vérification dans la marge droite de la première page.
+    Lot 11 : les avertissements (image trop haute…) sont ajoutés à `warnings`."""
     import fitz
     header, footer = letterhead.get("header"), letterhead.get("footer")
-    header_h = letterhead_image_size(header, _A4[0])[1] if header else 0
-    footer_h = letterhead_image_size(footer, _A4[0])[1] if footer else 0
-    top = header_h + 14 if header else float(letterhead.get("top_margin_cm", 2.0)) * 28.35
-    bottom = footer_h + 12 if footer else float(letterhead.get("bottom_margin_cm", 2.0)) * 28.35
+    header_h = _image_box(header, _MAX_HEADER_H, "d'en-tête", warnings)
+    footer_h = _image_box(footer, _MAX_FOOTER_H, "de pied de page", warnings)
+    # Image illisible (hauteur 0) : on fait comme s'il n'y en avait pas
+    header, footer = (header if header_h else None), (footer if footer_h else None)
+    top = header_h + 14 if header else float(letterhead.get("top_margin_cm") or 2.0) * 28.35
+    bottom = footer_h + 12 if footer else float(letterhead.get("bottom_margin_cm") or 2.0) * 28.35
     body, arch = _extract_images(body or "<p></p>")
     story = fitz.Story(html=f"<body>{body}</body>", user_css=_PDF_CSS, archive=arch)
     buf = io.BytesIO()
@@ -294,12 +317,13 @@ def html_to_pdf(body: str, letterhead: dict, qr_text: Optional[str] = None) -> b
         pages += 1
     writer.close()
     # Second passage : images du papier à en-tête et QR code
+    # (keep_proportion : une image plafonnée reste centrée, sans être écrasée)
     doc = fitz.open("pdf", buf.getvalue())
     for i, page in enumerate(doc):
         if header:
-            page.insert_image(fitz.Rect(0, 0, _A4[0], header_h), stream=header, keep_proportion=False)
+            page.insert_image(fitz.Rect(0, 0, _A4[0], header_h), stream=header, keep_proportion=True)
         if footer:
-            page.insert_image(fitz.Rect(0, _A4[1] - footer_h, _A4[0], _A4[1]), stream=footer, keep_proportion=False)
+            page.insert_image(fitz.Rect(0, _A4[1] - footer_h, _A4[0], _A4[1]), stream=footer, keep_proportion=True)
         if i == 0 and qr_text:
             size = 50
             x0 = _A4[0] - _SIDE + (_SIDE - size) / 2
@@ -312,13 +336,22 @@ def html_to_pdf(body: str, letterhead: dict, qr_text: Optional[str] = None) -> b
     return out
 
 
+def _image_mime(data: bytes) -> str:
+    """Type de l'image (signature des premiers octets) pour la version Word."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/png"
+
+
 def word_html(body: str, letterhead: dict, title: str) -> bytes:
     """Version « Word » (.doc) : page HTML que Word ouvre et modifie telle quelle."""
     parts = []
     for part in ("header", "footer"):
         data = letterhead.get(part)
         if data:
-            parts.append(f'<p style="margin:0"><img src="data:image/png;base64,{base64.b64encode(data).decode()}" width="620"></p>')
+            parts.append(f'<p style="margin:0"><img src="data:{_image_mime(data)};base64,{base64.b64encode(data).decode()}" width="620"></p>')
         else:
             parts.append("")
     page = (f"<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word'>"
@@ -326,7 +359,39 @@ def word_html(body: str, letterhead: dict, title: str) -> bytes:
             f"<style>body{{font-family:Arial,sans-serif;font-size:11pt}} table{{border-collapse:collapse}}"
             f" td,th{{padding:3pt 5pt;vertical-align:top}}</style></head><body>"
             f"{parts[0]}{body}{parts[1]}</body></html>")
-    return ("﻿" + page).encode("utf-8")
+    return ("\ufeff" + page).encode("utf-8")
+
+
+# --------------------------------------------------------------------------
+# Lot 11 — erreurs lisibles : jamais de « 500 » sans explication
+# --------------------------------------------------------------------------
+def _pdf_failure(exc: Exception, who: str = "") -> HTTPException:
+    """Erreur 422 en français quand le PDF ne peut pas être produit (le détail
+    technique complet est journalisé côté serveur)."""
+    tech = f"{type(exc).__name__} : {str(exc)[:160]}".strip(" :")
+    low = str(exc).lower()
+    if "image" in low:
+        why = ("une image du texte ou du papier à en-tête est dans un format non pris en charge — "
+               "enregistrez-la en PNG ou JPG puis rechargez-la")
+    else:
+        why = ("la mise en forme du texte n'a pas pu être convertie — simplifiez-la (texte collé depuis Word, "
+               "tableaux imbriqués…) ou essayez « Aucun en-tête » pour isoler le problème")
+    target = f" pour « {who} »" if who else ""
+    return HTTPException(status_code=422, detail=f"Le PDF n'a pas pu être produit{target} : {why}. (Détail technique : {tech})")
+
+
+def _parse_doc_date(raw: Optional[str]) -> str:
+    """Date du document au format AAAA-MM-JJ. Accepte aussi JJ/MM/AAAA (saisie
+    à la main) ; vide = aujourd'hui ; sinon erreur 422 lisible."""
+    raw = (raw or "").strip()
+    if not raw:
+        return now_iso()[:10]
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.strptime(raw[:10], fmt).date().isoformat()
+        except ValueError:
+            continue
+    raise HTTPException(status_code=422, detail=f"Date du document invalide (« {raw[:20]} ») : format attendu JJ/MM/AAAA")
 
 
 # ==========================================================================
@@ -518,7 +583,7 @@ def format_number(fmt: str, n: int, doc_date: str) -> str:
 async def _values_for(tpl: dict, tenant_id: str, payload: GenerateIn, settings: dict, cabinet: str,
                       mission: Optional[dict], number: str) -> Dict[str, str]:
     """Toutes les valeurs d'un destinataire : automatiques + communes + propres."""
-    doc_date = (payload.doc_date or now_iso())[:10]
+    doc_date = _parse_doc_date(payload.doc_date)
     values = {
         "date.jour": date_longue(doc_date),
         "date.lieu_jour": f"{settings.get('city') or 'Ouagadougou'}, le {date_longue(doc_date)}",
@@ -569,24 +634,41 @@ async def _deposit(doc: dict, pdf: bytes, user: dict, notify: bool) -> Optional[
     return cdoc["id"]
 
 
+def _warnings_header(warnings: List[str]) -> Dict[str, str]:
+    """Avertissements renvoyés avec un PDF (en-tête HTTP, texte encodé)."""
+    from urllib.parse import quote
+    return {"X-Avertissements": quote(" | ".join(warnings))} if warnings else {}
+
+
 @router.post("/templates/{tpl_id}/preview")
 async def preview(tpl_id: str, payload: GenerateIn, user: dict = Depends(require_staff())):
     """Aperçu PDF pour le 1er destinataire (rien n'est enregistré, numéro provisoire)."""
     tpl = await _template_or_404(tpl_id)
+    doc_date = _parse_doc_date(payload.doc_date)
     settings = await get_doc_settings()
     cab = (await db.settings.find_one({"_id": "global"}, {"_id": 0, "cabinet_name": 1}) or {}).get("cabinet_name") or "Cabinet ALBARKA"
     mission = await db.missions.find_one({"id": payload.mission_id}, {"_id": 0}) if payload.mission_id else None
-    number = format_number(tpl.get("number_format"), int(tpl.get("next_number") or 1), payload.doc_date or now_iso())
+    number = format_number(tpl.get("number_format"), int(tpl.get("next_number") or 1), doc_date)
     values = await _values_for(tpl, payload.tenant_ids[0], payload, settings, cab, mission, number)
     body = sanitize_html(payload.body_html) if payload.body_html else tpl.get("body_html") or ""
-    letterhead = await load_letterhead(payload.letterhead_id or tpl.get("letterhead_id"))
-    pdf = html_to_pdf(render_body(body, values), letterhead, qr_text=verify_url("apercu"))
-    return Response(content=pdf, media_type="application/pdf", headers={"Content-Disposition": 'inline; filename="apercu.pdf"'})
+    warnings: List[str] = []
+    letterhead = await load_letterhead(payload.letterhead_id or tpl.get("letterhead_id"), warnings)
+    try:
+        pdf = html_to_pdf(render_body(body, values), letterhead, qr_text=verify_url("apercu"), warnings=warnings)
+    except Exception as exc:  # noqa: BLE001 — lot 11 : message lisible + trace au journal
+        logger.exception("Aperçu du modèle %s impossible (papier %s)", tpl_id, letterhead.get("id"))
+        raise _pdf_failure(exc)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": 'inline; filename="apercu.pdf"', **_warnings_header(warnings)})
 
 
 @router.post("/templates/{tpl_id}/generate")
 async def generate(tpl_id: str, payload: GenerateIn, user: dict = Depends(require_staff())):
-    """Produit UN document par destinataire, numéroté, avec PDF stocké."""
+    """Produit UN document par destinataire, numéroté, avec PDF stocké.
+    Lot 11 : une erreur sur un destinataire renvoie un message clair (422 /
+    503) au lieu d'une erreur 500, le numéro non utilisé est rendu au compteur
+    et les avertissements (image du papier à en-tête absente…) sont renvoyés
+    dans `warnings`."""
     tpl = await _template_or_404(tpl_id)
     ids = list(dict.fromkeys(payload.tenant_ids))
     if len(ids) > MAX_RECIPIENTS:
@@ -595,15 +677,25 @@ async def generate(tpl_id: str, payload: GenerateIn, user: dict = Depends(requir
     missing = [i for i in ids if i not in clients]
     if missing:
         raise HTTPException(status_code=400, detail="Destinataire inconnu (clients uniquement)")
+    doc_date = _parse_doc_date(payload.doc_date)
     settings = await get_doc_settings()
     cab = (await db.settings.find_one({"_id": "global"}, {"_id": 0, "cabinet_name": 1}) or {}).get("cabinet_name") or "Cabinet ALBARKA"
     mission = await db.missions.find_one({"id": payload.mission_id}, {"_id": 0}) if payload.mission_id else None
     body = sanitize_html(payload.body_html) if payload.body_html else tpl.get("body_html") or ""
     lh_id = payload.letterhead_id or tpl.get("letterhead_id")
-    letterhead = await load_letterhead(lh_id)
-    doc_date = (payload.doc_date or now_iso())[:10]
+    warnings: List[str] = []
+    letterhead = await load_letterhead(lh_id, warnings)
     batch_id = secrets.token_hex(6)
     created = []
+
+    async def give_back(n: int) -> None:
+        """Rend le numéro au compteur si personne n'en a pris un autre depuis."""
+        await db.doc_templates.update_one({"id": tpl_id, "next_number": n + 1},
+                                          {"$inc": {"next_number": -1, "generated_count": -1}})
+
+    def already() -> str:
+        return f" {len(created)} document(s) déjà produit(s) avant l'erreur (voir « Documents générés »)." if created else ""
+
     for tid in ids:
         # Numéro : compteur du modèle incrémenté de façon atomique
         res = await db.doc_templates.find_one_and_update({"id": tpl_id}, {"$inc": {"next_number": 1, "generated_count": 1}})
@@ -615,10 +707,23 @@ async def generate(tpl_id: str, payload: GenerateIn, user: dict = Depends(requir
         title = render_body(tpl.get("title_pattern") or "", values) if tpl.get("title_pattern") else \
             f"{CATEGORIES.get(tpl.get('category'), 'Document')} — {client_name}"
         token = new_verify_token()
-        pdf = html_to_pdf(rendered, letterhead, qr_text=verify_url(token))
-        stored = await albarka_storage.save_and_log(
-            db, data=pdf, kind="generated_document", tenant_id=tid, ext="pdf", content_type="application/pdf",
-            original_filename=f"{number}.pdf".replace("/", "-"), user_id=user["id"])
+        try:
+            pdf = html_to_pdf(rendered, letterhead, qr_text=verify_url(token), warnings=warnings)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Génération du modèle %s pour %s impossible (papier %s)", tpl_id, tid, letterhead.get("id"))
+            await give_back(n)
+            err = _pdf_failure(exc, client_name)
+            err.detail += already()
+            raise err
+        try:
+            stored = await albarka_storage.save_and_log(
+                db, data=pdf, kind="generated_document", tenant_id=tid, ext="pdf", content_type="application/pdf",
+                original_filename=f"{number}.pdf".replace("/", "-"), user_id=user["id"])
+        except Exception:  # noqa: BLE001 — stockage (R2) indisponible
+            logger.exception("Enregistrement du PDF %s impossible", number)
+            await give_back(n)
+            raise HTTPException(status_code=503, detail="Enregistrement du PDF impossible (stockage des fichiers "
+                                                        "indisponible) : réessayez dans un instant." + already())
         doc = {"id": secrets.token_hex(8), "batch_id": batch_id, "template_id": tpl_id, "template_name": tpl.get("name"),
                "category": tpl.get("category"), "category_label": CATEGORIES.get(tpl.get("category"), "Document"),
                "number": number, "tenant_id": tid, "recipient_name": client_name, "title": re.sub(r"<[^>]+>", "", title)[:200],
@@ -628,10 +733,15 @@ async def generate(tpl_id: str, payload: GenerateIn, user: dict = Depends(requir
                "created_by_name": user.get("full_name") or user.get("email"), "created_at": now_iso(),
                "client_document_id": None, "deleted_at": None}
         if payload.deposit:
-            doc["client_document_id"] = await _deposit(doc, pdf, user, payload.notify)
+            try:
+                doc["client_document_id"] = await _deposit(doc, pdf, user, payload.notify)
+            except Exception:  # noqa: BLE001 — le document reste produit, seul le dépôt manque
+                logger.exception("Dépôt du document %s dans l'espace client impossible", number)
+                warnings.append(f"Document {number} produit mais NON déposé dans l'espace de « {client_name} » : "
+                                "déposez-le depuis « Dépôt espace client ».")
         await db.generated_documents.insert_one(dict(doc))
         created.append(_doc_summary(doc))
-    return {"batch_id": batch_id, "count": len(created), "items": created}
+    return {"batch_id": batch_id, "count": len(created), "items": created, "warnings": list(dict.fromkeys(warnings))}
 
 
 def _doc_summary(d: dict) -> dict:
@@ -662,13 +772,25 @@ async def _gdoc_or_404(doc_id: str) -> dict:
     return d
 
 
+async def _stored_or_rebuilt_pdf(d: dict) -> bytes:
+    """PDF enregistré ; s'il est perdu (stockage), on le reconstruit."""
+    try:
+        data, _ct = await albarka_storage.get_object(d["storage_path"])
+        return data
+    except Exception:  # noqa: BLE001 — fichier perdu : on le reconstruit
+        logger.warning("PDF %s absent du stockage : reconstruit", d.get("id"))
+    try:
+        return html_to_pdf(d.get("body_html") or "", await load_letterhead(d.get("letterhead_id")),
+                           verify_url(d.get("verify_token") or ""))
+    except Exception as exc:  # noqa: BLE001 — lot 11 : message lisible
+        logger.exception("Reconstruction du PDF %s impossible", d.get("id"))
+        raise _pdf_failure(exc, d.get("recipient_name") or "")
+
+
 @router.get("/documents/{doc_id}/pdf")
 async def document_pdf(doc_id: str, download: bool = False, user: dict = Depends(require_staff())):
     d = await _gdoc_or_404(doc_id)
-    try:
-        data, _ct = await albarka_storage.get_object(d["storage_path"])
-    except Exception:  # noqa: BLE001 — fichier perdu : on le reconstruit
-        data = html_to_pdf(d.get("body_html") or "", await load_letterhead(d.get("letterhead_id")), verify_url(d["verify_token"]))
+    data = await _stored_or_rebuilt_pdf(d)
     name = f"{(d.get('number') or d['id']).replace('/', '-')}.pdf"
     return Response(content=data, media_type="application/pdf",
                     headers={"Content-Disposition": f'{"attachment" if download else "inline"}; filename="{name}"'})
@@ -695,10 +817,10 @@ async def merged_pdf(payload: Dict[str, Any] = Body(...), user: dict = Depends(r
         raise HTTPException(status_code=400, detail="Aucun document")
     out = fitz.open()
     for i in ids:
-        d = await db.generated_documents.find_one({"id": i, "deleted_at": None}, {"_id": 0, "storage_path": 1})
+        d = await db.generated_documents.find_one({"id": i, "deleted_at": None}, {"_id": 0})
         if not d:
             continue
-        data, _ct = await albarka_storage.get_object(d["storage_path"])
+        data = await _stored_or_rebuilt_pdf(d)
         with fitz.open("pdf", data) as src:
             out.insert_pdf(src)
     data = out.tobytes(deflate=True, garbage=3)

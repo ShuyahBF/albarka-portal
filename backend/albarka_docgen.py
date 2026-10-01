@@ -211,8 +211,68 @@ async def list_letterheads(user: dict = Depends(require_staff())):
     return [_public_letterhead(x) for x in items]
 
 
+# --------------------------------------------------------------------------
+# Lot 11 — images du papier à en-tête RAMENÉES À UN FORMAT SÛR
+# Le moteur PDF des documents à modèles (PyMuPDF) ne lit pas le WEBP
+# (« unknown image file format » -> erreur 500 à la génération), et une image
+# abîmée ou d'un format exotique (CMYK, 16 bits, palette…) peut faire échouer
+# les factures (reportlab). On convertit donc toute image en PNG (ou JPEG pour
+# une photo sans transparence), redressée et réduite à la largeur d'une feuille
+# A4 en 300 dpi : à l'enregistrement ET à la lecture (images déjà stockées).
+# --------------------------------------------------------------------------
+_MAX_IMAGE_WIDTH = 2480          # A4 en 300 dpi : bien assez pour l'impression
+
+
+class ImageIllisible(ValueError):
+    """Le fichier n'est pas une image que l'on sait lire."""
+
+
+def normalize_image(data: bytes, max_width: int = _MAX_IMAGE_WIDTH) -> tuple[bytes, str]:
+    """Renvoie (octets, type) d'une image PNG ou JPEG en couleurs RVB (avec
+    transparence si l'original en a). Lève ImageIllisible sinon."""
+    from PIL import Image, ImageOps
+    if not data:
+        raise ImageIllisible("fichier vide")
+    try:
+        im = Image.open(io.BytesIO(data))
+        im.load()
+    except Exception as exc:  # noqa: BLE001 — format inconnu, fichier tronqué, image géante…
+        raise ImageIllisible(str(exc) or type(exc).__name__) from exc
+    fmt, (w, h) = im.format, im.size
+    if w < 1 or h < 1:
+        raise ImageIllisible("image vide")
+    # Photo prise de travers (téléphone) : on applique l'orientation EXIF
+    try:
+        rotated = (im.getexif() or {}).get(0x0112, 1) not in (None, 1)
+    except Exception:  # noqa: BLE001
+        rotated = False
+    safe = (fmt == "PNG" and im.mode in ("RGB", "RGBA", "L")) or (fmt == "JPEG" and im.mode in ("RGB", "L"))
+    if safe and w <= max_width and not rotated:
+        return data, "image/png" if fmt == "PNG" else "image/jpeg"
+    try:
+        if rotated:
+            im = ImageOps.exif_transpose(im)
+        if im.mode in ("I;16", "I;16B", "I;16L", "I"):
+            # Niveaux de gris 16 bits -> 8 bits
+            im = im.convert("I").point(lambda v: v / 256).convert("L")
+        alpha = im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info)
+        im = im.convert("RGBA" if alpha else "RGB")
+        if im.width > max_width:
+            im = im.resize((max_width, max(1, round(im.height * max_width / im.width))), Image.LANCZOS)
+        buf = io.BytesIO()
+        if fmt == "JPEG" and not alpha:
+            im.save(buf, format="JPEG", quality=90)
+            return buf.getvalue(), "image/jpeg"
+        im.save(buf, format="PNG", optimize=True)
+        return buf.getvalue(), "image/png"
+    except Exception as exc:  # noqa: BLE001
+        raise ImageIllisible(str(exc) or type(exc).__name__) from exc
+
+
 async def _read_image(file: Optional[UploadFile]) -> Optional[tuple[bytes, str]]:
-    """Image envoyée (PNG/JPG/WEBP, 5 Mo max) ou None si aucun fichier."""
+    """Image envoyée (PNG/JPG/WEBP, 5 Mo max) ou None si aucun fichier.
+    Lot 11 : l'image est vérifiée puis enregistrée en PNG/JPEG (le WEBP est
+    converti), pour que tous les documents sachent l'imprimer."""
     if file is None or not getattr(file, "filename", ""):
         return None
     ct = (file.content_type or "").lower()
@@ -221,7 +281,10 @@ async def _read_image(file: Optional[UploadFile]) -> Optional[tuple[bytes, str]]
     data = await file.read()
     if len(data) > _MAX_IMAGE:
         raise HTTPException(status_code=400, detail="Image trop lourde (5 Mo maximum)")
-    return data, ct
+    try:
+        return normalize_image(data)
+    except ImageIllisible:
+        raise HTTPException(status_code=400, detail="Image illisible : enregistrez-la en PNG ou JPG puis rechargez-la")
 
 
 async def _store_part(lh_id: str, part: str, img: tuple[bytes, str], previous: Optional[str]) -> str:
@@ -333,14 +396,25 @@ async def letterhead_image(lh_id: str, part: str, user: dict = Depends(require_s
     lh = await db.letterheads.find_one({"id": lh_id}, {"_id": 0})
     if not lh or not lh.get(f"{part}_path"):
         raise HTTPException(status_code=404, detail="Image absente")
-    data, ct = await get_object(lh[f"{part}_path"])
+    try:
+        data, ct = await get_object(lh[f"{part}_path"])
+    except Exception:  # noqa: BLE001 — lot 11 : fichier absent du stockage
+        logger.exception("Image %s du papier %s introuvable dans le stockage", part, lh_id)
+        raise HTTPException(status_code=404, detail="Image introuvable dans le stockage : rechargez-la")
     return Response(content=data, media_type=ct or "image/png")
 
 
-async def load_letterhead(lh_id: Optional[str]) -> dict:
+async def load_letterhead(lh_id: Optional[str], warnings: Optional[list] = None) -> dict:
     """Papier à utiliser pour un document : celui demandé, sinon celui par
     défaut, sinon aucun (marges simples). Renvoie les images en octets.
-    `lh_id == "none"` force « sans en-tête »."""
+    `lh_id == "none"` force « sans en-tête ».
+    Lot 11 : les images sont ramenées en PNG/JPEG ; une image absente du
+    stockage ou illisible est laissée de côté (le document sort quand même) et
+    un avertissement en français est ajouté à `warnings` (si fourni)."""
+    def warn(msg: str) -> None:
+        if warnings is not None and msg not in warnings:
+            warnings.append(msg)
+
     empty = {"id": None, "name": None, "header": None, "footer": None, "top_margin_cm": 2.0, "bottom_margin_cm": 2.0}
     if lh_id == "none":
         return empty
@@ -349,24 +423,50 @@ async def load_letterhead(lh_id: Optional[str]) -> dict:
         lh = await db.letterheads.find_one({"id": lh_id}, {"_id": 0})
     if not lh:
         lh = await db.letterheads.find_one({"is_default": True}, {"_id": 0})
+        if lh_id:
+            # Papier supprimé depuis (ex. modèle qui pointait vers un ancien papier)
+            warn("Le papier à en-tête choisi n'existe plus : "
+                 + (f"le papier par défaut « {lh.get('name')} » a été utilisé." if lh else "document produit sans en-tête."))
     if not lh:
         return empty
+    try:
+        top_cm = float(lh.get("top_margin_cm") or 4.8)
+        bottom_cm = float(lh.get("bottom_margin_cm") or 2.0)
+    except (TypeError, ValueError):
+        top_cm, bottom_cm = 4.8, 2.0
     out = {"id": lh["id"], "name": lh.get("name"), "header": None, "footer": None,
-           "top_margin_cm": float(lh.get("top_margin_cm") or 4.8), "bottom_margin_cm": float(lh.get("bottom_margin_cm") or 2.0)}
+           "top_margin_cm": top_cm, "bottom_margin_cm": bottom_cm}
+    labels = {"header": "d'en-tête", "footer": "de pied de page"}
     for part in ("header", "footer"):
-        if lh.get(f"{part}_path"):
-            try:
-                out[part], _ct = await get_object(lh[f"{part}_path"])
-            except Exception:  # noqa: BLE001 — image perdue : on imprime sans
-                logger.warning("Image %s du papier %s introuvable", part, lh["id"])
+        path = lh.get(f"{part}_path")
+        if not path:
+            continue
+        try:
+            raw, _ct = await get_object(path)
+        except Exception:  # noqa: BLE001 — image perdue (stockage) : on imprime sans
+            logger.exception("Image %s du papier %s introuvable dans le stockage (%s)", part, lh["id"], path)
+            warn(f"Image {labels[part]} du papier « {lh.get('name')} » introuvable : rechargez-la dans "
+                 "Réglages des documents > Papiers à en-tête. Document produit sans cette image.")
+            continue
+        try:
+            out[part], _ct = normalize_image(raw)
+        except ImageIllisible as exc:
+            logger.warning("Image %s du papier %s illisible (%s) : %s", part, lh["id"], path, exc)
+            warn(f"Image {labels[part]} du papier « {lh.get('name')} » illisible : enregistrez-la en PNG ou JPG "
+                 "et rechargez-la dans Réglages des documents > Papiers à en-tête. Document produit sans cette image.")
     return out
 
 
 def letterhead_image_size(data: bytes, width_pt: float) -> tuple[float, float]:
-    """Taille (largeur, hauteur) en points d'une image affichée sur `width_pt`."""
+    """Taille (largeur, hauteur) en points d'une image affichée sur `width_pt`.
+    Lot 11 : image illisible -> hauteur 0 (l'appelant ne l'imprime pas)."""
     from PIL import Image
-    with Image.open(io.BytesIO(data)) as im:
-        w, h = im.size
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            w, h = im.size
+    except Exception:  # noqa: BLE001
+        logger.warning("Image du papier à en-tête illisible : ignorée")
+        return width_pt, 0.0
     return width_pt, width_pt * h / max(1, w)
 
 

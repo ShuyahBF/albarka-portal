@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from albarka_auth import get_current_user
-from albarka_models import client_modules, hide_test_accounts_filter, is_client, tenant_id_of
+from albarka_models import (
+    DASHBOARD_ROLES, client_modules, has_any_role, hide_test_accounts_filter, is_client, tenant_id_of,
+)
 from db import db, serialize_many
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
@@ -20,13 +22,22 @@ def _open_modules(user: dict) -> set:
     return {"documents", "missions", "echeances", "historique"}
 
 
+async def dashboard_user(user: dict = Depends(get_current_user)) -> dict:
+    """Accès au tableau de bord : le client (son propre tableau de bord) ou un
+    collaborateur ayant le lien « Tableau de bord » (DASHBOARD_ROLES). Lot 10 :
+    l'Administrateur seul et le Caissier seul reçoivent un 403."""
+    if is_client(user) or has_any_role(user, DASHBOARD_ROLES):
+        return user
+    raise HTTPException(status_code=403, detail="Tableau de bord non accessible avec vos rôles")
+
+
 async def _count(collection, query: dict, allowed: bool) -> int:
     # Module fermé pour ce client : compteur à zéro (aucune donnée divulguée)
     return await collection.count_documents(query) if allowed else 0
 
 
 @router.get("/summary")
-async def dashboard_summary(user: dict = Depends(get_current_user)):
+async def dashboard_summary(user: dict = Depends(dashboard_user)):
     scope = {}
     if is_client(user):
         scope["tenant_id"] = tenant_id_of(user)
@@ -61,7 +72,7 @@ async def dashboard_summary(user: dict = Depends(get_current_user)):
 
 
 @router.get("/activity")
-async def dashboard_activity(limit: int = 15, user: dict = Depends(get_current_user)):
+async def dashboard_activity(limit: int = 15, user: dict = Depends(dashboard_user)):
     """Aggregate recent items across documents, missions, échéances."""
     scope = {}
     if is_client(user):
@@ -81,7 +92,7 @@ async def dashboard_activity(limit: int = 15, user: dict = Depends(get_current_u
 
 
 @router.get("/dispatches")
-async def dashboard_dispatches(user: dict = Depends(get_current_user)):
+async def dashboard_dispatches(user: dict = Depends(dashboard_user)):
     """Envois du mois courant : WA délivrés, WA échoués, emails, signatures, rapports.
 
     Filtre par tenant pour les utilisateurs client, agrège tout pour les staff.

@@ -40,7 +40,8 @@ from albarka_paie_moteur import DEFAULT_PARAMS, base_for_net, compute_payslip, n
 from db import db
 
 router = APIRouter(prefix="/hr/paie", tags=["RH & Paie — bulletins"])
-HR_ROLES = ["superviseur", "direction", "administrateur", "rh"]
+# Lot 10 : la DG a les mêmes droits que la Direction (même menu, règle du lot 5).
+HR_ROLES = ["superviseur", "direction", "dg", "administrateur", "rh"]
 CABINET_ID = "cabinet"                       # employeur « personnel du cabinet »
 SYSTEM_TEMPLATE_NAME = "Burkina Faso — standard"
 

@@ -128,8 +128,8 @@ async def presence_by_phone(phones: List[str] = Query(default=[]), user: dict = 
     return {"items": out}
 
 
-# Tableau de bord : Direction, Secrétariat, Superviseur et admin
-_RECENT_CLIENTS_ROLES = {"direction", "secretariat", "superviseur"}
+# Tableau de bord : Direction (et DG, lot 10), Secrétariat, Superviseur et admin
+_RECENT_CLIENTS_ROLES = {"direction", "dg", "secretariat", "superviseur"}
 
 
 @router.get("/recent-clients")

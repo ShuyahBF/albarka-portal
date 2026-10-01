@@ -25,8 +25,8 @@ from db import db, serialize, serialize_many
 
 logger = logging.getLogger("albarka.wa_inbox")
 
-# Rôles autorisés côté cabinet à voir et répondre.
-_INBOX_ROLES = ["superviseur", "direction", "administrateur", "communication"]
+# Rôles autorisés côté cabinet à voir et répondre (la DG comme la Direction, lot 10).
+_INBOX_ROLES = ["superviseur", "direction", "dg", "administrateur", "communication"]
 
 router = APIRouter(prefix="/whatsapp", tags=["Conversations WhatsApp"])
 

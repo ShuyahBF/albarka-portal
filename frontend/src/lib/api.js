@@ -44,9 +44,16 @@ export function extractError(err, fallback = "Une erreur est survenue") {
   } else if (typeof detail === "string" && detail) {
     return detail;
   }
-  return (
-    err?.response?.data?.message ||
-    err?.message ||
-    fallback
-  );
+  if (err?.response?.data?.message) return err.response.data.message;
+  // Lot 11 : erreur du serveur sans explication (500, 502…) — plutôt que
+  // « Request failed with status code 500 », un message en français
+  const status = err?.response?.status;
+  if (status >= 500) {
+    return `Erreur du serveur (code ${status}) : l'opération n'a pas abouti. Réessayez ; si le problème persiste, `
+      + "signalez-le à l'administrateur en indiquant l'heure.";
+  }
+  if (!err?.response && err?.message === "Network Error") {
+    return "Serveur injoignable : vérifiez la connexion Internet puis réessayez.";
+  }
+  return err?.message || fallback;
 }

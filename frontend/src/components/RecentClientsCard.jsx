@@ -11,7 +11,8 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { PresenceDot } from "@/components/Presence";
 
-const ROLES = ["direction", "secretariat", "superviseur"];
+// La DG comme la Direction (lot 10) — identique à _RECENT_CLIENTS_ROLES (albarka_presence.py)
+const ROLES = ["direction", "dg", "secretariat", "superviseur"];
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
 // Durée lisible : « 45 s », « 12 min », « 1 h 05 »
 const fmtDuration = (s) => (s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.floor(s / 3600)} h ${String(Math.round((s % 3600) / 60)).padStart(2, "0")}`);

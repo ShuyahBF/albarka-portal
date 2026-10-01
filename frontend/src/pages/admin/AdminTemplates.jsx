@@ -177,6 +177,8 @@ function GenerateWizard({ template, letterheads, preset, onClose, onDone }) {
       const { data } = await apiClient.post(`/letters/templates/${template.id}/generate`, payload());
       setResult(data);
       toast.success(`${data.count} document(s) générés`);
+      // Lot 11 : avertissements du serveur (image du papier à en-tête absente…)
+      (data.warnings || []).forEach((w) => toast.warning(w, { duration: 12000 }));
       onDone?.();
     } catch (e) { toast.error(extractError(e)); } finally { setBusy(false); }
   };
@@ -195,6 +197,11 @@ function GenerateWizard({ template, letterheads, preset, onClose, onDone }) {
         // Compte rendu : liste des documents produits
         <div className={ui.panel} data-testid="generate-result">
           <p className="font-semibold text-emerald-700">{result.count} document(s) produits.</p>
+          {(result.warnings || []).length > 0 && (
+            <ul className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 space-y-1" data-testid="generate-warnings">
+              {result.warnings.map((w) => <li key={w}>{w}</li>)}
+            </ul>
+          )}
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => openServerFile("/letters/documents/merged-pdf", { method: "post", data: { batch_id: result.batch_id } })} className={ui.act.dark} data-testid="generate-print-all"><Printer className="h-3.5 w-3.5" /> Tout imprimer (un seul PDF)</button>
             <button type="button" onClick={() => { setResult(null); setSelected([]); }} className={ui.act.sky}><Plus className="h-3.5 w-3.5" /> Nouvelle génération</button>

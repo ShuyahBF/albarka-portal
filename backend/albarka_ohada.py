@@ -29,10 +29,11 @@ logger = logging.getLogger("albarka.ohada")
 # Rôles autorisés (cabinet côté comptabilité)
 # =====================================================================
 _OHADA_ROLES = [
-    "superviseur", "direction", "administrateur",
+    "superviseur", "direction", "dg", "administrateur",
     "comptable", "aide_comptable", "fiscaliste",
 ]
-_VALIDATE_ROLES = ["superviseur", "direction", "administrateur", "comptable"]
+# Lot 10 : la DG a les mêmes droits que la Direction (même menu, règle du lot 5).
+_VALIDATE_ROLES = ["superviseur", "direction", "dg", "administrateur", "comptable"]
 
 # =====================================================================
 # Plan comptable SYSCOHADA — noyau minimal (extrait). Les cabinets

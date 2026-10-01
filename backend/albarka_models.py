@@ -83,6 +83,13 @@ CLIENT_SPACE_ROLES = ["administrateur", "direction", "dg", "secretariat", "compt
 # « Caisse » du menu (+ DG) ; le Superviseur passe toujours. Encaisser reste
 # réservé au Caissier (ENCAISSEMENT_ROLES / can_encaisser).
 BILLING_ROLES = ["direction", "dg", "administrateur", "comptable", "secretariat", "caissier"]
+# Tableau de bord du cabinet (page /admin : pièces, missions, échéances de
+# tous les clients, envois du mois) — mêmes rôles que le lien « Tableau de
+# bord » du menu (PortalLayout.jsx), DG comprise ; le Superviseur passe
+# toujours. Lot 10 : ni l'Administrateur seul (gestion du personnel et des
+# réglages, pas le suivi métier des dossiers) ni le Caissier seul (arrive
+# directement sur la Caisse) n'y ont accès, même en appelant l'API.
+DASHBOARD_ROLES = ["direction", "dg", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"]
 # Modules de l'espace client que le cabinet peut ouvrir ou fermer, client par
 # client (fiche client → « Espace client »). Tableau de bord et Mon compte
 # restent toujours visibles. Aucun réglage enregistré = tous les modules.

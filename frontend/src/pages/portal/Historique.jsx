@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { History } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
+import { moduleOpen } from "@/pages/portal/Dashboard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -10,6 +12,11 @@ import {
 export default function Historique() {
   const [data, setData] = useState({ documents: [], missions: [], echeances: [] });
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+  // Lot 10 : onglet d'un module fermé par le cabinet masqué (Pièces, Missions, Échéances)
+  const tabs = [["documents", "Pièces"], ["missions", "Missions"], ["echeances", "Échéances"]]
+    .filter(([m]) => moduleOpen(user, m));
+  const show = (m) => tabs.some(([v]) => v === m);
 
   useEffect(() => {
     (async () => {
@@ -33,12 +40,19 @@ export default function Historique() {
         <h1 className="font-display text-3xl md:text-4xl text-foreground">Toutes vos activités</h1>
       </div>
 
-      <Tabs defaultValue="documents" className="albarka-card p-2">
+      {tabs.length === 0 && (
+        <div className="albarka-card p-6 text-sm text-muted-foreground" data-testid="history-empty">
+          Aucune activité à afficher pour votre compte.
+        </div>
+      )}
+      {tabs.length > 0 && (
+      <Tabs defaultValue={tabs[0][0]} className="albarka-card p-2">
         <TabsList data-testid="history-tabs">
-          <TabsTrigger value="documents" data-testid="tab-documents">Pièces</TabsTrigger>
-          <TabsTrigger value="missions" data-testid="tab-missions">Missions</TabsTrigger>
-          <TabsTrigger value="echeances" data-testid="tab-echeances">Échéances</TabsTrigger>
+          {tabs.map(([value, label]) => (
+            <TabsTrigger key={value} value={value} data-testid={`tab-${value}`}>{label}</TabsTrigger>
+          ))}
         </TabsList>
+        {show("documents") && (
         <TabsContent value="documents" className="p-2">
           <Table>
             <TableHeader><TableRow><TableHead>Fichier</TableHead><TableHead>Type</TableHead><TableHead>Statut</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
@@ -56,6 +70,8 @@ export default function Historique() {
             </TableBody>
           </Table>
         </TabsContent>
+        )}
+        {show("missions") && (
         <TabsContent value="missions" className="p-2">
           <Table>
             <TableHeader><TableRow><TableHead>Titre</TableHead><TableHead>Type</TableHead><TableHead>Statut</TableHead><TableHead>Échéance</TableHead></TableRow></TableHeader>
@@ -73,6 +89,8 @@ export default function Historique() {
             </TableBody>
           </Table>
         </TabsContent>
+        )}
+        {show("echeances") && (
         <TabsContent value="echeances" className="p-2">
           <Table>
             <TableHeader><TableRow><TableHead>Échéance</TableHead><TableHead>Type</TableHead><TableHead>Statut</TableHead><TableHead>Date</TableHead></TableRow></TableHeader>
@@ -90,7 +108,9 @@ export default function Historique() {
             </TableBody>
           </Table>
         </TabsContent>
+        )}
       </Tabs>
+      )}
     </div>
   );
 }

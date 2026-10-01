@@ -18,8 +18,9 @@ router = APIRouter(prefix="/me/badges", tags=["Badges"])
 # Mêmes rôles que le centre WhatsApp (albarka_wa_inbox._INBOX_ROLES) et la
 # Diffusion (albarka_phase_c.messaging_router) — dupliqués ici pour éviter
 # d'importer des symboles privés entre modules.
-_WA_ROLES = ["superviseur", "direction", "administrateur", "communication"]
-_DIFFUSION_ROLES = ["superviseur", "direction", "administrateur", "communication"]
+# La DG compte comme la Direction (lot 10).
+_WA_ROLES = ["superviseur", "direction", "dg", "administrateur", "communication"]
+_DIFFUSION_ROLES = ["superviseur", "direction", "dg", "administrateur", "communication"]
 
 
 def _has_any(user: dict, roles: list) -> bool:

@@ -719,7 +719,8 @@ async def send_billing_statement(payload: SendStatementPayload, user: dict = Dep
 # 9 — RH / Paie (bulletins simples)
 # ==========================================================================
 hr_router = APIRouter(prefix="/hr", tags=["RH & Paie"])
-_HR_ROLES = ["superviseur", "direction", "administrateur", "rh"]
+# Lot 10 : la DG a les mêmes droits que la Direction (même menu, règle du lot 5).
+_HR_ROLES = ["superviseur", "direction", "dg", "administrateur", "rh"]
 
 
 class EmployeeCreate(BaseModel):
@@ -896,7 +897,8 @@ async def download_payslip_pdf(payslip_id: str, user: dict = Depends(require_rol
 # 10 — Platform logs (audit)
 # ==========================================================================
 logs_router = APIRouter(prefix="/platform-logs", tags=["Logs plateforme"])
-_LOG_ROLES = ["superviseur", "direction", "administrateur"]
+# Lot 10 : la DG a les mêmes droits que la Direction (même menu, règle du lot 5).
+_LOG_ROLES = ["superviseur", "direction", "dg", "administrateur"]
 # Même compte que _PROTECT_EMAILS dans albarka_migrate.py — l'administrateur
 # système du portail (pas un simple rôle "administrateur" parmi d'autres).
 # Ses propres actions sont masquées du journal pour tout le monde SAUF pour
@@ -1080,10 +1082,15 @@ class BroadcastCreate(BaseModel):
         return v
 
 
+# Diffusion : mêmes rôles que le lien « Diffusion » du menu (la DG comme la
+# Direction depuis le lot 10) — voir aussi albarka_badges._DIFFUSION_ROLES.
+_DIFFUSION_ROLES = ["superviseur", "direction", "dg", "administrateur", "communication"]
+
+
 @messaging_router.post("/broadcast")
 async def send_broadcast(
     payload: BroadcastCreate,
-    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "communication"])),
+    user: dict = Depends(require_roles(_DIFFUSION_ROLES)),
 ):
     """Diffuse un message à un scope large. Écrit l'intention dans
     `broadcasts` + tente un envoi immédiat. Chaque destinataire est logué
@@ -1186,7 +1193,7 @@ async def send_broadcast(
 
 @messaging_router.get("/broadcasts")
 async def list_broadcasts(
-    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "communication"])),
+    user: dict = Depends(require_roles(_DIFFUSION_ROLES)),
 ):
     items = await db.broadcasts.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return serialize_many(items)
@@ -1195,7 +1202,7 @@ async def list_broadcasts(
 @messaging_router.get("/broadcasts/{broadcast_id}/deliveries")
 async def broadcast_deliveries(
     broadcast_id: str,
-    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "communication"])),
+    user: dict = Depends(require_roles(_DIFFUSION_ROLES)),
 ):
     """Détail des livraisons pour un broadcast (Partie 2.C — enrichissement UI)."""
     b = await db.broadcasts.find_one({"id": broadcast_id}, {"_id": 0})
@@ -1210,7 +1217,7 @@ async def broadcast_deliveries(
 @messaging_router.post("/broadcasts/{broadcast_id}/retry-failed")
 async def retry_broadcast_failed(
     broadcast_id: str,
-    user: dict = Depends(require_roles(["superviseur", "direction", "administrateur", "communication"])),
+    user: dict = Depends(require_roles(_DIFFUSION_ROLES)),
 ):
     """Renvoie uniquement les livraisons en échec de ce broadcast (Partie 2.C)."""
     b = await db.broadcasts.find_one({"id": broadcast_id}, {"_id": 0})

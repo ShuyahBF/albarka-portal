@@ -64,12 +64,25 @@ function BadgeStatus({ value }) {
   );
 }
 
+// Module de l'espace client ouvert pour ce compte ? Le cabinet (admin) voit
+// tout ; pour un client, aucun réglage enregistré = tous les modules ouverts
+// (même règle que client_modules() côté backend et le menu de PortalLayout).
+export function moduleOpen(user, module, admin = false) {
+  if (admin) return true;
+  const mods = user?.portal_modules;
+  return !Array.isArray(mods) || mods.includes(module);
+}
+
 export function DashboardShared({ admin = false }) {
   const [summary, setSummary] = useState(null);
   const [activity, setActivity] = useState(null);
   const [dispatches, setDispatches] = useState(null);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  // Lot 10 : tuiles et listes d'un module fermé pour ce client masquées
+  const showDocs = moduleOpen(user, "documents", admin);
+  const showMissions = moduleOpen(user, "missions", admin);
+  const showEcheances = moduleOpen(user, "echeances", admin);
 
   useEffect(() => {
     let mounted = true;
@@ -110,10 +123,14 @@ export function DashboardShared({ admin = false }) {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPI icon={FileText} label="Pièces déposées" value={summary?.documents_total} tone="emerald" testid="kpi-docs" />
-        <KPI icon={Briefcase} label="Missions en cours" value={summary?.missions_active} tone="amber" testid="kpi-missions" />
-        <KPI icon={CalendarClock} label="Échéances à venir" value={summary?.echeances_upcoming} tone="slate" testid="kpi-echeances" />
-        <KPI icon={AlertTriangle} label="Échéances en retard" value={summary?.echeances_late} tone="danger" testid="kpi-late" />
+        {showDocs && <KPI icon={FileText} label="Pièces déposées" value={summary?.documents_total} tone="emerald" testid="kpi-docs" />}
+        {showMissions && <KPI icon={Briefcase} label="Missions en cours" value={summary?.missions_active} tone="amber" testid="kpi-missions" />}
+        {showEcheances && (
+          <>
+            <KPI icon={CalendarClock} label="Échéances à venir" value={summary?.echeances_upcoming} tone="slate" testid="kpi-echeances" />
+            <KPI icon={AlertTriangle} label="Échéances en retard" value={summary?.echeances_late} tone="danger" testid="kpi-late" />
+          </>
+        )}
         {admin && (
           <>
             <KPI icon={Users} label="Clients" value={summary?.clients_total} tone="emerald" testid="kpi-clients" />
@@ -141,6 +158,7 @@ export function DashboardShared({ admin = false }) {
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
+        {showEcheances && (
         <div className="albarka-card p-6" data-testid="recent-echeances">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-display text-lg font-semibold">Échéances proches</h3>
@@ -164,7 +182,9 @@ export function DashboardShared({ admin = false }) {
             ))}
           </ul>
         </div>
+        )}
 
+        {showDocs && (
         <div className="albarka-card p-6" data-testid="recent-documents">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-display text-lg font-semibold">Dernières pièces</h3>
@@ -186,6 +206,7 @@ export function DashboardShared({ admin = false }) {
             ))}
           </ul>
         </div>
+        )}
       </div>
     </div>
   );

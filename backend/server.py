@@ -250,6 +250,8 @@ app.add_middleware(
     allow_origins=cors_origins if cors_origins != ["*"] else ["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    # Lot 11 : avertissements joints aux PDF (aperçu d'un document à modèle)
+    expose_headers=["X-Avertissements"],
 )
 
 

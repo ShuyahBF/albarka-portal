@@ -38,7 +38,8 @@ from albarka_docgen import MONTHS_FR, fcfa, letterhead_image_size, load_letterhe
 from db import db
 
 router = APIRouter(prefix="/hr/payroll", tags=["RH & Paie — tableau"])
-HR_ROLES = ["superviseur", "direction", "administrateur", "rh"]
+# Lot 10 : la DG a les mêmes droits que la Direction (même menu, règle du lot 5).
+HR_ROLES = ["superviseur", "direction", "dg", "administrateur", "rh"]
 
 # Colonnes chiffrées du tableau (clé -> intitulé), dans l'ordre du modèle
 AMOUNT_COLUMNS = [

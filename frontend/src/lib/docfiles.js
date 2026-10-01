@@ -14,6 +14,11 @@ export async function openServerFile(url, { method = "get", data, params, filena
     const res = method === "post"
       ? await apiClient.post(url, data || {}, { params, responseType: "blob" })
       : await apiClient.get(url, { params, responseType: "blob" });
+    // Lot 11 : avertissements joints au PDF (ex. image du papier à en-tête absente)
+    const warn = res.headers?.["x-avertissements"];
+    if (warn) {
+      try { decodeURIComponent(warn).split(" | ").forEach((w) => toast.warning(w, { duration: 12000 })); } catch { /* ignoré */ }
+    }
     const href = window.URL.createObjectURL(new Blob([res.data], { type: res.headers?.["content-type"] || type }));
     if (download) {
       const a = document.createElement("a");
@@ -31,7 +36,8 @@ export async function openServerFile(url, { method = "get", data, params, filena
     let msg = extractError(err, "Échec de l'ouverture du fichier");
     try {
       const txt = await err?.response?.data?.text?.();
-      if (txt) msg = JSON.parse(txt).detail || msg;
+      const detail = txt ? JSON.parse(txt).detail : null;
+      if (typeof detail === "string" && detail) msg = detail;
     } catch { /* message par défaut */ }
     toast.error(msg);
   }

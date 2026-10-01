@@ -15,8 +15,9 @@ from pydantic import BaseModel, Field
 from albarka_auth import require_roles
 from db import db, serialize_many
 
-_INBOX_ROLES = ["superviseur", "direction", "administrateur", "communication"]
-_STATS_ROLES = ["superviseur", "direction", "administrateur", "communication"]
+# Lot 10 : la DG a les mêmes droits que la Direction (même menu, règle du lot 5).
+_INBOX_ROLES = ["superviseur", "direction", "dg", "administrateur", "communication"]
+_STATS_ROLES = ["superviseur", "direction", "dg", "administrateur", "communication"]
 
 LABELS_ALLOWED = {"todo", "waiting", "resolved"}
 
