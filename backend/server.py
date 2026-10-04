@@ -33,6 +33,8 @@ from albarka_settings_tests import router as settings_tests_router  # noqa: E402
 from albarka_myaccount import router as myaccount_router  # noqa: E402
 from albarka_ohada import router as ohada_router  # noqa: E402
 from albarka_payments import router as payments_router, webhook_router as payments_webhook_router  # noqa: E402
+# Lot 14 : encaissement PI-SPI (paramètres, transactions, notification désactivée)
+from albarka_pispi import router as pispi_router, notification_router as pispi_notification_router  # noqa: E402
 from albarka_phase_c import (  # noqa: E402
     chat_router,
     billing_router,
@@ -103,6 +105,8 @@ api_router.include_router(missions_router)
 api_router.include_router(myaccount_router)
 api_router.include_router(payments_router)
 api_router.include_router(payments_webhook_router)
+api_router.include_router(pispi_router)
+api_router.include_router(pispi_notification_router)
 api_router.include_router(reports_router)
 api_router.include_router(reports_mgmt_router)
 api_router.include_router(migrate_router)

@@ -256,7 +256,7 @@ class InvoiceCreate(BaseModel):
 class PaymentCreate(BaseModel):
     invoice_id: str
     amount: float = Field(..., gt=0)
-    method: str = Field("cash", description="cash/mobile_money/bank/other")
+    method: str = Field("cash", description="cash/mobile_money/bank/pispi/other")
     paid_at: Optional[str] = None
     reference: Optional[str] = None
 
@@ -297,7 +297,9 @@ _DOC_PREFIX = {"facture": "FAC", "recu": "REC", "proforma": "PRO"}
 # (champ payment_id) des totaux et de la situation de compte.
 _NOT_PAYMENT_RECEIPT = {"payment_id": {"$exists": False}}
 # Libellés des moyens de paiement repris sur le reçu délivré à l'encaissement.
-_METHOD_LABELS = {"cash": "espèces", "mobile_money": "Mobile Money", "bank": "virement", "other": "autre moyen"}
+_METHOD_LABELS = {"cash": "espèces", "mobile_money": "Mobile Money", "bank": "virement",
+                  # Lot 14 : paiement instantané PI-SPI (BCEAO), avec référence bancaire
+                  "pispi": "PI-SPI", "other": "autre moyen"}
 
 
 @billing_router.get("/invoices")
@@ -435,6 +437,13 @@ async def create_payment(payload: PaymentCreate, user: dict = Depends(require_ro
         raise HTTPException(status_code=404, detail="Facture introuvable")
     if invoice.get("document_type") != "facture":
         raise HTTPException(status_code=400, detail="Seule une facture peut être encaissée")
+    # Lot 14 : mode PI-SPI (« PISPI », « pi-spi »… -> "pispi") ; la référence
+    # de la transaction bancaire est alors obligatoire (rapprochement)
+    from albarka_pispi import METHODE_PISPI, enregistrer_transaction_manuelle, est_methode_pispi
+    if est_methode_pispi(payload.method):
+        payload.method = METHODE_PISPI
+        if not (payload.reference or "").strip():
+            raise HTTPException(status_code=400, detail="Règlement PI-SPI : la référence bancaire de la transaction est obligatoire")
     payment = {
         "id": secrets.token_urlsafe(12),
         "invoice_id": payload.invoice_id,
@@ -460,6 +469,9 @@ async def create_payment(payload: PaymentCreate, user: dict = Depends(require_ro
             "pdf_storage_path": None,
         }},
     )
+    # Lot 14 : trace dans pispi_transactions (statut « rapproche », source « manuel »)
+    if payload.method == METHODE_PISPI:
+        await enregistrer_transaction_manuelle(invoice=invoice, payment=payment, user=user)
     await _log_platform_event(user=user, action="payment.create",
                               entity_type="invoice", entity_id=invoice["id"],
                               meta={"amount": payment["amount"], "method": payment["method"]})

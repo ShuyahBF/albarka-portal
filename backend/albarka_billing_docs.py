@@ -83,8 +83,17 @@ async def build_model_pdf(invoice: dict, client: Optional[dict]) -> bytes:
             signature = branding["dg_signature"]["bytes"]
     except Exception:  # noqa: BLE001 — branding absent : pas de signature
         signature = None
+    # Lot 14 : bloc « Payer par PI-SPI » (None si inactif, soldé ou sans QR) ;
+    # une erreur ici ne doit jamais empêcher la facture d'être produite
+    try:
+        from albarka_pispi import bloc_pispi_pour_document
+        pispi = await bloc_pispi_pour_document(invoice)
+    except Exception:  # noqa: BLE001
+        logger.exception("Bloc PI-SPI non calculé (facture produite sans)")
+        pispi = None
     return build_invoice_model_pdf(invoice=invoice, client=client, kyc=kyc, letterhead=letterhead, settings=settings,
-                                   qr_bytes=qr_png(verify_url(invoice["verify_token"])), signature_bytes=signature)
+                                   qr_bytes=qr_png(verify_url(invoice["verify_token"])), signature_bytes=signature,
+                                   pispi=pispi)
 
 
 async def ensure_invoice_pdf(invoice: dict) -> dict:

@@ -104,6 +104,17 @@ services:
         sync: false
       - key: LILUVINE_WA_EMETTEUR # code émetteur d'ALBARKA chez SAWALI (pas secret)
         value: "albarka"
+      # --- Encaissement PI-SPI (lot 14) : FACULTATIF, prévu pour une future API
+      # Business bancaire. Sans ces variables, seul le connecteur « manuel » est
+      # actif (le QR et l'adresse de paiement se règlent dans Paramètres).
+      - key: PISPI_FOURNISSEUR    # manuel (défaut) | ecobank | uba | bsic | ib_bank
+        sync: false
+      - key: PISPI_API_URL        # fournie par la banque une fois l'accès obtenu
+        sync: false
+      - key: PISPI_CLIENT_ID
+        sync: false
+      - key: PISPI_CLIENT_SECRET  # secret : saisi par le propriétaire uniquement
+        sync: false
       # --- Divers
       - key: VAPID_PRIVATE_KEY    # facultatif (sinon générée et gardée en base, migrée avec elle)
         sync: false

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "13.9"
-LOT_LIBELLE = "Transmission WA Universelle v3 : documents par Liluvine, retours de SAWALI dans la boîte WhatsApp, désinscriptions et repli si le WABA échoue"
+LOT = "14"
+LOT_LIBELLE = "Encaissement PI-SPI : bloc « Payer par PI-SPI » sur les factures (QR de la banque, adresse de paiement, reste dû, référence), paramètres globaux, mode de règlement PI-SPI et transactions"

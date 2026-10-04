@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Plus, Receipt, Wallet, X, MoreHorizontal, Eye, RefreshCw,
-  Trash2, Download, Mail, MessageCircle, UserCheck, UserX,
+  Trash2, Download, Mail, MessageCircle, UserCheck, UserX, QrCode,
 } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import EntitySelect from "@/components/EntitySelect";
 import { useAuth } from "@/contexts/AuthContext";
+// Lot 14 : réglage « Encaissement PI-SPI » (onglet réservé Superviseur / Direction)
+import PispiPanel from "@/pages/admin/PispiPanel";
 
 // Doit rester identique à CAISSE_DATE_RANGE_ROLES côté backend (albarka_models.py).
 const CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"];
@@ -56,6 +58,8 @@ export default function AdminBilling() {
   const canEncaisser = roles.some((r) => ENCAISSEMENT_ROLES.includes(r));
   // Mettre un document à disposition dans l'espace du client.
   const canShareToClient = roles.includes("superviseur") || roles.some((r) => CLIENT_SPACE_ROLES.includes(r));
+  // Lot 14 : réglage PI-SPI (QR de la banque) — Superviseur et Direction
+  const canSetPispi = roles.includes("superviseur") || roles.includes("direction");
 
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -463,7 +467,11 @@ export default function AdminBilling() {
         <TabsList>
           <TabsTrigger value="invoices" data-testid="tab-billing-invoices"><Receipt className="w-4 h-4 mr-2" />Factures</TabsTrigger>
           <TabsTrigger value="payments" data-testid="tab-billing-payments"><Wallet className="w-4 h-4 mr-2" />Encaissements</TabsTrigger>
+          {canSetPispi && <TabsTrigger value="pispi" data-testid="tab-billing-pispi"><QrCode className="w-4 h-4 mr-2" />PI-SPI</TabsTrigger>}
         </TabsList>
+
+        {/* Lot 14 : encaissement PI-SPI (même réglage que Paramètres → Paiements) */}
+        {canSetPispi && <TabsContent value="pispi" className="pt-4"><PispiPanel /></TabsContent>}
 
         <TabsContent value="invoices" className="pt-4 space-y-3">
           <div className="flex justify-end">
@@ -746,7 +754,7 @@ export default function AdminBilling() {
                     <TableCell className="font-mono text-xs">{p.invoice_number}</TableCell>
                     <TableCell className="text-sm">{clientLabel(p.tenant_id)}</TableCell>
                     <TableCell className="text-right">{Number(p.amount).toLocaleString()}</TableCell>
-                    <TableCell>{p.method}</TableCell>
+                    <TableCell>{p.method === "pispi" ? "PI-SPI" : p.method}</TableCell>
                     <TableCell>{p.reference || "—"}</TableCell>
                     <TableCell className="text-xs">{p.paid_at?.slice(0, 16).replace("T", " ")}</TableCell>
                   </TableRow>
@@ -771,11 +779,14 @@ export default function AdminBilling() {
                   <SelectItem value="cash">Espèces</SelectItem>
                   <SelectItem value="mobile_money">Mobile Money</SelectItem>
                   <SelectItem value="bank">Virement</SelectItem>
+                  {/* Lot 14 : paiement instantané PI-SPI (référence bancaire obligatoire) */}
+                  <SelectItem value="pispi">PI-SPI</SelectItem>
                   <SelectItem value="other">Autre</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div><Label>Référence</Label><Input value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} data-testid="payment-ref-input" /></div>
+            {/* Référence : pour PI-SPI, celle de la transaction bancaire (obligatoire) */}
+            <div><Label>{payForm.method === "pispi" ? "Référence bancaire PI-SPI (obligatoire)" : "Référence"}</Label><Input value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} data-testid="payment-ref-input" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpenPay(false)}>Annuler</Button>

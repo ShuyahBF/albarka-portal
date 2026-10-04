@@ -17,6 +17,8 @@ import StaffAccessPanel from "@/pages/admin/StaffAccessPanel";
 import CertificatesPanel from "@/pages/admin/CertificatesPanel";
 import BrandingPanel from "@/pages/admin/BrandingPanel";
 import DocSettingsPanel from "@/pages/admin/DocSettingsPanel";
+// Lot 14 : encaissement PI-SPI (QR de la banque imprimé sur les factures)
+import PispiPanel from "@/pages/admin/PispiPanel";
 import { useAuth } from "@/contexts/AuthContext";
 
 const FIELDS_TABS = ["cabinet", "whatsapp", "notifications", "rapports"];
@@ -774,6 +776,8 @@ export default function AdminSettings() {
               </div>
             )}
           </div>
+          {/* Lot 14 : encaissement PI-SPI (réglage global) */}
+          <div className="mt-6"><PispiPanel /></div>
         </TabsContent>
       </Tabs>
     </div>

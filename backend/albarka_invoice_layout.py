@@ -17,6 +17,9 @@ préimprimé est laissée vide.
 Lot 12 : papier « page entière » -> l'image A4 est posée en fond de chaque
 page et le contenu s'écrit entre les marges (haute, basse, gauche, droite)
 du papier.
+Lot 14 : bloc « Payer par PI-SPI » (QR de la banque, adresse de paiement,
+reste dû, référence) sous la somme en lettres, si l'encaissement PI-SPI est
+actif — en plus du QR de vérification, jamais à sa place.
 """
 from __future__ import annotations
 
@@ -82,6 +85,36 @@ def _rate(v) -> str:
     return str(int(f)) if f.is_integer() else f"{f:g}".replace(".", ",")
 
 
+PISPI_BORD = colors.HexColor("#0F6B4A")   # cadre du bloc PI-SPI (vert du portail)
+
+
+def _bloc_pispi(p: dict, st: dict, content_w: float) -> KeepTogether:
+    """Lot 14 — encadré « Payer par PI-SPI » : QR de la banque à gauche,
+    montant / référence / adresse de paiement / titulaire à droite, consigne
+    en dessous. Le QR statique ne contient pas le montant : il est écrit en
+    texte. Sur une proforma : « Modalités de paiement », sans montant."""
+    qr_w = 3.0 * cm
+    payer = p.get("mode") == "payer"
+    titre = "Payer par PI-SPI" if payer else "Modalités de paiement — PI-SPI"
+    lignes = [f"<b>{titre}</b>"]
+    if payer and p.get("montant") is not None:
+        lignes.append(f"Montant à payer : <b>{fcfa(p['montant'])} FCFA</b>")
+    lignes.append(f"Référence à indiquer : <b>{escape(p.get('reference') or '')}</b>")
+    lignes.append(f"Adresse de paiement : <b>{escape(p.get('adresse_paiement') or '')}</b>")
+    titulaire = " — ".join(x for x in (p.get("titulaire"), p.get("banque")) if x)
+    if titulaire:
+        lignes.append(f"Bénéficiaire : {escape(titulaire)}")
+    if p.get("consigne"):
+        lignes.append(f"<font size='7.5' color='#444444'>{escape(p['consigne'])}</font>")
+    texte = Paragraph("<br/>".join(lignes), st["note"])
+    qr = Image(io.BytesIO(p["qr_bytes"]), width=qr_w, height=qr_w)
+    t = Table([[qr, texte]], colWidths=[qr_w + 0.4 * cm, content_w - qr_w - 0.4 * cm])
+    t.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, PISPI_BORD), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                           ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                           ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6)]))
+    return KeepTogether([t])
+
+
 def bill_to_lines(invoice: dict, client: Optional[dict], kyc: Optional[dict]) -> list[str]:
     """Lignes de l'encadré « Facturer à » : texte saisi sur la facture, sinon
     fiche du client (raison sociale, adresse, IFU, RCCM)."""
@@ -101,6 +134,7 @@ def bill_to_lines(invoice: dict, client: Optional[dict], kyc: Optional[dict]) ->
 def build_invoice_model_pdf(
     *, invoice: dict, client: Optional[dict], kyc: Optional[dict], letterhead: dict,
     settings: dict, qr_bytes: Optional[bytes], signature_bytes: Optional[bytes] = None,
+    pispi: Optional[dict] = None,
 ) -> bytes:
     """Construit le PDF (octets) d'une facture ou d'une facture proforma."""
     st = _styles()
@@ -240,7 +274,13 @@ def build_invoice_model_pdf(
         story.append(Paragraph(f"Échéance de paiement : {due}", st["words"]))
     if invoice.get("notes"):
         story.append(Paragraph(f"<i>{escape(invoice['notes'])}</i>", st["words"]))
-    story.append(Spacer(1, 0.7 * cm))
+    story.append(Spacer(1, 0.4 * cm))
+
+    # ---- 5 bis. Lot 14 : bloc PI-SPI (voir albarka_pispi.bloc_pispi_pour_document)
+    if pispi:
+        story += [_bloc_pispi(pispi, st, content_w), Spacer(1, 0.3 * cm)]
+    else:
+        story.append(Spacer(1, 0.3 * cm))
 
     # ---- 6. Signataire (à droite)
     sign = [Paragraph(escape(settings.get("signatory_title") or "Le Directeur Général"), st["sign"])]
