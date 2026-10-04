@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "13.5"
-LOT_LIBELLE = "Version affichée « Version X · déployée le JJ/MM/AAAA HH:MM » (connexion, portail), libellé complet dans l'administration"
+LOT = "13.6"
+LOT_LIBELLE = "État de la connexion au serveur sur la page de connexion et dans l'en-tête fixe du portail"

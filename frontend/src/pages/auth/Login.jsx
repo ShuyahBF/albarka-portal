@@ -10,6 +10,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { apiClient, extractError } from "@/lib/api";
 import { saveAccessCode, getAccessCode } from "@/lib/device";
 import MentionVersion from "@/components/MentionVersion";
+import EtatServeur from "@/components/EtatServeur";
 
 export default function Login() {
   const [step, setStep] = useState("credentials"); // credentials | otp
@@ -288,8 +289,9 @@ export default function Login() {
               </button>
             </form>
           )}
-          {/* Lot 13 (règle permanente) : version et lot affichés sur la page de connexion */}
-          <div className="mt-8 text-center text-xs text-muted-foreground">
+          {/* Règle permanente : état du serveur et version sur la page de connexion */}
+          <div className="mt-8 flex flex-col items-center gap-1 text-xs text-muted-foreground">
+            <EtatServeur />
             <MentionVersion testId="login-version" />
           </div>
         </div>

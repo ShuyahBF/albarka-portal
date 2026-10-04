@@ -36,6 +36,7 @@ import {
   DatabaseBackup,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import EtatServeur from "@/components/EtatServeur";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api";
 import ChatBubble from "@/components/ChatBubble";
@@ -357,6 +358,8 @@ export default function PortalLayout({ admin = false }) {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              {/* État de la connexion au serveur, toujours visible dans l'en-tête fixe */}
+              <EtatServeur className="hidden md:flex mr-3" />
               <div className="hidden sm:block text-right">
                 <div className="text-sm font-medium text-foreground">{user?.full_name}</div>
                 {user?.company && (
