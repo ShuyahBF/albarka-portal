@@ -2,9 +2,16 @@
 
 Comme pour SAWALI : chaque jour (02h00 UTC, par le planificateur interne), toute
 la base MongoDB est exportée en JSON (types MongoDB conservés : dates, ObjectId…),
-compressée (gzip) puis CHIFFRÉE (Fernet, clé dérivée de SAUVEGARDE_PHRASE, sinon de
-JWT_SECRET_KEY) et déposée dans R2 :
+compressée (gzip) puis CHIFFRÉE (Fernet, clé dérivée de SAUVEGARDE_AUTO_PHRASE, sinon
+de SAUVEGARDE_PHRASE, sinon de JWT_SECRET_KEY) et déposée dans R2 :
     albarka/sauvegardes/AAAA-MM-JJ.json.gz.chiffre
+
+Variables : MÊMES NOMS QUE SAWALI (le propriétaire recopie les mêmes valeurs) :
+    R2_SAUVEGARDES_ACCOUNT_ID, R2_SAUVEGARDES_ACCESS_KEY_ID,
+    R2_SAUVEGARDES_SECRET_ACCESS_KEY, R2_SAUVEGARDES_BUCKET (sawali-sauvegardes
+    par défaut), R2_SAUVEGARDES_PREFIXE (albarka/sauvegardes/ par défaut : les
+    sauvegardes d'ALBARKA ne se mélangent jamais à celles de SAWALI).
+Sans ces variables, la sauvegarde va dans le bucket des fichiers (R2_ENDPOINT…).
 Les 30 dernières sont gardées, les plus anciennes supprimées.
 
 Routes (superviseur / direction) :
@@ -32,18 +39,21 @@ logger = logging.getLogger("albarka.sauvegarde")
 
 router = APIRouter(prefix="/_admin/sauvegardes", tags=["Sauvegardes (lot 13)"])
 
-PREFIXE_R2 = "albarka/sauvegardes/"
+PREFIXE_PAR_DEFAUT = "albarka/sauvegardes/"
+BUCKET_SAUVEGARDES_PAR_DEFAUT = "sawali-sauvegardes"   # comme SAWALI
 CONSERVATION = 30                 # nombre de sauvegardes gardées dans R2
 HEURE_SAUVEGARDE_UTC = 2          # sauvegarde quotidienne à 02h00 UTC
 COLLECTIONS_IGNOREES = {"otps"}   # codes de connexion temporaires : inutiles à sauvegarder
 
 
 def _fernet():
-    """Chiffrement : clé Fernet dérivée de la phrase (SAUVEGARDE_PHRASE, sinon JWT_SECRET_KEY)."""
+    """Chiffrement : clé Fernet dérivée de la phrase.
+    Ordre : SAUVEGARDE_AUTO_PHRASE (nom SAWALI), puis SAUVEGARDE_PHRASE, puis JWT_SECRET_KEY."""
     from cryptography.fernet import Fernet
-    phrase = os.environ.get("SAUVEGARDE_PHRASE") or os.environ.get("JWT_SECRET_KEY") or ""
+    phrase = (os.environ.get("SAUVEGARDE_AUTO_PHRASE") or os.environ.get("SAUVEGARDE_PHRASE")
+              or os.environ.get("JWT_SECRET_KEY") or "")
     if not phrase:
-        raise RuntimeError("SAUVEGARDE_PHRASE (ou JWT_SECRET_KEY) absente : sauvegarde impossible")
+        raise RuntimeError("SAUVEGARDE_AUTO_PHRASE (ou JWT_SECRET_KEY) absente : sauvegarde impossible")
     cle = base64.urlsafe_b64encode(hashlib.sha256(("albarka-sauvegarde:" + phrase).encode("utf-8")).digest())
     return Fernet(cle)
 
@@ -76,16 +86,41 @@ async def restaurer_depuis_octets(db, octets: bytes) -> Dict[str, int]:
     return bilan
 
 
+def prefixe_r2() -> str:
+    """Dossier des sauvegardes dans le bucket (R2_SAUVEGARDES_PREFIXE, sinon albarka/sauvegardes/)."""
+    prefixe = (os.environ.get("R2_SAUVEGARDES_PREFIXE") or PREFIXE_PAR_DEFAUT).strip().strip("/")
+    return prefixe + "/"
+
+
 def _r2():
+    """Client R2 et bucket des sauvegardes.
+    1) Variables R2_SAUVEGARDES_* (mêmes noms et mêmes valeurs que SAWALI) ;
+    2) sinon, le bucket des fichiers du portail (R2_ENDPOINT, R2_ACCESS_KEY_ID…)."""
+    compte = os.environ.get("R2_SAUVEGARDES_ACCOUNT_ID")
+    cle = os.environ.get("R2_SAUVEGARDES_ACCESS_KEY_ID")
+    secret = os.environ.get("R2_SAUVEGARDES_SECRET_ACCESS_KEY")
+    if compte and cle and secret:
+        import boto3
+        from botocore.client import Config
+        client = boto3.client(
+            "s3",
+            endpoint_url=f"https://{compte}.r2.cloudflarestorage.com",
+            aws_access_key_id=cle,
+            aws_secret_access_key=secret,
+            config=Config(signature_version="s3v4"),
+            region_name="auto",
+        )
+        return client, os.environ.get("R2_SAUVEGARDES_BUCKET") or BUCKET_SAUVEGARDES_PAR_DEFAUT
+    # Repli : bucket des fichiers du portail
     from albarka_storage import _get_r2_client, _r2_configured
     if not _r2_configured():
-        raise RuntimeError("R2 non configuré : sauvegarde impossible")
+        raise RuntimeError("R2 non configuré (ni R2_SAUVEGARDES_*, ni R2_ENDPOINT…) : sauvegarde impossible")
     return _get_r2_client(), os.environ["R2_BUCKET_NAME"]
 
 
 def _lister_sync() -> List[Dict[str, Any]]:
     client, bucket = _r2()
-    rep = client.list_objects_v2(Bucket=bucket, Prefix=PREFIXE_R2)
+    rep = client.list_objects_v2(Bucket=bucket, Prefix=prefixe_r2())
     objets = [{"cle": o["Key"], "taille": o["Size"], "date": o["LastModified"].isoformat()} for o in rep.get("Contents", [])]
     return sorted(objets, key=lambda o: o["cle"], reverse=True)
 
@@ -94,7 +129,7 @@ async def sauvegarder_maintenant(db) -> Dict[str, Any]:
     """Exporte la base, dépose la sauvegarde dans R2, supprime les plus anciennes."""
     import asyncio
     octets = await exporter_base(db)
-    cle = f"{PREFIXE_R2}{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.json.gz.chiffre"
+    cle = f"{prefixe_r2()}{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.json.gz.chiffre"
     client, bucket = _r2()
     await asyncio.to_thread(client.put_object, Bucket=bucket, Key=cle, Body=octets, ContentType="application/octet-stream")
     # Rotation : on ne garde que les CONSERVATION plus récentes

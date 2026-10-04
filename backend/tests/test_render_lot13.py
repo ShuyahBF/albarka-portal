@@ -260,7 +260,7 @@ def test_compteur_de_deploiements(monkeypatch, base):
 # ---------------------------------------------------------------------------
 def test_sauvegarde_export_relecture_restauration(monkeypatch, base):
     import albarka_sauvegarde as sv
-    monkeypatch.setenv("SAUVEGARDE_PHRASE", "phrase-sauvegarde")
+    monkeypatch.setenv("SAUVEGARDE_AUTO_PHRASE", "phrase-sauvegarde")
     date = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
     _run(base.users.insert_one({"id": "u1", "email": "a@albarka.bf", "created": date}))
     _run(base.client_reports.insert_one({"id": "r1", "number": "R-1"}))
@@ -274,7 +274,7 @@ def test_sauvegarde_export_relecture_restauration(monkeypatch, base):
     bilan = _run(sv.restaurer_depuis_octets(base, octets))
     assert bilan["users"] == 1 and _run(base.users.count_documents({})) == 1
     # Mauvaise phrase : relecture refusée
-    monkeypatch.setenv("SAUVEGARDE_PHRASE", "autre-phrase")
+    monkeypatch.setenv("SAUVEGARDE_AUTO_PHRASE", "autre-phrase")
     with pytest.raises(Exception):
         sv.lire_sauvegarde(octets)
 
@@ -283,7 +283,31 @@ def test_blueprint_render():
     yaml = (RACINE / "render.yaml").read_text()
     for attendu in ("albarka-backend", "albarka-frontend", "render-production", "api.albarka-bf.com",
                     "DB_NAME", "value: albarka", "ANTHROPIC_API_KEY", "SMTP_HOST", "WEBHOOK_CRON_SECRET",
-                    "SAUVEGARDE_PHRASE", "healthCheckPath: /api/health"):
+                    "SAUVEGARDE_AUTO_PHRASE", "R2_SAUVEGARDES_ACCOUNT_ID", "PLANIFICATEUR_INTERNE", "healthCheckPath: /api/health"):
         assert attendu in yaml, attendu
     # Aucun secret écrit en clair dans le Blueprint
     assert "mongodb+srv://" not in yaml and "sk-ant" not in yaml
+
+
+# ---------------------------------------------------------------------------
+# 9. Sauvegardes : mêmes noms de variables que SAWALI (R2_SAUVEGARDES_*)
+# ---------------------------------------------------------------------------
+def test_sauvegarde_variables_sawali(monkeypatch):
+    import albarka_sauvegarde as sv
+    # Variables SAWALI présentes : compte R2 de SAWALI, bucket par défaut, dossier ALBARKA séparé
+    monkeypatch.setenv("R2_SAUVEGARDES_ACCOUNT_ID", "compte123")
+    monkeypatch.setenv("R2_SAUVEGARDES_ACCESS_KEY_ID", "cle")
+    monkeypatch.setenv("R2_SAUVEGARDES_SECRET_ACCESS_KEY", "secret")
+    monkeypatch.delenv("R2_SAUVEGARDES_BUCKET", raising=False)
+    monkeypatch.delenv("R2_SAUVEGARDES_PREFIXE", raising=False)
+    client, bucket = sv._r2()
+    assert bucket == "sawali-sauvegardes"
+    assert client.meta.endpoint_url == "https://compte123.r2.cloudflarestorage.com"
+    assert sv.prefixe_r2() == "albarka/sauvegardes/"
+    monkeypatch.setenv("R2_SAUVEGARDES_PREFIXE", "/albarka-prod/")
+    assert sv.prefixe_r2() == "albarka-prod/"
+    # Sans variables SAWALI ni R2 des fichiers : erreur claire
+    for nom in ("R2_SAUVEGARDES_ACCOUNT_ID", "R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME"):
+        monkeypatch.delenv(nom, raising=False)
+    with pytest.raises(RuntimeError):
+        sv._r2()

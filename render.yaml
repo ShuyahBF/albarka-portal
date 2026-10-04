@@ -46,8 +46,24 @@ services:
         generateValue: true
       - key: MIGRATE_CONFIRM_TOKEN  # facultatif : code de la route de réconciliation des bases
         sync: false
-      - key: SAUVEGARDE_PHRASE    # phrase de chiffrement des sauvegardes quotidiennes (à garder précieusement)
+      # --- Sauvegardes quotidiennes : MÊMES NOMS (et mêmes valeurs) que SAWALI
+      - key: SAUVEGARDE_AUTO_PHRASE  # phrase de chiffrement des sauvegardes (à garder précieusement)
         sync: false
+      - key: R2_SAUVEGARDES_ACCOUNT_ID
+        sync: false
+      - key: R2_SAUVEGARDES_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SAUVEGARDES_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_SAUVEGARDES_BUCKET    # facultatif (sawali-sauvegardes par défaut)
+        sync: false
+      - key: R2_SAUVEGARDES_PREFIXE   # facultatif (albarka/sauvegardes/ par défaut, séparé de SAWALI)
+        sync: false
+      # --- Tâches planifiées : ARRÊTÉES jusqu'à la bascule du domaine (sinon les
+      # rappels et envois WhatsApp partiraient en double, d'Emergent ET de Render,
+      # dès la copie des données). Passer à "1" le jour de la bascule.
+      - key: PLANIFICATEUR_INTERNE
+        value: "0"
       # --- Fichiers : Cloudflare R2 (mêmes valeurs que sur Emergent)
       - key: R2_ENDPOINT
         sync: false

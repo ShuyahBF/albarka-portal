@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "13"
-LOT_LIBELLE = "Migration vers Render : indépendance d'Emergent (IA, e-mails SMTP, certificats R2, tâches planifiées)"
+LOT = "13.1"
+LOT_LIBELLE = "Migration vers Render : sauvegardes avec les variables de SAWALI, tâches planifiées suspendues jusqu'à la bascule"
