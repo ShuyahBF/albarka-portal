@@ -87,7 +87,8 @@ services:
       - key: USD_TO_XOF_RATE
         sync: false
       - key: CORS_ORIGINS
-        value: https://albarka-bf.com,https://www.albarka-bf.com
+        # adresse Render incluse pour les essais avant la bascule du domaine
+        value: https://albarka-bf.com,https://www.albarka-bf.com,https://albarka-frontend.onrender.com
       - key: REACT_APP_BACKEND_URL
         value: https://api.albarka-bf.com
 
