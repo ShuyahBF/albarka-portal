@@ -364,3 +364,37 @@ def test_sauvegarde_du_jour_nouvel_essai_apres_echec(monkeypatch, base):
     with pytest.raises(RuntimeError):
         _run(sv.sauvegarde_du_jour(base, t0.replace(hour=4, minute=1)))
     assert len(appels) == 2
+
+
+# ---------------------------------------------------------------------------
+# 11. Réparation après la copie Emergent -> Atlas (lot 13.3)
+# ---------------------------------------------------------------------------
+def test_reparation_apres_copie(monkeypatch, base):
+    import albarka_reparation_copie as rc
+    # Ce que produit la copie d'Emergent : documents sans leur _id texte
+    _run(base.settings.insert_one({"recaptcha_enabled": True, "recaptcha_site_key": "cle-site"}))
+    _run(base.settings.insert_one({"private_key": "pk", "public_key": "pub", "created_at": "x"}))
+    _run(base.presence.insert_one({"user_id": "u1", "last_seen": "2026-10-04"}))
+    _run(base.presence.insert_one({"last_seen": "sans utilisateur"}))
+    _run(base.forms_counters.insert_one({"value": 2}))
+    _run(base.forms.insert_one({"id": "f1", "scope": "albarka", "number": "FORM-ALBARKA-0007"}))
+    _run(base.forms.insert_one({"id": "f2", "scope": "albarka", "number": "FORM-ALBARKA-0003"}))
+    bilan = _run(rc.reparer_copie(base))
+    assert bilan == {"settings": 2, "presence": 1, "compteurs_formulaires": 1}
+    assert _run(base.settings.find_one({"_id": "global"}))["recaptcha_site_key"] == "cle-site"
+    assert _run(base.settings.find_one({"_id": "push_vapid"}))["public_key"] == "pub"
+    assert _run(base.presence.find_one({"_id": "u1"}))["user_id"] == "u1"
+    assert _run(base.forms_counters.find_one({"_id": "albarka"}))["value"] == 7
+    assert _run(base.settings.count_documents({})) == 2 and _run(base.presence.count_documents({})) == 1
+    # Relancée : rien à faire, rien d'abîmé
+    assert _run(rc.reparer_copie(base)) == {"settings": 0, "presence": 0, "compteurs_formulaires": 1}
+    assert _run(base.forms_counters.find_one({"_id": "albarka"}))["value"] == 7
+    # Nouvelle copie (données Emergent plus fraîches) : elles remplacent l'ancien « global »
+    _run(base.settings.insert_one({"recaptcha_enabled": False, "recaptcha_site_key": "nouvelle"}))
+    _run(rc.reparer_copie(base))
+    assert _run(base.settings.find_one({"_id": "global"}))["recaptcha_site_key"] == "nouvelle"
+    # Automatique seulement sur décision du propriétaire
+    monkeypatch.delenv("REPARATION_COPIE_AUTO", raising=False)
+    assert not rc.reparation_auto_active()
+    monkeypatch.setenv("REPARATION_COPIE_AUTO", "1")
+    assert rc.reparation_auto_active()

@@ -4,11 +4,14 @@
   - état : dernière sauvegarde réussie, dernière erreur, prochaine sauvegarde ;
   - réglages : où vont les sauvegardes (bucket, dossier) — jamais de secret ;
   - bouton « Sauvegarder maintenant » (toast « Patientez… » + jauge) ;
-  - liste des sauvegardes présentes dans R2 et journal des 20 dernières tentatives.
+  - liste des sauvegardes présentes dans R2 et journal des 20 dernières tentatives ;
+  - bouton « Réparer après copie » (lot 13.3) : à cliquer après chaque copie
+    Emergent -> Atlas (remet Paramètres, clés push, présence et numérotation
+    des formulaires sous leur bon identifiant).
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, CheckCircle2, Clock, DatabaseBackup, Loader2, RefreshCw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, DatabaseBackup, Loader2, RefreshCw, Wrench } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -49,6 +52,7 @@ function PageSauvegardes() {
   const [chargement, setChargement] = useState(true);
   const [enCours, setEnCours] = useState(false); // sauvegarde manuelle en cours
   const [selection, setSelection] = useState(null); // ligne sélectionnée (règle 3)
+  const [reparation, setReparation] = useState(false); // réparation après copie en cours
 
   // Chargement de l'état complet
   const charger = useCallback(async () => {
@@ -81,6 +85,22 @@ function PageSauvegardes() {
     }
   };
 
+  // Réparation après copie Emergent -> Atlas, avec confirmation et bilan
+  const reparerApresCopie = async () => {
+    if (!window.confirm("Réparer les données après la copie depuis Emergent ? (sans risque, peut être relancé)")) return;
+    setReparation(true);
+    const attente = toast.loading("Patientez… réparation après copie");
+    try {
+      const { data } = await apiClient.post("/_admin/reparer-copie");
+      toast.success(`Réparation terminée : Paramètres ${data.settings}, présence ${data.presence}, ` +
+                    `compteurs de formulaires ${data.compteurs_formulaires}`, { id: attente, duration: 8000 });
+    } catch (e) {
+      toast.error(extractError(e), { id: attente });
+    } finally {
+      setReparation(false);
+    }
+  };
+
   const reglages = etat?.reglages || {};
 
   return (
@@ -95,7 +115,11 @@ function PageSauvegardes() {
             dans Cloudflare R2. Les {reglages.conservation ?? 30} dernières sont gardées.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={reparerApresCopie} disabled={reparation} data-testid="reparer-apres-copie">
+            {reparation ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Wrench className="h-4 w-4 mr-2" />}
+            Réparer après copie
+          </Button>
           <Button variant="outline" onClick={charger} disabled={chargement} data-testid="sauvegardes-actualiser">
             <RefreshCw className={`h-4 w-4 mr-2 ${chargement ? "animate-spin" : ""}`} /> Actualiser
           </Button>
