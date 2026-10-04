@@ -14,6 +14,9 @@ Reprend la facture Word du cabinet :
 Le papier à en-tête choisi est dessiné sur chaque page (image d'en-tête en
 haut, image de pied de page en bas) ; sans image, la marge haute du papier
 préimprimé est laissée vide.
+Lot 12 : papier « page entière » -> l'image A4 est posée en fond de chaque
+page et le contenu s'écrit entre les marges (haute, basse, gauche, droite)
+du papier.
 """
 from __future__ import annotations
 
@@ -29,7 +32,7 @@ from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from albarka_docgen import fcfa, letterhead_image_size, montant_en_lettres
+from albarka_docgen import PT_PER_MM, fcfa, letterhead_image_size, montant_en_lettres
 
 BAND = colors.HexColor("#7E97AD")      # bandeau du titre (couleur du modèle Word)
 LINE = colors.HexColor("#585858")      # traits des tableaux
@@ -102,24 +105,38 @@ def build_invoice_model_pdf(
     """Construit le PDF (octets) d'une facture ou d'une facture proforma."""
     st = _styles()
     doc_type = invoice.get("document_type", "facture")
-    content_w = PAGE_W - 2 * SIDE
+    left = right = SIDE
+    background = None
 
-    # ---- Papier à en-tête : hauteur des images -> marges du contenu
-    header, footer = letterhead.get("header"), letterhead.get("footer")
-    header_h = letterhead_image_size(header, PAGE_W)[1] if header else 0
-    footer_h = letterhead_image_size(footer, PAGE_W)[1] if footer else 0
-    top = header_h + 0.5 * cm if header else float(letterhead.get("top_margin_cm", 2.0)) * cm
-    bottom = footer_h + 0.4 * cm if footer else float(letterhead.get("bottom_margin_cm", 2.0)) * cm
+    if letterhead.get("mode") == "page":
+        # ---- Lot 12 : papier page entière -> fond de page + marges du papier
+        background, header, footer = letterhead.get("header"), None, None
+        header_h = footer_h = 0
+        top = float(letterhead.get("page_top_mm") or 35) * PT_PER_MM
+        bottom = float(letterhead.get("page_bottom_mm") or 30) * PT_PER_MM
+        left = float(letterhead.get("page_left_mm") or 20) * PT_PER_MM
+        right = float(letterhead.get("page_right_mm") or 20) * PT_PER_MM
+    else:
+        # ---- Papier à en-tête : hauteur des images -> marges du contenu
+        header, footer = letterhead.get("header"), letterhead.get("footer")
+        header_h = letterhead_image_size(header, PAGE_W)[1] if header else 0
+        footer_h = letterhead_image_size(footer, PAGE_W)[1] if footer else 0
+        top = header_h + 0.5 * cm if header else float(letterhead.get("top_margin_cm", 2.0)) * cm
+        bottom = footer_h + 0.4 * cm if footer else float(letterhead.get("bottom_margin_cm", 2.0)) * cm
+    content_w = PAGE_W - left - right
 
     def on_page(canvas, _doc):
-        """Dessine l'en-tête et le pied de page sur toute la largeur de chaque page."""
+        """Dessine le papier sur chaque page : fond pleine page (lot 12), ou
+        en-tête et pied de page sur toute la largeur."""
+        if background:
+            canvas.drawImage(ImageReader(io.BytesIO(background)), 0, 0, PAGE_W, PAGE_H, mask="auto")
         if header:
             canvas.drawImage(ImageReader(io.BytesIO(header)), 0, PAGE_H - header_h, PAGE_W, header_h, mask="auto")
         if footer:
             canvas.drawImage(ImageReader(io.BytesIO(footer)), 0, 0, PAGE_W, footer_h, mask="auto")
 
     buf = io.BytesIO()
-    pdf = SimpleDocTemplate(buf, pagesize=A4, leftMargin=SIDE, rightMargin=SIDE, topMargin=top, bottomMargin=bottom,
+    pdf = SimpleDocTemplate(buf, pagesize=A4, leftMargin=left, rightMargin=right, topMargin=top, bottomMargin=bottom,
                             title=f"{TITLES.get(doc_type, 'FACTURE')} {invoice.get('number', '')}")
     story = []
 

@@ -37,8 +37,9 @@ from pydantic import BaseModel, Field
 
 import albarka_storage
 from albarka_auth import require_staff
-from albarka_docgen import (DOC_ADMIN_ROLES, date_longue, get_doc_settings, letterhead_image_size, load_letterhead,
-                            new_verify_token, now_iso, qr_png, verify_url)
+from albarka_docgen import (A4_RATIO_RANGE, DOC_ADMIN_ROLES, PT_PER_MM, date_longue, get_doc_settings,
+                            letterhead_image_size, load_letterhead, new_verify_token, now_iso, page_bands, qr_png,
+                            verify_url)
 from db import db
 
 logger = logging.getLogger(__name__)
@@ -284,30 +285,61 @@ def _image_box(data: Optional[bytes], max_h: float, label: str, warnings: Option
     h = letterhead_image_size(data, _A4[0])[1]
     if h > max_h:
         if warnings is not None:
-            warnings.append(f"Image {label} du papier à en-tête trop haute : réduite pour laisser la place au texte "
-                            "(chargez une image en bandeau, pas une page entière).")
+            # Lot 12 : une image aux proportions d'une feuille A4 est très
+            # probablement une page entière -> on indique le bon réglage
+            if A4_RATIO_RANGE[0] <= h / _A4[0] <= A4_RATIO_RANGE[1]:
+                advice = ("Cette image semble être une page A4 complète : choisissez le type « Page entière » "
+                          "dans Papiers à en-tête.")
+            else:
+                advice = "(chargez une image en bandeau, pas une page entière)."
+            warnings.append(f"Image {label} du papier à en-tête trop haute : réduite pour laisser la place au texte. "
+                            + advice)
         return max_h
     return h
+
+
+def _drop_trailing_blank_pages(doc) -> None:
+    """Lot 12 : retire les pages vides en fin de document (ni texte, ni image,
+    ni trait), produites par exemple par des paragraphes vides en fin de
+    modèle qui débordent sur une page de plus. La première page est gardée."""
+    while doc.page_count > 1:
+        last = doc[-1]
+        if last.get_text().strip() or last.get_images() or last.get_drawings():
+            break
+        doc.delete_page(-1)
 
 
 def html_to_pdf(body: str, letterhead: dict, qr_text: Optional[str] = None, warnings: Optional[list] = None) -> bytes:
     """PDF A4 : texte mis en forme, papier à en-tête sur chaque page, QR code
     de vérification dans la marge droite de la première page.
-    Lot 11 : les avertissements (image trop haute…) sont ajoutés à `warnings`."""
+    Lot 11 : les avertissements (image trop haute…) sont ajoutés à `warnings`.
+    Lot 12 : papier « page entière » (mode « page ») : l'image est posée en
+    FOND de chaque page, pleine page, sans réduction, et le texte s'écrit
+    entre la marge haute et la marge basse du papier."""
     import fitz
-    header, footer = letterhead.get("header"), letterhead.get("footer")
-    header_h = _image_box(header, _MAX_HEADER_H, "d'en-tête", warnings)
-    footer_h = _image_box(footer, _MAX_FOOTER_H, "de pied de page", warnings)
-    # Image illisible (hauteur 0) : on fait comme s'il n'y en avait pas
-    header, footer = (header if header_h else None), (footer if footer_h else None)
-    top = header_h + 14 if header else float(letterhead.get("top_margin_cm") or 2.0) * 28.35
-    bottom = footer_h + 12 if footer else float(letterhead.get("bottom_margin_cm") or 2.0) * 28.35
+    background = None
+    if letterhead.get("mode") == "page":
+        # Papier page entière : pas de bandeaux, marges en millimètres
+        background, header, footer = letterhead.get("header"), None, None
+        top = float(letterhead.get("page_top_mm") or 35) * PT_PER_MM
+        bottom = float(letterhead.get("page_bottom_mm") or 30) * PT_PER_MM
+        left = float(letterhead.get("page_left_mm") or 20) * PT_PER_MM
+        right = float(letterhead.get("page_right_mm") or 20) * PT_PER_MM
+    else:
+        header, footer = letterhead.get("header"), letterhead.get("footer")
+        header_h = _image_box(header, _MAX_HEADER_H, "d'en-tête", warnings)
+        footer_h = _image_box(footer, _MAX_FOOTER_H, "de pied de page", warnings)
+        # Image illisible (hauteur 0) : on fait comme s'il n'y en avait pas
+        header, footer = (header if header_h else None), (footer if footer_h else None)
+        top = header_h + 14 if header else float(letterhead.get("top_margin_cm") or 2.0) * 28.35
+        bottom = footer_h + 12 if footer else float(letterhead.get("bottom_margin_cm") or 2.0) * 28.35
+        left = right = _SIDE
     body, arch = _extract_images(body or "<p></p>")
     story = fitz.Story(html=f"<body>{body}</body>", user_css=_PDF_CSS, archive=arch)
     buf = io.BytesIO()
     writer = fitz.DocumentWriter(buf)
     page_rect = fitz.Rect(0, 0, *_A4)
-    where = fitz.Rect(_SIDE, top, _A4[0] - _SIDE, _A4[1] - bottom)
+    where = fitz.Rect(left, top, _A4[0] - right, _A4[1] - bottom)
     more, pages = 1, 0
     while more and pages < 60:
         dev = writer.begin_page(page_rect)
@@ -319,14 +351,22 @@ def html_to_pdf(body: str, letterhead: dict, qr_text: Optional[str] = None, warn
     # Second passage : images du papier à en-tête et QR code
     # (keep_proportion : une image plafonnée reste centrée, sans être écrasée)
     doc = fitz.open("pdf", buf.getvalue())
+    _drop_trailing_blank_pages(doc)
+    bg_xref = 0
     for i, page in enumerate(doc):
+        if background:
+            # Fond pleine page, SOUS le texte (overlay=False) ; l'image n'est
+            # enregistrée qu'une fois dans le PDF (réutilisée par son xref)
+            bg_xref = page.insert_image(page.rect, stream=None if bg_xref else background, xref=bg_xref,
+                                        keep_proportion=False, overlay=False)
         if header:
             page.insert_image(fitz.Rect(0, 0, _A4[0], header_h), stream=header, keep_proportion=True)
         if footer:
             page.insert_image(fitz.Rect(0, _A4[1] - footer_h, _A4[0], _A4[1]), stream=footer, keep_proportion=True)
         if i == 0 and qr_text:
-            size = 50
-            x0 = _A4[0] - _SIDE + (_SIDE - size) / 2
+            # Dans la marge droite, sous la marge haute (zone utile du papier)
+            size = max(28.0, min(50.0, right - 6))
+            x0 = _A4[0] - right + (right - size) / 2
             y0 = top + 2
             page.insert_image(fitz.Rect(x0, y0, x0 + size, y0 + size), stream=qr_png(qr_text, box=4))
             page.insert_textbox(fitz.Rect(x0 - 8, y0 + size + 1, x0 + size + 8, y0 + size + 20), "Vérifier",
@@ -346,10 +386,22 @@ def _image_mime(data: bytes) -> str:
 
 
 def word_html(body: str, letterhead: dict, title: str) -> bytes:
-    """Version « Word » (.doc) : page HTML que Word ouvre et modifie telle quelle."""
+    """Version « Word » (.doc) : page HTML que Word ouvre et modifie telle quelle.
+    Lot 12 : Word (format HTML) ne sait pas poser une image en fond de chaque
+    page. Pour un papier « page entière », on découpe l'image : la bande du
+    haut (au-dessus de la marge haute) est placée en tête du document et la
+    bande du bas (sous la marge basse) à la fin, comme pour un papier en
+    bandes ; le grand blanc du milieu n'est pas repris."""
+    images = {"header": letterhead.get("header"), "footer": letterhead.get("footer")}
+    if letterhead.get("mode") == "page":
+        images = {"header": None, "footer": None}
+        if letterhead.get("header"):
+            images["header"], images["footer"] = page_bands(
+                letterhead["header"], float(letterhead.get("page_top_mm") or 35),
+                float(letterhead.get("page_bottom_mm") or 30))
     parts = []
     for part in ("header", "footer"):
-        data = letterhead.get(part)
+        data = images.get(part)
         if data:
             parts.append(f'<p style="margin:0"><img src="data:{_image_mime(data)};base64,{base64.b64encode(data).decode()}" width="620"></p>')
         else:

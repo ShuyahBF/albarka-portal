@@ -34,7 +34,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 from albarka_auth import require_roles
-from albarka_docgen import MONTHS_FR, fcfa, letterhead_image_size, load_letterhead, new_verify_token, now_iso, qr_png, verify_url
+from albarka_docgen import (MONTHS_FR, PT_PER_MM, fcfa, letterhead_image_size, load_letterhead, new_verify_token, now_iso,
+                            page_bands, qr_png, verify_url)
 from db import db
 
 router = APIRouter(prefix="/hr/payroll", tags=["RH & Paie — tableau"])
@@ -218,12 +219,35 @@ def build_payroll_pdf(table: dict, letterhead: dict, questionnaire: bool, qr_tex
 
     header, footer = letterhead.get("header"), letterhead.get("footer")
 
+    # Lot 12 : papier « page entière ». Les pages en PORTRAIT (questionnaire)
+    # reçoivent l'image A4 en fond de page, le texte entre les marges du
+    # papier. Les pages en PAYSAGE (tableau) ne peuvent pas recevoir une page
+    # portrait en fond : on y pose la bande du haut et la bande du bas de
+    # l'image, découpées comme un papier « en bandes ».
+    background = None
+    page_top = page_bottom = page_left = page_right = 0.0
+    if letterhead.get("mode") == "page" and header:
+        background = header
+        page_top = float(letterhead.get("page_top_mm") or 35) * PT_PER_MM
+        page_bottom = float(letterhead.get("page_bottom_mm") or 30) * PT_PER_MM
+        page_left = float(letterhead.get("page_left_mm") or 20) * PT_PER_MM
+        page_right = float(letterhead.get("page_right_mm") or 20) * PT_PER_MM
+        header, footer = page_bands(background, float(letterhead.get("page_top_mm") or 35),
+                                    float(letterhead.get("page_bottom_mm") or 30))
+
+    def full_page(page_w):
+        """Vrai si la page reçoit le papier « page entière » en fond (portrait)."""
+        return background is not None and page_w <= A4[0]
+
     # Images du papier à en-tête : largeur d'une page portrait au plus (en
     # paysage elles restent à leur taille normale, centrées)
     def img_w(page_w):
         return min(page_w, A4[0])
 
     def margins(page_w):
+        # Fond pleine page : marges haute / basse du papier, pas de bandeau
+        if full_page(page_w):
+            return 0, 0, page_top, page_bottom
         hh = letterhead_image_size(header, img_w(page_w))[1] if header else 0
         fh = letterhead_image_size(footer, img_w(page_w))[1] if footer else 0
         top = hh + 0.4 * cm if header else float(letterhead.get("top_margin_cm", 2.0)) * cm
@@ -237,6 +261,10 @@ def build_payroll_pdf(table: dict, letterhead: dict, questionnaire: bool, qr_tex
         x = (page_w - w) / 2
 
         def paint(canvas, _doc):
+            # Lot 12 : fond pleine page (portrait, papier « page entière »)
+            if full_page(page_w):
+                canvas.drawImage(ImageReader(io.BytesIO(background)), 0, 0, page_w, page_h, mask="auto")
+                return
             if header:
                 canvas.drawImage(ImageReader(io.BytesIO(header)), x, page_h - hh, w, hh, mask="auto")
             if footer:
@@ -247,13 +275,16 @@ def build_payroll_pdf(table: dict, letterhead: dict, questionnaire: bool, qr_tex
     side = 1.5 * cm
     _h1, _f1, top_l, bottom_l = margins(land[0])
     _h2, _f2, top_p, bottom_p = margins(port[0])
+    # Marges gauche / droite du questionnaire : celles du papier « page
+    # entière » s'il est posé en fond, sinon 2,5 cm comme avant
+    port_l, port_r = (page_left, page_right) if full_page(port[0]) else (2.5 * cm, 2.5 * cm)
     buf = io.BytesIO()
     doc = BaseDocTemplate(buf, pagesize=land, title=f"Liste du personnel — {table['period_label']}")
     doc.addPageTemplates([
         PageTemplate("paysage", pagesize=land, onPage=painter(*land),
                      frames=[Frame(side, bottom_l, land[0] - 2 * side, land[1] - top_l - bottom_l, id="fl")]),
         PageTemplate("portrait", pagesize=port, onPage=painter(*port),
-                     frames=[Frame(2.5 * cm, bottom_p, port[0] - 5 * cm, port[1] - top_p - bottom_p, id="fp")]),
+                     frames=[Frame(port_l, bottom_p, port[0] - port_l - port_r, port[1] - top_p - bottom_p, id="fp")]),
     ])
     title = ParagraphStyle("t", fontName="Helvetica-Bold", fontSize=13, leading=17, alignment=TA_CENTER)
     sub = ParagraphStyle("s", fontName="Helvetica-Bold", fontSize=11, leading=15, alignment=TA_CENTER)

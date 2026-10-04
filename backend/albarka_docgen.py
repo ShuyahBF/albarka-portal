@@ -9,6 +9,9 @@ documents à partir de modèles (albarka_letters.py) et le tableau de paie :
   chacun avec une image d'en-tête et une image de pied de page, ou « papier
   préimprimé » (on laisse seulement la marge haute vide) ; le document choisit
   le sien, sinon celui marqué « par défaut » ;
+  lot 12 : un papier peut aussi être une PAGE A4 ENTIÈRE posée en fond de
+  chaque page (type « page »), le texte s'écrivant entre deux marges
+  détectées automatiquement sur l'image ;
 - RÉGLAGES DES DOCUMENTS : ville, signataire (titre + nom), IFU / RCCM du
   cabinet ;
 - QR CODE DE VÉRIFICATION : chaque document reçoit un jeton ; le QR code
@@ -17,6 +20,7 @@ documents à partir de modèles (albarka_letters.py) et le tableau de paie :
 
 Routes :
   GET/POST/PUT/DELETE /admin/letterheads…   papiers à en-tête
+  POST                /admin/letterheads/detect  type proposé + marges détectées (lot 12)
   GET/PUT             /admin/doc-settings    ville, signataire, IFU/RCCM
   GET                 /public/verify/{token} vérification publique (sans compte)
 """
@@ -195,20 +199,94 @@ async def update_doc_settings(payload: DocSettingsUpdate, user: dict = Depends(r
 # ==========================================================================
 # Papiers à en-tête
 # ==========================================================================
-def _public_letterhead(lh: dict) -> dict:
-    """Fiche renvoyée à l'écran (sans chemins de stockage)."""
+def _public_letterhead(lh: dict, eff: Optional[dict] = None) -> dict:
+    """Fiche renvoyée à l'écran (sans chemins de stockage).
+    Lot 12 : `eff` = type de papier et marges effectifs (voir page_settings)."""
+    eff = eff or page_settings(lh, None)
     return {
         "id": lh["id"], "name": lh.get("name"), "is_default": bool(lh.get("is_default")),
         "has_header": bool(lh.get("header_path")), "has_footer": bool(lh.get("footer_path")),
         "top_margin_cm": lh.get("top_margin_cm", 4.8), "bottom_margin_cm": lh.get("bottom_margin_cm", 2.0),
+        **eff,
         "created_at": lh.get("created_at"), "updated_at": lh.get("updated_at"),
     }
+
+
+async def _stored_header(lh: dict) -> Optional[bytes]:
+    """Image d'en-tête enregistrée (ramenée en PNG/JPEG), ou None."""
+    if not lh.get("header_path"):
+        return None
+    try:
+        raw, _ct = await get_object(lh["header_path"])
+        return normalize_image(raw)[0]
+    except Exception:  # noqa: BLE001 — image absente ou illisible : pas de détection
+        return None
+
+
+async def _effective(lh: dict) -> dict:
+    """Lot 12 : type et marges effectifs d'un papier ; l'image n'est lue que
+    si c'est nécessaire (papier ancien sans type, marges jamais calculées)."""
+    mode = lh.get("mode")
+    need = lh.get("header_path") and (
+        (mode not in LH_MODES and not lh.get("footer_path"))
+        or (mode == "page" and (lh.get("page_top_mm") is None or lh.get("page_bottom_mm") is None)))
+    return page_settings(lh, await _stored_header(lh) if need else None)
 
 
 @router.get("/letterheads")
 async def list_letterheads(user: dict = Depends(require_staff())):
     items = await db.letterheads.find({}, {"_id": 0}).sort("name", 1).to_list(100)
-    return [_public_letterhead(x) for x in items]
+    return [_public_letterhead(x, await _effective(x)) for x in items]
+
+
+# --------------------------------------------------------------------------
+# Lot 12 — type de papier (« bandes » / « page ») et marges à l'enregistrement
+# --------------------------------------------------------------------------
+def _detection_report(detection: Optional[dict], has_footer: bool) -> Optional[dict]:
+    """Résultat de la détection renvoyé à l'écran, avec le type proposé et un
+    message en français expliquant pourquoi."""
+    if detection is None:
+        return None
+    suggested = "page" if detection["a4_like"] and not has_footer else "bandes"
+    if suggested == "page":
+        msg = ("Cette image a les proportions d'une page A4 complète : le type « Page entière » est proposé "
+               "(image en fond de chaque page, texte écrit entre la marge haute et la marge basse). "
+               f"Marges proposées : {detection['top_mm']:g} mm en haut, {detection['bottom_mm']:g} mm en bas.")
+    elif detection["a4_like"]:
+        msg = ("Cette image a les proportions d'une page A4, mais le papier a aussi une image de pied de page : "
+               "type « En-tête + pied séparés » conservé.")
+    else:
+        msg = "Image en bandeau : type « En-tête + pied séparés »."
+    return {**detection, "suggested_mode": suggested, "message": msg}
+
+
+def _page_changes(*, mode: Optional[str], top: Optional[float], bottom: Optional[float], left: Optional[float],
+                  right: Optional[float], new_header: Optional[bytes], has_footer: bool) -> tuple[dict, Optional[dict]]:
+    """Champs du mode « page » à enregistrer. Nouvelle image d'en-tête sans
+    type choisi : le type est proposé automatiquement (page A4 sans pied ->
+    « page ») et les marges détectées sont enregistrées (sauf si l'admin a
+    saisi les siennes)."""
+    changes: dict = {}
+    detection = detect_page_letterhead(new_header) if new_header else None
+    if mode is not None and mode != "":
+        if mode not in LH_MODES:
+            raise HTTPException(status_code=400, detail="Type de papier inconnu (« bandes » ou « page »)")
+        changes["mode"] = mode
+    elif detection is not None:
+        changes["mode"] = "page" if detection["a4_like"] and not has_footer else "bandes"
+    page_h = A4_MM[1]
+    if top is not None:
+        changes["page_top_mm"] = round(max(5.0, min(_MAX_TOP_SHARE * page_h, top)), 1)
+    elif detection is not None:
+        changes["page_top_mm"] = detection["top_mm"]
+    if bottom is not None:
+        changes["page_bottom_mm"] = round(max(5.0, min(_MAX_BOTTOM_SHARE * page_h, bottom)), 1)
+    elif detection is not None:
+        changes["page_bottom_mm"] = detection["bottom_mm"]
+    for key, val in (("page_left_mm", left), ("page_right_mm", right)):
+        if val is not None:
+            changes[key] = round(max(5.0, min(60.0, val)), 1)
+    return changes, _detection_report(detection, has_footer)
 
 
 # --------------------------------------------------------------------------
@@ -312,6 +390,11 @@ async def create_letterhead(
     top_margin_cm: float = Form(4.8),
     bottom_margin_cm: float = Form(2.0),
     is_default: bool = Form(False),
+    mode: Optional[str] = Form(None),
+    page_top_mm: Optional[float] = Form(None),
+    page_bottom_mm: Optional[float] = Form(None),
+    page_left_mm: Optional[float] = Form(None),
+    page_right_mm: Optional[float] = Form(None),
     header: Optional[UploadFile] = File(None),
     footer: Optional[UploadFile] = File(None),
     user: dict = Depends(require_roles(DOC_ADMIN_ROLES)),
@@ -321,16 +404,22 @@ async def create_letterhead(
            "bottom_margin_cm": max(0.5, min(8.0, bottom_margin_cm)), "is_default": False,
            "header_path": None, "footer_path": None, "created_at": now_iso(), "updated_at": now_iso(),
            "created_by": user["id"]}
+    images = {}
     for part, f in (("header", header), ("footer", footer)):
         img = await _read_image(f)
         if img:
+            images[part] = img[0]
             doc[f"{part}_path"] = await _store_part(lh_id, part, img, None)
+    # Lot 12 : type de papier (proposé d'après l'image si non choisi) et marges
+    page, detection = _page_changes(mode=mode, top=page_top_mm, bottom=page_bottom_mm, left=page_left_mm,
+                                    right=page_right_mm, new_header=images.get("header"), has_footer="footer" in images)
+    doc.update({"mode": "bandes", **page})
     await db.letterheads.insert_one(doc.copy())
     # Le premier papier créé devient automatiquement celui par défaut
     if is_default or await db.letterheads.count_documents({}) == 1:
         await _set_default(lh_id)
         doc["is_default"] = True
-    return _public_letterhead(doc)
+    return {**_public_letterhead(doc, page_settings(doc, images.get("header"))), "detection": detection}
 
 
 @router.put("/letterheads/{lh_id}")
@@ -340,6 +429,11 @@ async def update_letterhead(
     top_margin_cm: Optional[float] = Form(None),
     bottom_margin_cm: Optional[float] = Form(None),
     is_default: Optional[bool] = Form(None),
+    mode: Optional[str] = Form(None),
+    page_top_mm: Optional[float] = Form(None),
+    page_bottom_mm: Optional[float] = Form(None),
+    page_left_mm: Optional[float] = Form(None),
+    page_right_mm: Optional[float] = Form(None),
     remove_header: bool = Form(False),
     remove_footer: bool = Form(False),
     header: Optional[UploadFile] = File(None),
@@ -356,9 +450,12 @@ async def update_letterhead(
         changes["top_margin_cm"] = max(0.5, min(10.0, top_margin_cm))
     if bottom_margin_cm is not None:
         changes["bottom_margin_cm"] = max(0.5, min(8.0, bottom_margin_cm))
+    new_header = None
     for part, f, remove in (("header", header, remove_header), ("footer", footer, remove_footer)):
         img = await _read_image(f)
         if img:
+            if part == "header":
+                new_header = img[0]
             changes[f"{part}_path"] = await _store_part(lh_id, part, img, lh.get(f"{part}_path"))
         elif remove and lh.get(f"{part}_path"):
             try:
@@ -366,10 +463,40 @@ async def update_letterhead(
             except Exception:  # noqa: BLE001
                 pass
             changes[f"{part}_path"] = None
+    # Lot 12 : type de papier et marges (nouvelle image d'en-tête -> détection)
+    has_footer = bool(changes.get("footer_path", lh.get("footer_path")))
+    page, detection = _page_changes(mode=mode, top=page_top_mm, bottom=page_bottom_mm, left=page_left_mm,
+                                    right=page_right_mm, new_header=new_header, has_footer=has_footer)
+    changes.update(page)
     await db.letterheads.update_one({"id": lh_id}, {"$set": changes})
     if is_default:
         await _set_default(lh_id)
-    return _public_letterhead(await db.letterheads.find_one({"id": lh_id}, {"_id": 0}))
+    fresh = await db.letterheads.find_one({"id": lh_id}, {"_id": 0})
+    return {**_public_letterhead(fresh, await _effective(fresh)), "detection": detection}
+
+
+@router.post("/letterheads/detect")
+async def detect_letterhead(
+    letterhead_id: Optional[str] = Form(None),
+    header: Optional[UploadFile] = File(None),
+    user: dict = Depends(require_roles(DOC_ADMIN_ROLES)),
+):
+    """Lot 12 — « Détecter les marges » : analyse l'image envoyée (avant
+    enregistrement) ou celle d'un papier enregistré, et propose le type de
+    papier et les marges haute / basse. N'enregistre rien."""
+    img = await _read_image(header)
+    has_footer = False
+    if img:
+        data = img[0]
+    else:
+        lh = await db.letterheads.find_one({"id": letterhead_id or ""}, {"_id": 0}) if letterhead_id else None
+        if not lh:
+            raise HTTPException(status_code=404, detail="Papier à en-tête introuvable")
+        data = await _stored_header(lh)
+        if data is None:
+            raise HTTPException(status_code=400, detail="Ce papier n'a pas d'image d'en-tête lisible à analyser")
+        has_footer = bool(lh.get("footer_path"))
+    return _detection_report(detect_page_letterhead(data), has_footer)
 
 
 @router.delete("/letterheads/{lh_id}")
@@ -415,7 +542,8 @@ async def load_letterhead(lh_id: Optional[str], warnings: Optional[list] = None)
         if warnings is not None and msg not in warnings:
             warnings.append(msg)
 
-    empty = {"id": None, "name": None, "header": None, "footer": None, "top_margin_cm": 2.0, "bottom_margin_cm": 2.0}
+    empty = {"id": None, "name": None, "header": None, "footer": None, "top_margin_cm": 2.0, "bottom_margin_cm": 2.0,
+             "mode": "bandes"}
     if lh_id == "none":
         return empty
     lh = None
@@ -454,6 +582,11 @@ async def load_letterhead(lh_id: Optional[str], warnings: Optional[list] = None)
             logger.warning("Image %s du papier %s illisible (%s) : %s", part, lh["id"], path, exc)
             warn(f"Image {labels[part]} du papier « {lh.get('name')} » illisible : enregistrez-la en PNG ou JPG "
                  "et rechargez-la dans Réglages des documents > Papiers à en-tête. Document produit sans cette image.")
+    # Lot 12 : type de papier et marges effectifs. En mode « page », l'image
+    # d'en-tête est le fond de page et l'éventuelle image de pied est ignorée.
+    out.update(page_settings(lh, out["header"]))
+    if out["mode"] == "page":
+        out["footer"] = None
     return out
 
 
@@ -468,6 +601,198 @@ def letterhead_image_size(data: bytes, width_pt: float) -> tuple[float, float]:
         logger.warning("Image du papier à en-tête illisible : ignorée")
         return width_pt, 0.0
     return width_pt, width_pt * h / max(1, w)
+
+
+# ==========================================================================
+# Lot 12 — PAPIER « PAGE ENTIÈRE » (fond A4)
+# Certains cabinets n'ont pas un bandeau d'en-tête et un bandeau de pied de
+# page séparés, mais une PAGE A4 COMPLÈTE (logo en haut, grand blanc au
+# milieu, coordonnées / RCCM / IFU en bas). Deux types de papier :
+#   - « bandes » (défaut, lots 7 à 11) : image d'en-tête en haut, image de
+#     pied de page en bas, chacune sur toute la largeur ;
+#   - « page » : une seule image posée en FOND de chaque page, pleine page,
+#     sans réduction ; le texte s'écrit entre une marge haute et une marge
+#     basse (en mm), plus des marges gauche / droite.
+# Les marges haute et basse sont DÉTECTÉES automatiquement (Pillow) sur
+# l'image : fin de la bande imprimée du haut, début de celle du bas, plus
+# une respiration de 6 mm. L'admin peut ensuite les corriger.
+# ==========================================================================
+LH_MODES = ("bandes", "page")
+A4_MM = (210.0, 297.0)
+PT_PER_MM = 72 / 25.4
+PAGE_TOP_DEFAULT_MM = 35.0       # marges proposées quand la détection échoue
+PAGE_BOTTOM_DEFAULT_MM = 30.0
+PAGE_SIDE_DEFAULT_MM = 20.0      # marges gauche / droite du mode « page »
+A4_RATIO_RANGE = (1.30, 1.52)    # hauteur / largeur « proche de l'A4 » (1,414)
+_WHITE_LEVEL = 245               # pixel « blanc » : R, V et B tous >= 245
+_NOISE_SHARE = 0.003             # ligne « blanche » si < 0,3 % de pixels non blancs (poussières)
+_MIN_WHITE_RUN = 0.08            # zone blanche continue d'au moins 8 % de la hauteur
+_BREATH_MM = 6.0                 # respiration entre la bande imprimée et le texte
+_MAX_TOP_SHARE, _MAX_BOTTOM_SHARE = 0.45, 0.35   # garde-fous (part de la page)
+_DETECT_CACHE: dict = {}         # chemin de l'image -> résultat de la détection
+
+
+def is_a4_ratio(data: Optional[bytes]) -> bool:
+    """L'image a-t-elle les proportions d'une feuille A4 portrait (ou proche) ?"""
+    if not data:
+        return False
+    w, h = letterhead_image_size(data, 1.0)
+    return bool(h) and A4_RATIO_RANGE[0] <= h / w <= A4_RATIO_RANGE[1]
+
+
+def _row_flags(data: bytes) -> list[bool]:
+    """Pour chaque ligne de l'image (réduite pour aller vite) : True si la
+    ligne est « imprimée » (assez de pixels non blancs), False si blanche."""
+    from PIL import Image, ImageChops
+    with Image.open(io.BytesIO(data)) as im:
+        im.load()
+        # Transparence : l'image est posée sur du papier blanc
+        if im.mode in ("RGBA", "LA", "PA") or (im.mode == "P" and "transparency" in im.info):
+            rgba = im.convert("RGBA")
+            sheet = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            sheet.alpha_composite(rgba)
+            rgb = sheet.convert("RGB")
+        else:
+            rgb = im.convert("RGB")
+    # Environ 1 750 lignes suffisent (0,17 mm par ligne sur une page A4)
+    factor = max(1, rgb.height // 1750)
+    if factor > 1:
+        rgb = rgb.reduce(factor)
+    r, g, b = rgb.split()
+    darkest = ImageChops.darker(ImageChops.darker(r, g), b)
+    # 1 = pixel non blanc, 0 = pixel blanc ; moyenne par ligne = part non blanche
+    mask = darkest.point(lambda v: 255 if v < _WHITE_LEVEL else 0).convert("F")
+    shares = mask.resize((1, mask.height), Image.BOX).getdata()
+    return [v / 255.0 > _NOISE_SHARE for v in shares]
+
+
+def _band_end(flags: list[bool], min_run: int) -> Optional[int]:
+    """Dernière ligne imprimée de la bande qui commence au bord de l'image,
+    c.-à-d. avant la première zone blanche continue d'au moins `min_run`
+    lignes. None si aucune ligne imprimée (bord entièrement blanc)."""
+    last, run = None, 0
+    for i, printed in enumerate(flags):
+        if printed:
+            last, run = i, 0
+        elif last is not None:
+            run += 1
+            if run >= min_run:
+                break
+    return last
+
+
+def detect_page_letterhead(data: Optional[bytes]) -> dict:
+    """Analyse une image de papier « page entière » et propose les marges.
+    Renvoie : a4_like (proportions A4), found (marges trouvées et
+    vraisemblables), top_mm / bottom_mm (marges proposées, ou valeurs par
+    défaut), warnings (messages en français pour l'admin)."""
+    out = {"a4_like": is_a4_ratio(data), "found": False, "top_mm": PAGE_TOP_DEFAULT_MM,
+           "bottom_mm": PAGE_BOTTOM_DEFAULT_MM, "warnings": []}
+    if not data:
+        return out
+    try:
+        flags = _row_flags(data)
+    except Exception:  # noqa: BLE001 — image illisible : valeurs par défaut
+        logger.warning("Détection des marges impossible : image illisible")
+        out["warnings"].append("Image illisible : marges par défaut proposées (35 mm en haut, 30 mm en bas).")
+        return out
+    n = len(flags)
+    min_run = max(1, round(n * _MIN_WHITE_RUN))
+    top_end = _band_end(flags, min_run)
+    bottom_end = _band_end(flags[::-1], min_run)
+    page_h = A4_MM[1]
+    top_mm = None if top_end is None else (top_end + 1) / n * page_h + _BREATH_MM
+    bottom_mm = None if bottom_end is None else (bottom_end + 1) / n * page_h + _BREATH_MM
+    ok = True
+    if top_mm is None or top_mm > _MAX_TOP_SHARE * page_h:
+        ok = False
+        out["warnings"].append("Bande du haut non trouvée (pas de zone blanche nette sous le logo) : marge haute "
+                               f"par défaut ({PAGE_TOP_DEFAULT_MM:g} mm) proposée, à vérifier.")
+    else:
+        out["top_mm"] = round(top_mm * 2) / 2      # arrondi au demi-millimètre
+    if bottom_mm is None or bottom_mm > _MAX_BOTTOM_SHARE * page_h:
+        ok = False
+        out["warnings"].append("Bande du bas non trouvée (pas de zone blanche nette au-dessus des coordonnées) : "
+                               f"marge basse par défaut ({PAGE_BOTTOM_DEFAULT_MM:g} mm) proposée, à vérifier.")
+    else:
+        out["bottom_mm"] = round(bottom_mm * 2) / 2
+    out["found"] = ok
+    return out
+
+
+def _cached_detection(path: Optional[str], data: bytes) -> dict:
+    """Détection mémorisée par image (chaque image stockée a un chemin unique)."""
+    if not path:
+        return detect_page_letterhead(data)
+    if path not in _DETECT_CACHE:
+        if len(_DETECT_CACHE) > 200:
+            _DETECT_CACHE.clear()
+        _DETECT_CACHE[path] = detect_page_letterhead(data)
+    return _DETECT_CACHE[path]
+
+
+def _num(v, default: float) -> float:
+    try:
+        return float(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def page_settings(lh: dict, header: Optional[bytes], detection: Optional[dict] = None) -> dict:
+    """Type de papier et marges EFFECTIFS d'un papier enregistré.
+    - `mode` enregistré : il est respecté ;
+    - papier ancien (sans `mode`) : « page » si l'image d'en-tête a les
+      proportions d'une A4, qu'il n'y a pas d'image de pied de page ET que
+      les marges ont pu être détectées (sinon on garde « bandes » : une image
+      unie posée en fond masquerait le texte) ; `mode_auto` = True.
+    Marges absentes : valeurs détectées, sinon valeurs par défaut."""
+    mode = lh.get("mode") if lh.get("mode") in LH_MODES else None
+    auto = False
+    margins_missing = lh.get("page_top_mm") is None or lh.get("page_bottom_mm") is None
+    if detection is None and header and ((mode == "page" and margins_missing)
+                                         or (mode is None and not lh.get("footer_path"))):
+        detection = _cached_detection(lh.get("header_path"), header)
+    if mode is None:
+        auto = True
+        mode = "page" if (header and not lh.get("footer_path") and detection
+                          and detection["a4_like"] and detection["found"]) else "bandes"
+    det = detection or {}
+    return {
+        "mode": mode, "mode_auto": auto,
+        "page_top_mm": _num(lh.get("page_top_mm"), det.get("top_mm", PAGE_TOP_DEFAULT_MM)),
+        "page_bottom_mm": _num(lh.get("page_bottom_mm"), det.get("bottom_mm", PAGE_BOTTOM_DEFAULT_MM)),
+        "page_left_mm": _num(lh.get("page_left_mm"), PAGE_SIDE_DEFAULT_MM),
+        "page_right_mm": _num(lh.get("page_right_mm"), PAGE_SIDE_DEFAULT_MM),
+    }
+
+
+def page_bands(data: bytes, top_mm: float, bottom_mm: float) -> tuple[Optional[bytes], Optional[bytes]]:
+    """Découpe d'une image « page entière » : (bande du haut, bande du bas),
+    au-dessus de la marge haute et sous la marge basse (respiration de 6 mm
+    retirée). Sert là où une image en fond de page n'est pas possible :
+    version Word, pages en paysage du tableau de paie."""
+    from PIL import Image
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            im.load()
+            w, h = im.size
+            out = []
+            for mm, at_top in ((top_mm, True), (bottom_mm, False)):
+                rows = round(max(0.0, mm - _BREATH_MM) / A4_MM[1] * h)
+                if rows < 2:
+                    out.append(None)
+                    continue
+                box = (0, 0, w, min(h, rows)) if at_top else (0, max(0, h - rows), w, h)
+                band = im.crop(box)
+                if band.mode not in ("RGB", "RGBA", "L"):
+                    band = band.convert("RGBA" if "A" in band.mode else "RGB")
+                buf = io.BytesIO()
+                band.save(buf, format="PNG", optimize=True)
+                out.append(buf.getvalue())
+            return out[0], out[1]
+    except Exception:  # noqa: BLE001
+        logger.warning("Découpe du papier « page entière » impossible")
+        return None, None
 
 
 # ==========================================================================
