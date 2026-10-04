@@ -272,7 +272,7 @@ async def _demarrer_planificateur():
     """Lot 13 (migration Render) : tâches périodiques (rappels d'échéances, envois WhatsApp
     planifiés) lancées par le serveur lui-même — remplace le service de crons d'Emergent."""
     import asyncio
-    from albarka_planificateur import boucle_planificateur, planificateur_actif
+    from albarka_planificateur import boucle_necessaire, boucle_planificateur, planificateur_actif
     from db import db as _db
     from version_deploiement import compteur_deploiements
     # Compteur de déploiements à jour dès le démarrage (numéro de version affiché)
@@ -280,9 +280,11 @@ async def _demarrer_planificateur():
         await compteur_deploiements(_db)
     except Exception:  # noqa: BLE001
         logger.exception("Compteur de déploiements indisponible (ignoré)")
-    if planificateur_actif():
+    # Boucle de fond : envois (si PLANIFICATEUR_INTERNE ne les suspend pas) et sauvegarde nocturne
+    if boucle_necessaire():
         asyncio.create_task(boucle_planificateur())
-        logger.info("Planificateur interne démarré (rappels d'échéances, envois WhatsApp planifiés)")
+        logger.info("Planificateur interne démarré (envois %s, sauvegarde nocturne)",
+                    "actifs" if planificateur_actif() else "suspendus")
 
 
 @app.on_event("shutdown")

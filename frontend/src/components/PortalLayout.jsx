@@ -33,6 +33,7 @@ import {
   FilePen,
   HardDriveDownload,
   SlidersHorizontal,
+  DatabaseBackup,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -129,6 +130,8 @@ const STAFF_MENU = [
   // Lot 9 : gestion des outils + historique des téléchargements — compte
   // admin du portail UNIQUEMENT (ni le Superviseur ni la Direction).
   { to: "/admin/outils-numeriques/gestion", label: "Gestion des outils", icon: SlidersHorizontal, superAdminOnly: true },
+  // Lot 13.2 : sauvegardes de la base — compte admin du portail UNIQUEMENT
+  { to: "/admin/sauvegardes", label: "Sauvegardes", icon: DatabaseBackup, superAdminOnly: true },
   // Lot 9 : outils à télécharger, pour tout collaborateur
   { to: "/admin/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload, end: true, alwaysAllowed: true },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —

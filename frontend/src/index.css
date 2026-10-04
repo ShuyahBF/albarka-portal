@@ -207,3 +207,24 @@ body.portal-ui .albarka-sidebar-link.active {
 .mission-desc-html table { border-collapse: collapse; }
 .mission-desc-html img { max-width: 100%; }
 .mission-desc-html blockquote { margin-left: 40px; }
+
+/* ---------------------------------------------------------------------------
+   Règle 3 du propriétaire — TOUS les tableaux du portail :
+   - ligne survolée : fond bleu clair transparent ;
+   - ligne sélectionnée : fond orange clair, police blanche.
+   Une ligne est « sélectionnée » si elle porte la classe ligne-selectionnee,
+   aria-selected="true", data-selected="true" (ou data-state="selected"), ou si
+   la case à cocher de sa première cellule est cochée.
+   --------------------------------------------------------------------------- */
+table tbody tr:hover > td,
+table tbody tr:hover > th {
+  background-color: rgba(56, 189, 248, 0.16) !important;
+}
+table tbody tr.ligne-selectionnee > td,
+table tbody tr[aria-selected="true"] > td,
+table tbody tr[data-selected="true"] > td,
+table tbody tr[data-state="selected"] > td,
+table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td {
+  background-color: #f6a35b !important;
+  color: #ffffff !important;
+}

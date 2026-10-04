@@ -311,3 +311,56 @@ def test_sauvegarde_variables_sawali(monkeypatch):
         monkeypatch.delenv(nom, raising=False)
     with pytest.raises(RuntimeError):
         sv._r2()
+
+
+# ---------------------------------------------------------------------------
+# 10. Page « Sauvegardes » (lot 13.2) : super-admin seulement, état sans secret,
+#     sauvegarde nocturne active même quand les envois sont suspendus
+# ---------------------------------------------------------------------------
+def test_sauvegardes_super_admin_et_reglages(monkeypatch):
+    import albarka_sauvegarde as sv
+    from fastapi import HTTPException
+    # Superviseur / Direction refusés, compte admin du portail accepté
+    with pytest.raises(HTTPException) as refus:
+        _run(sv.require_super_admin(user={"email": "dg@albarka.bf", "roles": ["superviseur", "direction"]}))
+    assert refus.value.status_code == 403
+    assert _run(sv.require_super_admin(user={"email": "Admin@SawaliSmartSystems.com", "roles": []}))
+    # Réglages : noms seulement, jamais les valeurs
+    monkeypatch.setenv("R2_SAUVEGARDES_ACCOUNT_ID", "compte123")
+    monkeypatch.setenv("R2_SAUVEGARDES_ACCESS_KEY_ID", "cle-tres-secrete")
+    monkeypatch.setenv("R2_SAUVEGARDES_SECRET_ACCESS_KEY", "secret-tres-secret")
+    monkeypatch.setenv("SAUVEGARDE_AUTO_PHRASE", "phrase-tres-secrete")
+    r = sv.reglages()
+    assert r["configuree"] and r["bucket"] == "sawali-sauvegardes" and r["phrase"] == "SAUVEGARDE_AUTO_PHRASE"
+    assert "secret" not in repr(r) and "compte123" not in repr(r)
+    # Prochaine sauvegarde : 02h00 UTC le jour même ou le lendemain
+    assert sv.prochaine_sauvegarde(datetime(2026, 10, 4, 1, 0, tzinfo=timezone.utc)).startswith("2026-10-04T02:00")
+    assert sv.prochaine_sauvegarde(datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)).startswith("2026-10-05T02:00")
+
+
+def test_sauvegarde_nocturne_independante_des_envois(monkeypatch):
+    import albarka_planificateur as pl
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.setenv("PLANIFICATEUR_INTERNE", "0")
+    monkeypatch.delenv("SAUVEGARDE_AUTO", raising=False)
+    assert not pl.planificateur_actif() and pl.sauvegarde_auto_active() and pl.boucle_necessaire()
+    monkeypatch.setenv("SAUVEGARDE_AUTO", "0")
+    assert not pl.boucle_necessaire()
+
+
+def test_sauvegarde_du_jour_nouvel_essai_apres_echec(monkeypatch, base):
+    import albarka_sauvegarde as sv
+    appels = []
+
+    async def echec(db, **_):
+        appels.append(1)
+        raise RuntimeError("R2 indisponible")
+    monkeypatch.setattr(sv, "sauvegarder_maintenant", echec)
+    t0 = datetime(2026, 10, 4, 3, 0, tzinfo=timezone.utc)
+    with pytest.raises(RuntimeError):
+        _run(sv.sauvegarde_du_jour(base, t0))
+    # 10 minutes plus tard : on attend ; 1 h plus tard : nouvel essai
+    assert _run(sv.sauvegarde_du_jour(base, t0.replace(minute=10))) is False
+    with pytest.raises(RuntimeError):
+        _run(sv.sauvegarde_du_jour(base, t0.replace(hour=4, minute=1)))
+    assert len(appels) == 2

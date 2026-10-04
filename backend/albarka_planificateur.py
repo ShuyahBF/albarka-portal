@@ -42,6 +42,21 @@ def planificateur_actif() -> bool:
     return bool(os.environ.get("RENDER"))
 
 
+def sauvegarde_auto_active() -> bool:
+    """Sauvegarde nocturne : toujours active sur Render (elle n'envoie rien à
+    personne), même quand les envois sont suspendus par PLANIFICATEUR_INTERNE=0.
+    SAUVEGARDE_AUTO=0 la coupe, SAUVEGARDE_AUTO=1 la force ailleurs."""
+    reglage = (os.environ.get("SAUVEGARDE_AUTO") or "").strip()
+    if reglage in ("0", "1"):
+        return reglage == "1"
+    return bool(os.environ.get("RENDER"))
+
+
+def boucle_necessaire() -> bool:
+    """La boucle de fond tourne si les envois OU la sauvegarde nocturne sont actifs."""
+    return planificateur_actif() or sauvegarde_auto_active()
+
+
 def _autorisation() -> str:
     """En-tête attendu par les routes de cron (même secret que l'ancien service de crons)."""
     return f"Bearer {os.environ.get('WEBHOOK_CRON_SECRET', '')}"
@@ -72,25 +87,29 @@ async def lancer_envois_wa_planifies() -> None:
 
 
 async def boucle_planificateur() -> None:
-    """Boucle de fond : chaque minute, rappels du jour si dus ; toutes les 5 minutes, envois WA."""
+    """Boucle de fond : chaque minute, rappels du jour si dus ; toutes les 5 minutes, envois WA ;
+    sauvegarde nocturne. Les envois et la sauvegarde sont réglés séparément (voir plus haut)."""
     dernier_envoi_wa = 0.0
     while True:
         maintenant = datetime.now(timezone.utc)
-        # 1) Rappels d'échéances (une fois par jour)
-        try:
-            await lancer_rappels_echeances_du_jour(maintenant)
-        except Exception:  # noqa: BLE001 — une erreur n'arrête jamais la boucle
-            logger.exception("Planificateur : rappels d'échéances en erreur")
+        envois = planificateur_actif()
+        # 1) Rappels d'échéances (une fois par jour) — seulement si les envois sont actifs
+        if envois:
+            try:
+                await lancer_rappels_echeances_du_jour(maintenant)
+            except Exception:  # noqa: BLE001 — une erreur n'arrête jamais la boucle
+                logger.exception("Planificateur : rappels d'échéances en erreur")
         # 2) Sauvegarde quotidienne de la base vers R2 (une fois par jour)
-        try:
-            from albarka_sauvegarde import sauvegarde_du_jour
-            from db import db
-            await sauvegarde_du_jour(db, maintenant)
-        except Exception:  # noqa: BLE001
-            logger.exception("Planificateur : sauvegarde quotidienne en erreur")
-        # 3) Envois WhatsApp planifiés (toutes les 5 minutes)
+        if sauvegarde_auto_active():
+            try:
+                from albarka_sauvegarde import sauvegarde_du_jour
+                from db import db
+                await sauvegarde_du_jour(db, maintenant)
+            except Exception:  # noqa: BLE001
+                logger.exception("Planificateur : sauvegarde quotidienne en erreur")
+        # 3) Envois WhatsApp planifiés (toutes les 5 minutes) — seulement si les envois sont actifs
         horloge = asyncio.get_running_loop().time()
-        if horloge - dernier_envoi_wa >= INTERVALLE_WA_SECONDES:
+        if envois and horloge - dernier_envoi_wa >= INTERVALLE_WA_SECONDES:
             dernier_envoi_wa = horloge
             try:
                 await lancer_envois_wa_planifies()

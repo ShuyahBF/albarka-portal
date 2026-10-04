@@ -51,6 +51,7 @@ import { AdminFormsLibrary, AdminFormDetail } from "@/pages/admin/AdminForms";
 import AdminClientSpace from "@/pages/admin/AdminClientSpace";
 import AdminTemplates from "@/pages/admin/AdminTemplates";
 import AdminOutilsNumeriques from "@/pages/admin/AdminOutilsNumeriques";
+import AdminSauvegardes from "@/pages/admin/AdminSauvegardes";
 import VerifyDocument from "@/pages/public/VerifyDocument";
 import { AdminDashboard, AdminDocuments, AdminMissions, AdminEcheances } from "@/pages/admin/AdminShared";
 
@@ -135,6 +136,8 @@ function App() {
             {/* Lot 9 : outils à télécharger ; gestion + historique réservés au compte admin du portail */}
             <Route path="outils-numeriques" element={<OutilsNumeriques admin />} />
             <Route path="outils-numeriques/gestion" element={<AdminOutilsNumeriques />} />
+            {/* Lot 13.2 : sauvegardes de la base — compte admin du portail uniquement */}
+            <Route path="sauvegardes" element={<AdminSauvegardes />} />
             <Route path="mon-compte" element={<MyAccount />} />
           </Route>
 
