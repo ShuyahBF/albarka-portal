@@ -159,9 +159,6 @@ api_router.include_router(outils_router)
 # Lot 13 (migration Render) : sauvegardes quotidiennes chiffrées de la base dans R2
 from albarka_sauvegarde import router as sauvegarde_router  # noqa: E402
 api_router.include_router(sauvegarde_router)
-# Lot 13.3 : réparation après la copie Emergent -> Atlas (bouton de la page Sauvegardes)
-from albarka_reparation_copie import router as reparation_copie_router  # noqa: E402
-api_router.include_router(reparation_copie_router)
 
 
 @api_router.get("/")
@@ -284,14 +281,6 @@ async def _demarrer_planificateur():
     except Exception:  # noqa: BLE001
         logger.exception("Compteur de déploiements indisponible (ignoré)")
     # Boucle de fond : envois (si PLANIFICATEUR_INTERNE ne les suspend pas) et sauvegarde nocturne
-    # Lot 13.3 : réparation après copie au démarrage, seulement si le propriétaire
-    # a posé REPARATION_COPIE_AUTO=1 dans Render (sinon : bouton de la page Sauvegardes)
-    from albarka_reparation_copie import reparation_auto_active, reparer_copie
-    if reparation_auto_active():
-        try:
-            await reparer_copie(_db)
-        except Exception:  # noqa: BLE001
-            logger.exception("Réparation après copie en erreur (ignorée)")
     if boucle_necessaire():
         asyncio.create_task(boucle_planificateur())
         logger.info("Planificateur interne démarré (envois %s, sauvegarde nocturne)",

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "13.3"
-LOT_LIBELLE = "Réparation après la copie Emergent -> Atlas (bouton Sauvegardes, automatique sur option)"
+LOT = "13.4"
+LOT_LIBELLE = "Bascule de albarka-bf.com vers Render : fin des copies depuis Emergent, pas de rappels en double le jour de la bascule"

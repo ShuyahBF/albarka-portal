@@ -72,6 +72,17 @@ async def lancer_rappels_echeances_du_jour(maintenant: datetime) -> bool:
     # Déjà fait aujourd'hui (y compris avant un redémarrage) : rien à faire
     if await db.cron_runs.find_one({"run_id": run_id}):
         return False
+    # Jour de la bascule depuis Emergent : si le planificateur n'a JAMAIS envoyé de
+    # rappels sur ce serveur et que la fenêtre de 07h00 est passée (après 08h00 UTC),
+    # les rappels du jour sont déjà partis d'Emergent ce matin : on note la journée
+    # comme faite sans rien envoyer (pas de doublon chez les clients).
+    jamais_lance = not await db.cron_runs.find_one({"job": "notify-echeances", "source": "planificateur"})
+    if jamais_lance and maintenant.hour >= HEURE_RAPPELS_UTC + 1:
+        await db.cron_runs.insert_one({"run_id": run_id, "job": "notify-echeances",
+                                       "received_at": maintenant.isoformat(), "source": "planificateur",
+                                       "ignore": "bascule : rappels du jour déjà envoyés par Emergent"})
+        logger.info("Bascule : rappels du %s déjà envoyés par Emergent, non renvoyés", maintenant.date())
+        return False
     await db.cron_runs.insert_one({"run_id": run_id, "job": "notify-echeances",
                                    "received_at": maintenant.isoformat(), "source": "planificateur"})
     from albarka_reports_router import _run_daily_notifications

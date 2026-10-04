@@ -59,11 +59,8 @@ services:
         sync: false
       - key: R2_SAUVEGARDES_PREFIXE   # facultatif (albarka/sauvegardes/ par défaut, séparé de SAWALI)
         sync: false
-      # --- Tâches planifiées : ARRÊTÉES jusqu'à la bascule du domaine (sinon les
-      # rappels et envois WhatsApp partiraient en double, d'Emergent ET de Render,
-      # dès la copie des données). Passer à "1" le jour de la bascule.
-      - key: PLANIFICATEUR_INTERNE
-        value: "0"
+      # --- Tâches planifiées (rappels d'échéances, envois WhatsApp) : actives sur
+      # Render depuis la bascule du 04/10/2026. PLANIFICATEUR_INTERNE=0 les suspend.
       # --- Fichiers : Cloudflare R2 (mêmes valeurs que sur Emergent)
       - key: R2_ENDPOINT
         sync: false
