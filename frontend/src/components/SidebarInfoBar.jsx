@@ -1,7 +1,7 @@
 /*
   SidebarInfoBar — barre jaune tout en haut de la sidebar (cabinet et client) :
     - à gauche : date et heure en temps réel (mise à jour chaque seconde) ;
-    - à droite : « Version 1.N · Lot L (commit) » (lot 13 : composant MentionVersion,
+    - à droite : « Version 1.N · déployée le JJ/MM/AAAA HH:MM » (composant MentionVersion,
       source backend/lot.py via /api/version ; repli APP_VERSION de src/version.js).
 */
 import React, { useEffect, useState } from "react";

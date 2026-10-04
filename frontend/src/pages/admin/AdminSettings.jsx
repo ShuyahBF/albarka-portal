@@ -5,6 +5,7 @@ import {
   CreditCard, FlaskConical, CheckCircle2, XCircle, FileText,
 } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
+import MentionVersion from "@/components/MentionVersion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -158,6 +159,8 @@ export default function AdminSettings() {
         <h1 className="font-display text-3xl md:text-4xl text-foreground">
           Administration système
         </h1>
+        {/* Règle du propriétaire : libellé de version COMPLET sur les pages d'administration */}
+        <MentionVersion detaille testId="admin-settings-version" className="block text-xs text-muted-foreground mt-1" />
         <p className="text-muted-foreground mt-1 max-w-2xl">
           Configuration du cabinet, WhatsApp Business, notifications et numérotation des rapports.
         </p>

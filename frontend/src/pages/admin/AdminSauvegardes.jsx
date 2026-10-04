@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { AlertTriangle, CheckCircle2, Clock, DatabaseBackup, Loader2, RefreshCw } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, extractError } from "@/lib/api";
+import MentionVersion from "@/components/MentionVersion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -90,6 +91,8 @@ function PageSauvegardes() {
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Administration</div>
           <h1 className="font-display text-3xl md:text-4xl">Sauvegardes</h1>
+          {/* Règle du propriétaire : libellé de version COMPLET sur les pages d'administration */}
+          <MentionVersion detaille testId="sauvegardes-version" className="block text-xs text-muted-foreground mt-1" />
           <p className="text-muted-foreground mt-1">
             Copie chiffrée de toute la base, chaque nuit à {String(reglages.heure_utc ?? 2).padStart(2, "0")} h UTC,
             dans Cloudflare R2. Les {reglages.conservation ?? 30} dernières sont gardées.
