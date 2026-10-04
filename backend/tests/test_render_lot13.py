@@ -253,6 +253,28 @@ def test_compteur_de_deploiements(monkeypatch, base):
     assert _run(vd.infos_version(base))["version"] == "1.1"            # même commit : inchangé
     monkeypatch.setenv("RENDER_GIT_COMMIT", "bbbbbbb2222222")
     assert _run(vd.infos_version(base))["version"] == "1.2"            # nouveau déploiement
+    # Pendant un déploiement, ancienne et nouvelle instance répondent en alternance :
+    # le numéro ne doit plus grimper à chaque appel (bogue 1.6 -> 1.9)
+    for sha, attendu in (("aaaaaaa1111111", "1.1"), ("bbbbbbb2222222", "1.2"),
+                         ("aaaaaaa1111111", "1.1"), ("bbbbbbb2222222", "1.2")):
+        monkeypatch.setenv("RENDER_GIT_COMMIT", sha)
+        assert _run(vd.infos_version(base))["version"] == attendu
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "ccccccc3333333")
+    assert _run(vd.infos_version(base))["version"] == "1.3"
+
+
+def test_compteur_reprise_ancien_format(monkeypatch, base):
+    import version_deploiement as vd
+    # Ancien format : seul le document « compteur » existe (commit en cours = numéro 9)
+    _run(base.app_deploiements.insert_one({"_id": "compteur", "seq": 9, "git_head": "ddddddd4444444",
+                                           "deployed_at": "2026-10-04T20:11:48+00:00"}))
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "ddddddd4444444")
+    v = _run(vd.infos_version(base))
+    assert v["version"] == "1.9" and v["deployed_at"].startswith("2026-10-04T20:11")
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "eeeeeee5555555")
+    assert _run(vd.infos_version(base))["version"] == "1.10"
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "ddddddd4444444")
+    assert _run(vd.infos_version(base))["version"] == "1.9"
 
 
 # ---------------------------------------------------------------------------
