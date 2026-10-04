@@ -540,12 +540,26 @@ export default function AdminWhatsAppConversations() {
                             <span title={m.wa_error} className="ml-1"><AlertTriangle className="w-3 h-3 text-amber-300" /></span>
                           )}
                           {outbound && !m.wa_error && <Check className="w-3 h-3 ml-1" />}
+                          {/* Lot 13.9 : réponse reçue par la Transmission WA Universelle (SAWALI) */}
+                          {m.via_liluvine && (
+                            <span className="ml-1 rounded px-1 bg-sky-100 text-sky-800" data-testid="wa-msg-via-liluvine">via Liluvine</span>
+                          )}
+                          {/* Lot 13.9 : statut renvoyé par SAWALI (remis, lu, échec) */}
+                          {outbound && m.wa_status && (
+                            <span className="ml-1">{{ sent: "envoyé", delivered: "remis", read: "lu", failed: "échec" }[m.wa_status] || m.wa_status}</span>
+                          )}
                         </div>
                         {m.message_type === "location" && <div className="italic opacity-80">📍 Localisation partagée</div>}
                         {["image", "video", "audio", "document"].includes(m.message_type) && !m.body && !m.voice_note_transcript && (
                           <div className="italic opacity-80">
                             [{m.message_type}{m.media_mime ? ` · ${m.media_mime}` : ""}]
                           </div>
+                        )}
+                        {/* Lot 13.9 : média d'une réponse via Liluvine (lien temporaire fourni par SAWALI) */}
+                        {m.via_liluvine && m.media_url?.startsWith("https://") && (
+                          <a href={m.media_url} target="_blank" rel="noopener noreferrer" className="underline text-xs block mb-1">
+                            Ouvrir le fichier{m.media_filename ? ` (${m.media_filename})` : ""}
+                          </a>
                         )}
                         {m.voice_note_transcript && (
                           <div className={`italic ${outbound ? "text-white/90" : "text-slate-600"} mb-1`}>🎙️ {m.voice_note_transcript}</div>

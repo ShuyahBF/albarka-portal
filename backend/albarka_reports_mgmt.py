@@ -481,7 +481,7 @@ async def _perform_wa_send(*, report: dict, payload: SendReportWhatsAppPayload, 
         raise HTTPException(status_code=400, detail="WhatsApp désactivé dans les paramètres")
 
     from albarka_notifications import (
-        _wa_upload_media, send_whatsapp, send_whatsapp_document,
+        _wa_upload_media, send_whatsapp, send_whatsapp_fichier,
     )
     pdf_bytes, _ = await get_object(report["storage_path"])
     filename = f"{report['number']}.pdf"
@@ -499,12 +499,15 @@ async def _perform_wa_send(*, report: dict, payload: SendReportWhatsAppPayload, 
     for phone in sorted(phones):
         result: dict = {}
         strategy = None
-        if media_id:
-            result = await send_whatsapp_document(
-                to_phone=phone, media_id=media_id, filename=filename, caption=caption_msg,
-            )
-            if result.get("ok"): strategy = "document"
-        if not result.get("ok"):
+        # Lot 13.9 : PDF envoyé par le WABA (média déjà téléversé une fois
+        # pour tous les numéros) ou, sans WABA / en cas d'échec du WABA, par
+        # la Transmission WA Universelle Liluvine avec le PDF joint.
+        result = await send_whatsapp_fichier(
+            to_phone=phone, data=pdf_bytes, filename=filename, content_type="application/pdf",
+            caption=caption_msg, media_id=media_id, televerser=False,
+        )
+        if result.get("ok"): strategy = "document"
+        if not result.get("ok") and not result.get("desinscrit"):
             fallback_msg = f"{caption_msg}\n\nTéléchargement (lien sécurisé, 7 jours) :\n{share_url}"
             result = await send_whatsapp(to_phone=phone, message=fallback_msg)
             if result.get("ok"): strategy = "link"

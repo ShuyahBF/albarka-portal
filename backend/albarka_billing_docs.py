@@ -182,7 +182,7 @@ async def send_invoice_document(
 ):
     from albarka_documents import _can_send_whatsapp
     from albarka_models import whatsapp_number_of
-    from albarka_notifications import _wa_upload_media, send_email, send_whatsapp_document
+    from albarka_notifications import send_email, send_whatsapp_fichier
 
     invoice = await _get_invoice_or_404(invoice_id)
     client = await db.users.find_one({"id": invoice.get("tenant_id")}, {"_id": 0, "password_hash": 0})
@@ -224,13 +224,13 @@ async def send_invoice_document(
     phone = whatsapp_number_of(client) or ""
     if not phone.startswith("+"):
         raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…) pour ce client")
-    media_id = await _wa_upload_media(pdf_bytes=data, filename=filename)
-    if not media_id:
-        raise HTTPException(status_code=502, detail="Échec de l'envoi (WhatsApp non configuré ou upload refusé)")
-    result = await send_whatsapp_document(
-        to_phone=phone, media_id=media_id, filename=filename,
+    # Lot 13.9 : WABA d'ALBARKA (téléversement Meta) sinon Transmission WA
+    # Universelle Liluvine avec le PDF joint ; repli Liluvine si le WABA échoue.
+    result = await send_whatsapp_fichier(
+        to_phone=phone, data=data, filename=filename, content_type="application/pdf",
         caption=f"{label.capitalize()} {invoice['number']}",
     )
     if not result.get("ok"):
         raise HTTPException(status_code=502, detail=f"Échec envoi WhatsApp : {result.get('error') or 'erreur inconnue'}")
-    return {"ok": True, "channel": "whatsapp", "to": phone, "message_id": result.get("message_id")}
+    return {"ok": True, "channel": "whatsapp", "to": phone, "message_id": result.get("message_id"),
+            "canal": result.get("canal")}

@@ -504,9 +504,8 @@ async def send_document_whatsapp(
     """Envoie la pièce brute par WhatsApp, en réutilisant l'upload média Meta
     et `send_whatsapp_document` comme déjà fait pour les rapports."""
     from albarka_admin_settings import get_settings_doc
-    from albarka_notifications import (
-        _wa_upload_media, send_whatsapp, send_whatsapp_document, send_whatsapp_image,
-    )
+    from albarka_notifications import send_whatsapp, send_whatsapp_fichier
+    from albarka_transmission_wa import MEDIA_MAX_OCTETS
 
     doc, owner = await _fetch_document_and_owner(document_id)
     if not _can_send_whatsapp(user, owner):
@@ -530,16 +529,20 @@ async def send_document_whatsapp(
     caption = (payload.message or "").strip() or f"Pièce — {filename}"
     data, _ct = await get_object(doc["storage_path"])
     content_type = doc.get("content_type") or "application/octet-stream"
-    is_image = content_type.startswith("image/")
 
-    result: dict = {}
-    media_id = await _wa_upload_media(pdf_bytes=data, filename=filename, content_type=content_type)
-    if media_id:
-        if is_image:
-            result = await send_whatsapp_image(to_phone=phone, media_id=media_id, caption=caption)
-        else:
-            result = await send_whatsapp_document(to_phone=phone, media_id=media_id, filename=filename, caption=caption)
-    if not result.get("ok"):
+    # Lot 13.9 : fichier envoyé par le WABA (téléversement Meta) ou, sans
+    # WABA / en cas d'échec du WABA, par la Transmission WA Universelle
+    # Liluvine : octets jusqu'à 10 Mo, au-delà lien R2 présigné (7 jours).
+    lien_gros = None
+    if len(data or b"") > MEDIA_MAX_OCTETS:
+        lien_gros = await presigned_url(doc["storage_path"], expires_in=604800)
+    result: dict = await send_whatsapp_fichier(
+        to_phone=phone, data=data, filename=filename, content_type=content_type,
+        caption=caption, url=lien_gros,
+    )
+    # Pas de second envoi (lien) si l'échec est définitif (destinataire
+    # désinscrit chez SAWALI) : il serait refusé de la même façon.
+    if not result.get("ok") and not result.get("desinscrit"):
         url = await presigned_url(doc["storage_path"], expires_in=604800)
         if url:
             fallback_msg = f"{caption}\n\nTéléchargement (lien sécurisé, 7 jours) :\n{url}"

@@ -6,7 +6,8 @@
   - bouton « Sauvegarder maintenant » (toast « Patientez… » + jauge) ;
   - liste des sauvegardes présentes dans R2 et journal des 20 dernières tentatives ;
   - encadré « Transmission WhatsApp » (lot 13.8) : canal WhatsApp utilisé
-    (WABA propre ou Transmission WA Universelle Liluvine) et envoi d'un test.
+    (WABA propre ou Transmission WA Universelle Liluvine) et envoi d'un test ;
+    lot 13.9 : derniers retours de SAWALI (statuts, réponses, désinscriptions).
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -230,6 +231,7 @@ function EncadreTransmissionWa() {
   const [etat, setEtat] = useState(null);      // réponse de GET /_admin/transmission-wa/etat
   const [numero, setNumero] = useState("");    // numéro saisi pour le test
   const [envoi, setEnvoi] = useState(false);   // test en cours
+  const [retours, setRetours] = useState([]);  // lot 13.9 : derniers retours de SAWALI
 
   // Lecture de l'état des canaux
   const chargerEtat = useCallback(async () => {
@@ -241,7 +243,17 @@ function EncadreTransmissionWa() {
     }
   }, []);
 
-  useEffect(() => { chargerEtat(); }, [chargerEtat]);
+  // Lot 13.9 — derniers retours reçus de SAWALI (GET /_admin/transmission-wa/retours)
+  const chargerRetours = useCallback(async () => {
+    try {
+      const { data } = await apiClient.get("/_admin/transmission-wa/retours");
+      setRetours(Array.isArray(data?.retours) ? data.retours : []);
+    } catch (e) {
+      toast.error(extractError(e));
+    }
+  }, []);
+
+  useEffect(() => { chargerEtat(); chargerRetours(); }, [chargerEtat, chargerRetours]);
 
   // Envoi du message de test : toast « Patientez… » pendant l'appel
   const envoyerTest = async () => {
@@ -286,6 +298,55 @@ function EncadreTransmissionWa() {
           Envoyer un test
         </Button>
       </div>
+      {/* Lot 13.9 — derniers retours de SAWALI (20 premiers des 100 renvoyés) */}
+      <div className="pt-2 space-y-2" data-testid="transmission-wa-retours">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium">Derniers retours de SAWALI</div>
+          <Button variant="outline" size="sm" onClick={chargerRetours}>
+            <RefreshCw className="h-4 w-4 mr-2" /> Actualiser
+          </Button>
+        </div>
+        {retours.length === 0 ? (
+          <div className="text-sm text-muted-foreground">Aucun retour reçu pour l'instant.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Reçu le</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Numéro</TableHead>
+                  <TableHead>Détail</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {retours.slice(0, 20).map((r) => (
+                  <TableRow key={r.cle}>
+                    <TableCell className="whitespace-nowrap">{fmtDateTime(r.recu_le)}</TableCell>
+                    <TableCell>{LIBELLES_RETOUR[r.type] || r.type}</TableCell>
+                    <TableCell className="whitespace-nowrap">{r.numero || "—"}</TableCell>
+                    <TableCell className="max-w-md truncate" title={r.texte || r.erreur || ""}>
+                      {r.type === "statut" ? (LIBELLES_STATUT[r.statut] || r.statut) + (r.erreur ? ` — ${r.erreur}` : "")
+                        : r.type === "reponse" ? (r.texte || "(fichier)")
+                        : r.type === "refus_desinscrit" ? "Envoi refusé : destinataire désinscrit"
+                        : r.type === "desinscription" ? "A répondu STOP" : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+// Libellés français des types de retour et des statuts WhatsApp (lot 13.9)
+const LIBELLES_RETOUR = {
+  statut: "Statut",
+  reponse: "Réponse du client",
+  desinscription: "Désinscription",
+  refus_desinscrit: "Refus (désinscrit)",
+};
+const LIBELLES_STATUT = { sent: "Envoyé", delivered: "Remis", read: "Lu", failed: "Échec" };

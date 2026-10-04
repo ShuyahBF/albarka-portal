@@ -270,8 +270,10 @@ async def _wa_last_inbound_iso(phone: str) -> Optional[str]:
     (via webhook Meta), ou None si aucun.
     """
     from db import db  # local import to avoid cycles
+    # Lot 13.9 : une réponse reçue via Liluvine a ouvert la fenêtre avec le
+    # numéro de SAWALI, pas avec celui d'ALBARKA : on l'ignore ici.
     doc = await db.wa_messages.find_one(
-        {"phone": phone, "direction": "inbound"},
+        {"phone": phone, "direction": "inbound", "via_liluvine": {"$ne": True}},
         {"_id": 0, "created_at": 1},
         sort=[("created_at", -1)],
     )
@@ -330,6 +332,25 @@ async def send_whatsapp(*, to_phone: str, message: str) -> dict:
         return {"ok": False, "message_id": None, "message_ids": [],
                 "status": None, "error": "invalid_phone",
                 "kind": "invalid_phone", "outside_24h_window": None}
+    resultat = await _send_whatsapp_waba(cfg, to_phone, message)
+    if resultat.get("ok"):
+        return resultat  # succès par le WABA : forme de retour inchangée
+    # Lot 13.9 (section 4) — le WABA d'ALBARKA a échoué (fenêtre de 24 h
+    # fermée, modèle requis, panne…) : repli par la Transmission WA
+    # Universelle, sauf sur numéro invalide. Seuls les segments non encore
+    # envoyés repartent (pas de doublon pour un message découpé).
+    from albarka_transmission_wa import repli_apres_echec_waba
+    deja = len(resultat.get("message_ids") or [])
+    reste = "\n".join(_wa_split_long_text(message)[deja:]) if deja else message
+    repli = await repli_apres_echec_waba(to_phone, reste, resultat)
+    if repli is not None:
+        return repli
+    return resultat
+
+
+async def _send_whatsapp_waba(cfg: dict, to_phone: str, message: str) -> dict:
+    """Envoi d'un texte par l'API Meta (WABA d'ALBARKA), découpé en segments
+    de 4 096 caractères. Même forme de retour que send_whatsapp()."""
     window_state = _wa_window_open(await _wa_last_inbound_iso(to_phone))
     outside = (window_state is False)  # False = fermée ; None = indéterminée
     to = to_phone.lstrip("+")
@@ -430,6 +451,21 @@ async def send_whatsapp_template(*, to_phone: str, template_name: str, language:
         template["components"] = [{"type": "body", "parameters": params}]
     payload = {"messaging_product": "whatsapp", "recipient_type": "individual",
                "to": to_phone.lstrip("+"), "type": "template", "template": template}
+    resultat = await _send_template_waba(cfg, payload, template_name, to_phone)
+    if resultat.get("ok"):
+        return resultat  # succès par le WABA : forme de retour inchangée
+    # Lot 13.9 (section 4) — modèle refusé par Meta : repli par Liluvine
+    # avec le texte rendu (si l'appelant l'a fourni), sauf numéro invalide.
+    if texte_rendu and texte_rendu.strip():
+        from albarka_transmission_wa import repli_apres_echec_waba
+        repli = await repli_apres_echec_waba(to_phone, texte_rendu, resultat)
+        if repli is not None:
+            return repli
+    return resultat
+
+
+async def _send_template_waba(cfg: dict, payload: dict, template_name: str, to_phone: str) -> dict:
+    """Envoi d'un modèle par l'API Meta. Même forme de retour que send_whatsapp()."""
     url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/messages"
     headers = {"Authorization": f"Bearer {cfg['access_token']}", "Content-Type": "application/json"}
     try:
@@ -555,6 +591,102 @@ async def send_whatsapp_image(
         to_phone=to_phone, msg_type="image",
         media_payload={"id": media_id, "caption": caption[:1024]},
     )
+
+
+async def send_whatsapp_fichier(
+    *, to_phone: str, data: Optional[bytes] = None, filename: str = "document",
+    content_type: str = "application/pdf", caption: str = "", url: Optional[str] = None,
+    media_id: Optional[str] = None, televerser: bool = True,
+) -> dict:
+    """Lot 13.9 — envoi d'un fichier (document ou image) par le canal choisi
+    par la règle du propriétaire. Même forme de retour que send_whatsapp(),
+    plus "canal" : "waba" | "liluvine" | "liluvine_repli".
+
+    - WABA d'ALBARKA configuré : téléversement Meta (sauf `media_id` déjà
+      obtenu ou `televerser=False`), puis message document/image ; à défaut de
+      téléversement, envoi par lien (`url`) si fourni. En cas d'échec non lié
+      au numéro, repli par Liluvine avec le même fichier (section 4).
+    - WABA absent : Transmission WA Universelle Liluvine, fichier en octets
+      (filigrane appliqué comme pour Meta), ou par lien présigné (`url`)
+      quand le fichier dépasse 10 Mo ou qu'aucun octet n'est fourni.
+    """
+    from albarka_transmission_wa import (
+        MEDIA_MAX_OCTETS, repli_apres_echec_waba, repli_send_whatsapp, type_media_depuis_mime,
+    )
+    content_type = content_type or "application/octet-stream"
+    est_image = content_type.startswith("image/")
+    message = (caption or "").strip() or f"Document : {filename}"
+
+    async def _media_liluvine() -> Optional[dict]:
+        """Média au format de la transmission universelle : octets filigranés
+        si ≤ 10 Mo, sinon lien présigné ; None si rien d'utilisable."""
+        media = {"type": type_media_depuis_mime(content_type), "nom_fichier": filename,
+                 "mime": content_type, "legende": message}
+        if data:
+            octets = data
+            try:
+                from albarka_wa_stamp import stamp_for_whatsapp
+                octets = await stamp_for_whatsapp(data, content_type)
+            except Exception:  # noqa: BLE001 — filigrane facultatif, on garde l'original
+                octets = data
+            if len(octets) <= MEDIA_MAX_OCTETS:
+                media["contenu"] = octets
+                return media
+        if url:
+            media["url"] = url
+            return media
+        if data:
+            media["contenu"] = data  # > 10 Mo sans lien : refus local clair
+            return media
+        return None
+
+    # 1. WABA d'ALBARKA : téléversement Meta (renvoie None si le WABA n'est
+    #    pas configuré), puis message document ou image.
+    if not media_id and televerser and data:
+        media_id = await _wa_upload_media(pdf_bytes=data, filename=filename, content_type=content_type)
+    resultat: Optional[dict] = None
+    if media_id:
+        if est_image:
+            resultat = await send_whatsapp_image(to_phone=to_phone, media_id=media_id, caption=message)
+        else:
+            resultat = await send_whatsapp_document(to_phone=to_phone, media_id=media_id,
+                                                    filename=filename, caption=message)
+    cfg = await _get_wa_config()
+    if resultat is None and cfg and url:
+        # Pas de média téléversé mais un lien direct : Meta le télécharge lui-même.
+        charge = {"link": url, "caption": message[:1024]}
+        if not est_image:
+            charge["filename"] = filename
+        resultat = await _wa_send_media_message(to_phone=to_phone, msg_type="image" if est_image else "document",
+                                                media_payload=charge)
+    if resultat is not None and resultat.get("ok"):
+        resultat["canal"] = "waba"
+        return resultat
+
+    # 2. WABA absent : tout part par la transmission universelle.
+    media = await _media_liluvine()
+    if resultat is None and not cfg:
+        if media is None:
+            return {"ok": False, "message_id": None, "status": None, "error": "Aucun fichier à envoyer",
+                    "kind": "http_error", "outside_24h_window": None, "canal": None}
+        repli = await repli_send_whatsapp(to_phone, message, media=media)
+        if repli is not None:
+            return repli
+        return {"ok": False, "message_id": None, "status": None, "error": "wa_not_configured",
+                "kind": "not_configured", "outside_24h_window": None, "canal": None}
+
+    # 3. WABA en échec (ou téléversement refusé) : repli par Liluvine avec le
+    #    même fichier, sauf numéro invalide (section 4).
+    if resultat is None:
+        resultat = {"ok": False, "message_id": None, "status": None,
+                    "error": "Téléversement du fichier refusé par Meta", "kind": "upload_failed",
+                    "outside_24h_window": None}
+    if media is not None:
+        repli = await repli_apres_echec_waba(to_phone, message, resultat, media=media)
+        if repli is not None:
+            return repli
+    resultat["canal"] = "waba"
+    return resultat
 
 
 

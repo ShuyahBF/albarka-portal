@@ -162,6 +162,11 @@ api_router.include_router(sauvegarde_router)
 # Lot 13.8 — Transmission WA Universelle Liluvine (état + test, super-admin)
 from albarka_transmission_wa import router as transmission_wa_router  # noqa: E402
 api_router.include_router(transmission_wa_router)
+# Lot 13.9 — retours de SAWALI (route publique signée) et alias admin des retours
+from albarka_transmission_wa import retour_router as liluvine_retour_router  # noqa: E402
+from albarka_transmission_wa import admin_alias_router as transmission_wa_alias_router  # noqa: E402
+api_router.include_router(liluvine_retour_router)
+api_router.include_router(transmission_wa_alias_router)
 
 
 @api_router.get("/")

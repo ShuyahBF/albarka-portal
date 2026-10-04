@@ -658,7 +658,7 @@ async def send_billing_statement(payload: SendStatementPayload, user: dict = Dep
     attesté vérifié."""
     from albarka_documents import _can_send_whatsapp
     from albarka_models import whatsapp_number_of
-    from albarka_notifications import _wa_upload_media, send_email, send_whatsapp_document
+    from albarka_notifications import send_email, send_whatsapp_fichier
 
     pdf_bytes, client, period_label = await _build_statement(
         user, payload.tenant_id, payload.date_from, payload.date_to, payload.all_time,
@@ -701,18 +701,21 @@ async def send_billing_statement(payload: SendStatementPayload, user: dict = Dep
     if not phone.startswith("+"):
         raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…) pour ce client")
     settings = await get_settings_doc()
-    if not settings.get("wa_enabled"):
+    # Lot 13.9 : sans WABA propre, le PDF part par la Transmission WA
+    # Universelle Liluvine (fichier joint) ; refus seulement si aucun canal.
+    from albarka_transmission_wa import liluvine_configure
+    if not settings.get("wa_enabled") and not liluvine_configure():
         raise HTTPException(status_code=400, detail="WhatsApp désactivé dans les paramètres")
-    media_id = await _wa_upload_media(pdf_bytes=pdf_bytes, filename=filename)
-    if not media_id:
-        raise HTTPException(status_code=502, detail="Échec de l'envoi (WhatsApp non configuré ou upload refusé)")
-    result = await send_whatsapp_document(
-        to_phone=phone, media_id=media_id, filename=filename,
+    # Envoi du PDF : WABA (téléversement Meta) sinon Liluvine ; repli
+    # Liluvine si le WABA échoue (fenêtre de 24 h, etc.).
+    result = await send_whatsapp_fichier(
+        to_phone=phone, data=pdf_bytes, filename=filename, content_type="application/pdf",
         caption=f"Situation de compte — {period_label}",
     )
     if not result.get("ok"):
         raise HTTPException(status_code=502, detail=f"Échec envoi WhatsApp : {result.get('error') or 'erreur inconnue'}")
-    return {"ok": True, "channel": "whatsapp", "to": phone, "message_id": result.get("message_id")}
+    return {"ok": True, "channel": "whatsapp", "to": phone, "message_id": result.get("message_id"),
+            "canal": result.get("canal")}
 
 
 # ==========================================================================

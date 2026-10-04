@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "13.8"
-LOT_LIBELLE = "Transmission WA Universelle Liluvine : WhatsApp par SAWALI quand le WABA d'ALBARKA n'est pas configuré"
+LOT = "13.9"
+LOT_LIBELLE = "Transmission WA Universelle v3 : documents par Liluvine, retours de SAWALI dans la boîte WhatsApp, désinscriptions et repli si le WABA échoue"
