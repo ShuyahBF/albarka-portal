@@ -94,6 +94,16 @@ services:
         value: Cabinet ALBARKA
       - key: EMAIL_REPLY_TO
         sync: false
+      # --- WhatsApp de secours : Transmission WA Universelle Liluvine (lot 13.8).
+      # Utilisée SEULEMENT quand les paramètres WhatsApp (WABA) propres d'ALBARKA
+      # ne sont pas configurés : le message part alors par SAWALI.
+      # Si l'URL ou la clé manque, cette transmission est simplement désactivée.
+      - key: LILUVINE_WA_URL      # https://<domaine SAWALI>/api/webhook/liluvine-send (saisie par le propriétaire)
+        sync: false
+      - key: LILUVINE_WA_HMAC     # clé secrète d'ALBARKA, générée dans SAWALI (saisie par le propriétaire)
+        sync: false
+      - key: LILUVINE_WA_EMETTEUR # code émetteur d'ALBARKA chez SAWALI (pas secret)
+        value: "albarka"
       # --- Divers
       - key: VAPID_PRIVATE_KEY    # facultatif (sinon générée et gardée en base, migrée avec elle)
         sync: false

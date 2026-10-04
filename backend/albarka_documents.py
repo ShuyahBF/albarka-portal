@@ -520,7 +520,10 @@ async def send_document_whatsapp(
         raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…)")
 
     settings = await get_settings_doc()
-    if not settings.get("wa_enabled"):
+    # Lot 13.8 : sans WABA propre, l'envoi reste possible par la Transmission
+    # WA Universelle Liluvine (le lien de téléchargement part alors en texte).
+    from albarka_transmission_wa import liluvine_configure
+    if not settings.get("wa_enabled") and not liluvine_configure():
         raise HTTPException(status_code=400, detail="WhatsApp désactivé dans les paramètres")
 
     filename = doc.get("original_filename") or "document"

@@ -230,12 +230,20 @@ async def _notify_whatsapp_or_email(client: Dict[str, Any], items: List[Dict[str
             # Hors fenêtre (ou inconnue) : seul un modèle approuvé par Meta est remis.
             params = [values.get(p.strip(), "") for p in (settings.get("client_docs_wa_template_params") or "").split(",") if p.strip()]
             r = await send_whatsapp_template(to_phone=phone, template_name=tpl_name,
-                                             language=settings.get("client_docs_wa_template_lang") or "fr", body_params=params)
+                                             language=settings.get("client_docs_wa_template_lang") or "fr", body_params=params,
+                                             texte_rendu=text)  # repli Liluvine si pas de WABA (lot 13.8)
             if r.get("ok"):
+                # Parti par la transmission universelle : c'est un message texte.
+                if r.get("canal") == "liluvine":
+                    return {"ok": True, "channel": "whatsapp_liluvine", "error": None, "at": now}
                 return {"ok": True, "channel": "whatsapp_template", "error": None, "at": now}
             wa_error = f"Modèle WhatsApp refusé : {r.get('error')}"[:300]
         else:
             r = await send_whatsapp(to_phone=phone, message=text)
+            # Transmission universelle (lot 13.8) : SAWALI gère lui-même la
+            # fenêtre de 24 h, l'état de fenêtre local ne s'applique pas.
+            if r.get("ok") and r.get("canal") == "liluvine":
+                return {"ok": True, "channel": "whatsapp_liluvine", "error": None, "at": now}
             if r.get("ok") and window is not False:
                 return {"ok": True, "channel": "whatsapp", "error": None, "at": now}
             wa_error = ("Hors fenêtre de 24 h WhatsApp et aucun modèle Meta réglé : message probablement non remis"

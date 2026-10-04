@@ -72,7 +72,7 @@ def env(monkeypatch):
         sent["wa"].append({"to": to_phone, "text": message})
         return {"ok": True, "kind": "success", "outside_24h_window": state["window"] is False}
 
-    async def fake_tpl(*, to_phone, template_name, language="fr", body_params=None):
+    async def fake_tpl(*, to_phone, template_name, language="fr", body_params=None, texte_rendu=None):  # texte_rendu : repli Liluvine (lot 13.8)
         sent["tpl"].append({"to": to_phone, "name": template_name, "lang": language, "params": body_params})
         return {"ok": True}
 

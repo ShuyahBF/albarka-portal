@@ -314,6 +314,13 @@ async def send_whatsapp(*, to_phone: str, message: str) -> dict:
     """
     cfg = await _get_wa_config()
     if not cfg:
+        # Lot 13.8 — WABA d'ALBARKA non configuré : repli sur la Transmission
+        # WA Universelle Liluvine (SAWALI) si elle est configurée. Sinon, on
+        # garde l'échec « not_configured » d'origine.
+        from albarka_transmission_wa import repli_send_whatsapp
+        repli = await repli_send_whatsapp(to_phone, message)
+        if repli is not None:
+            return repli
         logger.info("WhatsApp non configuré — envoi vers %s ignoré.", to_phone)
         return {"ok": False, "message_id": None, "message_ids": [],
                 "status": None, "error": "wa_not_configured",
@@ -393,13 +400,24 @@ async def wa_window_state(to_phone: str) -> Optional[bool]:
 
 
 async def send_whatsapp_template(*, to_phone: str, template_name: str, language: str = "fr",
-                                 body_params: Optional[list] = None) -> dict:
+                                 body_params: Optional[list] = None,
+                                 texte_rendu: Optional[str] = None) -> dict:
     """Envoie un MODÈLE WhatsApp approuvé par Meta (seul type de message
     qu'on peut envoyer hors fenêtre de 24 h). `body_params` remplit, dans
     l'ordre, les variables {{1}}, {{2}}… du corps du modèle.
+    `texte_rendu` (lot 13.8, facultatif) : texte complet équivalent du
+    message ; utilisé UNIQUEMENT si le WABA n'est pas configuré, pour l'envoyer
+    par la Transmission WA Universelle Liluvine.
     Même forme de retour que send_whatsapp()."""
     cfg = await _get_wa_config()
     if not cfg:
+        # Lot 13.8 — sans WABA, un modèle Meta ne peut pas partir : on envoie
+        # le texte rendu par la transmission universelle s'il est fourni.
+        if texte_rendu and texte_rendu.strip():
+            from albarka_transmission_wa import repli_send_whatsapp
+            repli = await repli_send_whatsapp(to_phone, texte_rendu)
+            if repli is not None:
+                return repli
         return {"ok": False, "message_id": None, "status": None, "error": "wa_not_configured",
                 "kind": "not_configured", "outside_24h_window": None}
     if not to_phone or not to_phone.startswith("+"):

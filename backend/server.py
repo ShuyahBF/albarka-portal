@@ -159,6 +159,9 @@ api_router.include_router(outils_router)
 # Lot 13 (migration Render) : sauvegardes quotidiennes chiffrées de la base dans R2
 from albarka_sauvegarde import router as sauvegarde_router  # noqa: E402
 api_router.include_router(sauvegarde_router)
+# Lot 13.8 — Transmission WA Universelle Liluvine (état + test, super-admin)
+from albarka_transmission_wa import router as transmission_wa_router  # noqa: E402
+api_router.include_router(transmission_wa_router)
 
 
 @api_router.get("/")

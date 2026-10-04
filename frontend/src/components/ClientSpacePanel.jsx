@@ -24,7 +24,7 @@ import { ui } from "@/components/forms-core/ui";
 // Doit rester identique à CLIENT_MANAGE_ROLES côté backend : qui peut ouvrir/fermer les modules.
 const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
 // Libellé du canal par lequel le client a été prévenu.
-const CHANNEL_LABEL = { whatsapp: "WhatsApp", whatsapp_template: "WhatsApp (modèle)", email: "e-mail" };
+const CHANNEL_LABEL = { whatsapp: "WhatsApp", whatsapp_template: "WhatsApp (modèle)", whatsapp_liluvine: "WhatsApp (transmission universelle)", email: "e-mail" };
 
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "—");
 const fmtAmount = (n) => (n || n === 0 ? `${Math.round(Number(n)).toLocaleString("fr-FR")} FCFA` : "");
