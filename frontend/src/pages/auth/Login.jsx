@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp";
 import { apiClient, extractError } from "@/lib/api";
 import { saveAccessCode, getAccessCode } from "@/lib/device";
+import MentionVersion from "@/components/MentionVersion";
 
 export default function Login() {
   const [step, setStep] = useState("credentials"); // credentials | otp
@@ -287,6 +288,10 @@ export default function Login() {
               </button>
             </form>
           )}
+          {/* Lot 13 (règle permanente) : version et lot affichés sur la page de connexion */}
+          <div className="mt-8 text-center text-xs text-muted-foreground">
+            <MentionVersion testId="login-version" />
+          </div>
         </div>
       </div>
     </div>

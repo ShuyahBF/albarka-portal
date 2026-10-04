@@ -156,6 +156,9 @@ api_router.include_router(paie_router)
 # Lot 9 : espace « Outils Numériques » (téléchargements, historique réservé au super-admin)
 from albarka_outils import router as outils_router, ensure_outils_indexes  # noqa: E402
 api_router.include_router(outils_router)
+# Lot 13 (migration Render) : sauvegardes quotidiennes chiffrées de la base dans R2
+from albarka_sauvegarde import router as sauvegarde_router  # noqa: E402
+api_router.include_router(sauvegarde_router)
 
 
 @api_router.get("/")
@@ -166,6 +169,15 @@ async def root():
 @api_router.get("/health")
 async def health():
     return {"status": "ok", "app": "albarka-portal", "storage": storage_mode()}
+
+
+# Lot 13 (règle permanente) : version « 1.N » (compteur de déploiements) et lot déployé,
+# affichés sur la page de connexion et dans le portail. Source unique : backend/lot.py.
+@api_router.get("/version")
+async def version():
+    from db import db as _db
+    from version_deploiement import infos_version
+    return await infos_version(_db)
 
 
 @api_router.get("/_diag/db")
@@ -253,6 +265,24 @@ app.add_middleware(
     # Lot 11 : avertissements joints aux PDF (aperçu d'un document à modèle)
     expose_headers=["X-Avertissements"],
 )
+
+
+@app.on_event("startup")
+async def _demarrer_planificateur():
+    """Lot 13 (migration Render) : tâches périodiques (rappels d'échéances, envois WhatsApp
+    planifiés) lancées par le serveur lui-même — remplace le service de crons d'Emergent."""
+    import asyncio
+    from albarka_planificateur import boucle_planificateur, planificateur_actif
+    from db import db as _db
+    from version_deploiement import compteur_deploiements
+    # Compteur de déploiements à jour dès le démarrage (numéro de version affiché)
+    try:
+        await compteur_deploiements(_db)
+    except Exception:  # noqa: BLE001
+        logger.exception("Compteur de déploiements indisponible (ignoré)")
+    if planificateur_actif():
+        asyncio.create_task(boucle_planificateur())
+        logger.info("Planificateur interne démarré (rappels d'échéances, envois WhatsApp planifiés)")
 
 
 @app.on_event("shutdown")

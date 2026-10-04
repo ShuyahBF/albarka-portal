@@ -14,7 +14,6 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import secrets
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -117,11 +116,13 @@ def _usage_of(raw: Any) -> Tuple[int, int]:
 
 async def call_llm(model: OcrModel, system_prompt: str, text: str, images: List[bytes], filename: str) -> Tuple[str, int, int]:
     """Envoie texte ou images au modèle ; renvoie (réponse, tokens_entrée, tokens_sortie)."""
-    from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
+    # Lot 13 (migration Render) : client IA local (SDK officiel anthropic, clé ANTHROPIC_API_KEY)
+    # au lieu d'Emergent — seul l'appel IA change (autorisation du propriétaire, comme SAWALI).
+    from ia_client import ImageContent, LlmChat, UserMessage, cle_ia
 
-    api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    api_key = cle_ia(MODEL_PROVIDER)
     if not api_key:
-        raise RuntimeError("Clé LLM non configurée (EMERGENT_LLM_KEY)")
+        raise RuntimeError("Clé LLM non configurée (ANTHROPIC_API_KEY)")
     chat = LlmChat(
         api_key=api_key,
         session_id=f"ocr-core-{secrets.token_urlsafe(8)}",

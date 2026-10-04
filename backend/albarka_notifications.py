@@ -119,21 +119,85 @@ async def _get_from_name() -> str:
     return cfg["from_name"]
 
 
+# ---------------------------------------------------------------------------
+# Lot 13 (migration Render) — envoi par SMTP (choix du propriétaire)
+# Variables : SMTP_HOST, SMTP_PORT (587 = STARTTLS par défaut, 465 = SSL),
+# SMTP_USER, SMTP_PASSWORD, SMTP_FROM (adresse d'expédition ; défaut SMTP_USER).
+# Le service Emergent (EMERGENT_EMAIL_KEY) reste utilisé tant que SMTP_HOST n'est
+# pas défini (ancien hébergement), puis n'est plus jamais appelé.
+# ---------------------------------------------------------------------------
+def _smtp_envoi_synchrone(*, expediteur: str, nom: str, to_list: list, subject: str, html: str,
+                          reply_to: Optional[str], attachments: Optional[list]) -> str:
+    """Construit le message (HTML + pièces jointes base64) et l'envoie ; renvoie le Message-ID."""
+    import base64 as _b64
+    import smtplib
+    import ssl
+    from email.message import EmailMessage
+    from email.utils import formataddr, make_msgid
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((nom, expediteur))
+    msg["To"] = ", ".join(to_list)
+    if reply_to:
+        msg["Reply-To"] = reply_to
+    msg["Message-ID"] = make_msgid(domain=expediteur.split("@")[-1] if "@" in expediteur else None)
+    # Texte brut minimal pour les messageries sans HTML, puis la version HTML
+    msg.set_content("Ce message est au format HTML.")
+    msg.add_alternative(html, subtype="html")
+    for pj in attachments or []:
+        type_mime = (pj.get("content_type") or "application/octet-stream").split("/", 1)
+        msg.add_attachment(_b64.b64decode(pj.get("content") or ""), maintype=type_mime[0],
+                           subtype=type_mime[1] if len(type_mime) > 1 else "octet-stream",
+                           filename=pj.get("filename") or "piece-jointe")
+    hote = os.environ["SMTP_HOST"]
+    port = int(os.environ.get("SMTP_PORT") or 587)
+    utilisateur = os.environ.get("SMTP_USER")
+    mot_de_passe = os.environ.get("SMTP_PASSWORD")
+    contexte = ssl.create_default_context()
+    # Port 465 : connexion chiffrée d'emblée ; sinon STARTTLS (587, 2525…)
+    if port == 465:
+        serveur = smtplib.SMTP_SSL(hote, port, context=contexte, timeout=30)
+    else:
+        serveur = smtplib.SMTP(hote, port, timeout=30)
+        serveur.starttls(context=contexte)
+    try:
+        if utilisateur and mot_de_passe:
+            serveur.login(utilisateur, mot_de_passe)
+        serveur.send_message(msg)
+    finally:
+        serveur.quit()
+    return msg["Message-ID"]
+
+
 async def send_email(*, to, subject: str, html: str, reply_to: Optional[str] = None,
                     attachments: Optional[list] = None) -> Optional[str]:
-    """Non-blocking send via the Emergent-managed Resend proxy.
+    """Envoi non bloquant : SMTP (lot 13, hébergement Render) ou, à défaut, l'ancien
+    service d'Emergent.
 
     `to` accepts a string or a list of recipients (single call with multi-to).
     `attachments` optionnel : liste de {filename, content (base64), content_type}.
     """
-    if not EMAIL_KEY:
-        logger.info("EMERGENT_EMAIL_KEY absent — envoi email ignoré (dev/pilote).")
+    smtp_actif = bool(os.environ.get("SMTP_HOST"))
+    if not smtp_actif and not EMAIL_KEY:
+        logger.info("SMTP_HOST et EMERGENT_EMAIL_KEY absents — envoi email ignoré (dev/pilote).")
         return None
     _assert_safe_email(subject, html)
     cfg = await _get_email_config()
     to_list = [to] if isinstance(to, str) else [t for t in to if t]
     if not to_list:
         return None
+    if smtp_actif:
+        # Lot 13 : expéditeur = adresse réglée dans les paramètres, sinon SMTP_FROM, sinon SMTP_USER
+        expediteur = cfg["from_email"] or os.environ.get("SMTP_FROM") or os.environ.get("SMTP_USER") or ""
+        try:
+            return await asyncio.to_thread(
+                _smtp_envoi_synchrone, expediteur=expediteur, nom=cfg["from_name"], to_list=to_list,
+                subject=subject, html=html, reply_to=reply_to or cfg["reply_to"], attachments=attachments,
+            )
+        except Exception:
+            logger.exception("Échec envoi email SMTP à %s", to_list)
+            return None
     payload = {"to": to_list, "subject": subject, "html": html, "from_name": cfg["from_name"]}
     if cfg["from_email"]:
         payload["from_email"] = cfg["from_email"]

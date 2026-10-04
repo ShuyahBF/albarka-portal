@@ -25,7 +25,13 @@ numpy>=1.26.0
 python-multipart>=0.0.9
 jq>=1.6.0
 typer>=0.9.0
-emergentintegrations==0.2.0
+anthropic==1.11.0
+openai==1.99.9
+httpx>=0.27.0
+# Lot 13 (Render) : paquets fournis jusqu'ici par l'image d'Emergent, absents de ce fichier
+reportlab>=4.0.0
+openpyxl>=3.1.0
+pyHanko>=0.25.0
 Pillow>=10.0.0
 qrcode>=7.4.0
 PyMuPDF>=1.23.0

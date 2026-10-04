@@ -60,19 +60,20 @@ router = APIRouter(prefix="/chat", tags=["Chat interne"])
 async def transcribe_audio_bytes(
     data: bytes, *, mime: str = "audio/ogg", language: str = "fr",
 ) -> Optional[str]:
-    """Transcrit un blob audio via OpenAI Whisper (Emergent LLM Key).
+    """Transcrit un blob audio via OpenAI Whisper (clé OPENAI_API_KEY, lot 13).
 
     Écrit un fichier temporaire (nettoyé dans `finally`), appelle le SDK
-    `emergentintegrations.llm.openai.OpenAISpeechToText`. Renvoie le texte
+    `OpenAISpeechToText` du client IA local (SDK openai, lot 13). Renvoie le texte
     transcrit ou None en cas d'échec.
     """
     # Décision "on / off" via le flag settings.
     settings = await get_settings_doc()
     if not settings.get("voice_notes_enabled", True):
         return None
-    key = os.environ.get("EMERGENT_LLM_KEY")
+    # Lot 13 (migration Render) : dictée Whisper par le SDK officiel openai (OPENAI_API_KEY)
+    key = os.environ.get("OPENAI_API_KEY")
     if not key:
-        logger.warning("EMERGENT_LLM_KEY absent — transcription impossible")
+        logger.warning("OPENAI_API_KEY absent — transcription impossible")
         return None
     # Choisir une extension cohérente avec le MIME reçu.
     ext = ".ogg"
@@ -85,12 +86,13 @@ async def transcribe_audio_bytes(
         fd, tmp = tempfile.mkstemp(suffix=ext, prefix="wa_audio_")
         os.write(fd, data)
         os.close(fd)
-        from emergentintegrations.llm.openai import OpenAISpeechToText  # type: ignore
+        from ia_client import OpenAISpeechToText
         stt = OpenAISpeechToText(api_key=key)
-        text = await stt.speech_to_text(
-            file_path=Path(tmp), model="whisper-1", language=language,
+        reponse = await stt.transcribe(
+            file=Path(tmp), model="whisper-1", language=language,
             response_format="text", temperature=0,
         )
+        text = getattr(reponse, "text", reponse)
         return (text or "").strip() or None
     except Exception:  # noqa: BLE001
         logger.exception("Whisper transcription failure")
@@ -197,7 +199,8 @@ async def post_file_message(
     if len(blob) > ATTACHMENT_SIZE_CAP:
         raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 10 Mo)")
     # Storage R2 (module existant)
-    from storage_r2 import put_object
+    # Lot 13 : module de stockage réel du portail (« storage_r2 » n'existait pas : pièces jointes du chat en erreur)
+    from albarka_storage import put_object
     ext = _EXT_BY_MIME.get(mime, ".jpg")
     original_name = file.filename or f"fichier{ext}"
     storage_path = f"albarka/chat/{thread_id}/{secrets.token_urlsafe(10)}{ext}"
@@ -230,7 +233,7 @@ async def get_chat_media(path: str, user: dict = Depends(require_staff())):
     contourner la confidentialité d'une pièce jointe en devinant/observant
     son URL."""
     from fastapi.responses import Response
-    from storage_r2 import get_object
+    from albarka_storage import get_object
     parts = path.split("/")
     if len(parts) >= 3 and parts[0] == "albarka" and parts[1] == "chat":
         await _get_thread_or_404(parts[2], user)

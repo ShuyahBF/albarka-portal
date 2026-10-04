@@ -1,0 +1,122 @@
+# render.yaml — Blueprint Render du portail ALBARKA (lot 13 : migration depuis Emergent)
+#
+# Deux services, comme SAWALI :
+#   1. albarka-backend  : API FastAPI (dossier backend/), domaine api.albarka-bf.com ;
+#   2. albarka-frontend : site React statique (dossier frontend/), domaine albarka-bf.com.
+# Les tâches planifiées d'Emergent (rappels d'échéances 07h00 UTC, envois WhatsApp
+# planifiés toutes les 5 min) tournent DANS le backend (albarka_planificateur.py) :
+# aucun « Cron Job » Render à créer.
+#
+# Secrets : jamais dans ce fichier. Les variables marquées « sync: false » sont
+# demandées par Render à la création du Blueprint et saisies par le propriétaire.
+# Reprendre les MÊMES valeurs que sur Emergent pour JWT_SECRET_KEY et R2_* (les
+# liens et QR codes déjà émis restent valides, les pièces déjà déposées dans R2
+# restent lisibles).
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1) API (FastAPI)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: albarka-backend
+    runtime: python
+    plan: starter                 # payant, jamais mis en veille (tâches planifiées)
+    region: frankfurt
+    repo: https://github.com/ShuyahBF/albarka-portal
+    branch: render-production     # branche déployée par Render
+    autoDeploy: true              # chaque push sur render-production est déployé
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    domains:
+      - api.albarka-bf.com
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      # --- Base de données : base « albarka » sur le cluster Atlas Flex « sawali »
+      - key: MONGO_URL            # OBLIGATOIRE : chaîne de connexion Atlas (saisie par le propriétaire)
+        sync: false
+      - key: DB_NAME
+        value: albarka
+      # --- Sécurité
+      - key: JWT_SECRET_KEY       # OBLIGATOIRE : MÊME valeur que sur Emergent
+        sync: false
+      - key: WEBHOOK_CRON_SECRET  # secret interne des tâches planifiées (généré par Render)
+        generateValue: true
+      - key: MIGRATE_CONFIRM_TOKEN  # facultatif : code de la route de réconciliation des bases
+        sync: false
+      - key: SAUVEGARDE_PHRASE    # phrase de chiffrement des sauvegardes quotidiennes (à garder précieusement)
+        sync: false
+      # --- Fichiers : Cloudflare R2 (mêmes valeurs que sur Emergent)
+      - key: R2_ENDPOINT
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: UPLOAD_DIR           # cache disque (certificats recopiés depuis R2)
+        value: /tmp/albarka-uploads
+      # --- IA : SDK officiels (remplacent la clé universelle d'Emergent)
+      - key: ANTHROPIC_API_KEY    # OBLIGATOIRE : Claude (lecture des pièces, OCR)
+        sync: false
+      - key: OPENAI_API_KEY       # facultatif : dictée des notes vocales (Whisper)
+        sync: false
+      - key: ALBARKA_OCR_DEFAULT_MODEL  # facultatif : modèle OCR par défaut
+        sync: false
+      # --- E-mails : SMTP (choix du propriétaire)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT            # 587 (STARTTLS) ou 465 (SSL)
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM            # adresse d'expédition (ex. contact@albarka-bf.com)
+        sync: false
+      - key: EMAIL_FROM_NAME
+        value: Cabinet ALBARKA
+      - key: EMAIL_REPLY_TO
+        sync: false
+      # --- Divers
+      - key: VAPID_PRIVATE_KEY    # facultatif (sinon générée et gardée en base, migrée avec elle)
+        sync: false
+      - key: USD_TO_XOF_RATE
+        sync: false
+      - key: CORS_ORIGINS
+        value: https://albarka-bf.com,https://www.albarka-bf.com
+      - key: REACT_APP_BACKEND_URL
+        value: https://api.albarka-bf.com
+
+  # ---------------------------------------------------------------------------
+  # 2) Site (React, statique)
+  # ---------------------------------------------------------------------------
+  - type: web
+    name: albarka-frontend
+    runtime: static
+    repo: https://github.com/ShuyahBF/albarka-portal
+    branch: render-production
+    autoDeploy: true
+    rootDir: frontend
+    buildCommand: yarn install && yarn build
+    staticPublishPath: build
+    domains:
+      - albarka-bf.com
+      - www.albarka-bf.com
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: REACT_APP_BACKEND_URL
+        value: https://api.albarka-bf.com
+    routes:
+      # 1) Repli : l'API reste joignable par albarka-bf.com/api (anciens liens, webhooks)
+      - type: rewrite
+        source: /api/*
+        destination: https://api.albarka-bf.com/api/*
+      # 2) Application à page unique : toute autre adresse affiche index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html

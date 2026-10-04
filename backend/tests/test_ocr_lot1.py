@@ -133,20 +133,20 @@ class TestAiModule:
         r = _run(albarka_ai.analyze_document(b"PK\x03\x04 binaire", ct, "contrat.docx"))
         assert seen == {} and r["cost_xof"] == 0 and "non pris en charge" in r["flags"][0]
 
-    def test_real_emergentintegrations_020_usage(self, monkeypatch):
-        """Branchement réel sur emergentintegrations 0.2.0 : consigne Albarka,
-        modèle transmis, images en ImageContent, tokens lus dans ChatResponse.usage."""
-        from emergentintegrations.llm.chat import LlmChat
+    def test_real_client_ia_usage(self, monkeypatch):
+        """Lot 13 (Render) : branchement réel sur le client IA local (SDK officiel anthropic) :
+        consigne Albarka, modèle transmis, images en ImageContent, tokens lus dans ChatResponse.usage."""
+        from ia_client import LlmChat
 
         captured = {}
 
         async def fake_send(self, message):
             captured.update(model=self.model, provider=self.provider, params=self.extra_params,
-                            system=self.messages[0]["content"], message=message)
+                            system=self.system_message, message=message)
             return SimpleNamespace(content='{"summary": "x"}',
                                    usage=SimpleNamespace(input_tokens=1234, output_tokens=56))
 
-        monkeypatch.setenv("EMERGENT_LLM_KEY", "sk-emergent-test")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
         monkeypatch.setattr(LlmChat, "send_message_with_tools", fake_send)
         out = _run(ocr_engine.call_llm(albarka_ai.OCR_MODELS["claude-opus-5"], albarka_ai.SYSTEM_PROMPT,
                                        "", [b"a", b"b"], "f.pdf"))
@@ -156,9 +156,9 @@ class TestAiModule:
         assert len(captured["message"].file_contents) == 2
 
     def test_missing_key_is_reported(self, monkeypatch):
-        monkeypatch.delenv("EMERGENT_LLM_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         r = _run(albarka_ai.analyze_document(_png(100, 100), "image/png", "f.png"))
-        assert "EMERGENT_LLM_KEY" in r["flags"][0]
+        assert "ANTHROPIC_API_KEY" in r["flags"][0]
 
 
 # ---------------------------------------------------------------------

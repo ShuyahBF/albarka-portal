@@ -103,6 +103,9 @@ def create_cabinet_certificate(
     with open(p12_path, "wb") as f:
         f.write(p12_bytes)
     os.chmod(p12_path, 0o600)
+    # Lot 13 (migration Render) : le disque de Render est effacé à chaque déploiement —
+    # copie de sauvegarde du P12 dans Cloudflare R2, relue par load_signer si besoin.
+    _sauver_p12_r2(cert_id, p12_bytes)
     # Extraire pour métadonnées + validité
     _, cert, _ = pkcs12.load_key_and_certificates(p12_bytes, passphrase.encode("utf-8"))
     return {
@@ -120,9 +123,48 @@ def create_cabinet_certificate(
     }
 
 
+# ---------------------------------------------------------------------------
+# Lot 13 (migration Render) — copie des certificats P12 dans Cloudflare R2
+# Chemin R2 : albarka/certs/<id>.p12 (même bucket que les pièces, R2_BUCKET_NAME).
+# Sans R2 configuré (développement), rien ne change : disque seulement.
+# ---------------------------------------------------------------------------
+def _chemin_r2_p12(cert_id: str) -> str:
+    return f"albarka/certs/{cert_id}.p12"
+
+
+def _sauver_p12_r2(cert_id: str, p12_bytes: bytes) -> None:
+    """Envoie le P12 dans R2 ; une erreur ne bloque jamais la création du certificat."""
+    try:
+        from albarka_storage import _r2_configured, _r2_put_sync
+        if _r2_configured():
+            _r2_put_sync(_chemin_r2_p12(cert_id), p12_bytes, "application/x-pkcs12")
+    except Exception:  # noqa: BLE001
+        logger.exception("Copie du certificat %s dans R2 impossible", cert_id)
+
+
+def _assurer_p12_local(p12_path: str) -> None:
+    """Disque effacé (redéploiement Render) : recopie le P12 depuis R2 avant usage."""
+    chemin = Path(p12_path)
+    if chemin.exists():
+        return
+    try:
+        from albarka_storage import _r2_configured, _r2_get_sync
+        if not _r2_configured():
+            return
+        donnees, _ = _r2_get_sync(_chemin_r2_p12(chemin.stem))
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        chemin.write_bytes(donnees)
+        os.chmod(chemin, 0o600)
+    except Exception:  # noqa: BLE001
+        logger.exception("Certificat %s introuvable sur le disque et dans R2", chemin.name)
+
+
 def load_signer(p12_path: str, passphrase: str):
     """Charge un pyhanko signers.SimpleSigner à partir du P12."""
     from pyhanko.sign.signers import SimpleSigner
+    # Lot 13 : chemin enregistré sur l'ancien hébergement -> même nom de fichier dans CERT_DIR
+    p12_path = str(CERT_DIR / Path(p12_path).name)
+    _assurer_p12_local(p12_path)
     return SimpleSigner.load_pkcs12(pfx_file=p12_path, passphrase=passphrase.encode("utf-8"))
 
 

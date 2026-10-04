@@ -1,10 +1,11 @@
 /*
   SidebarInfoBar — barre jaune tout en haut de la sidebar (cabinet et client) :
     - à gauche : date et heure en temps réel (mise à jour chaque seconde) ;
-    - à droite : numéro de version du portail (APP_VERSION dans src/version.js).
+    - à droite : « Version 1.N · Lot L (commit) » (lot 13 : composant MentionVersion,
+      source backend/lot.py via /api/version ; repli APP_VERSION de src/version.js).
 */
 import React, { useEffect, useState } from "react";
-import { APP_VERSION } from "@/version";
+import MentionVersion from "@/components/MentionVersion";
 
 export default function SidebarInfoBar() {
   const [now, setNow] = useState(() => new Date());
@@ -19,7 +20,7 @@ export default function SidebarInfoBar() {
   return (
     <div className="shrink-0 bg-[#FACC15] text-[#0B1912] px-3 py-1 flex items-center justify-between text-xs font-semibold tabular-nums" data-testid="sidebar-info-bar">
       <span data-testid="sidebar-clock">{date} {time}</span>
-      <span data-testid="sidebar-version">{APP_VERSION}</span>
+      <MentionVersion testId="sidebar-version" />
     </div>
   );
 }
