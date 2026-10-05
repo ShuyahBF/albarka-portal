@@ -44,8 +44,6 @@ services:
         sync: false
       - key: WEBHOOK_CRON_SECRET  # secret interne des tâches planifiées (généré par Render)
         generateValue: true
-      - key: MIGRATE_CONFIRM_TOKEN  # facultatif : code de la route de réconciliation des bases
-        sync: false
       # --- Sauvegardes quotidiennes : MÊMES NOMS (et mêmes valeurs) que SAWALI
       - key: SAUVEGARDE_AUTO_PHRASE  # phrase de chiffrement des sauvegardes (à garder précieusement)
         sync: false

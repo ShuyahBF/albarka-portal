@@ -295,4 +295,5 @@ def test_render_yaml_et_lot():
         i = next(n for n, ln in enumerate(lignes) if ln.strip().startswith(f"- key: {k}"))
         assert lignes[i + 1].strip() == "sync: false"
     import lot
-    assert lot.LOT == "14" and "PI-SPI" in lot.LOT_LIBELLE
+    # Le numéro de lot change à chaque déploiement (règle 1) : on vérifie seulement qu'il est renseigné
+    assert lot.LOT and lot.LOT_LIBELLE

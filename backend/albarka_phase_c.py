@@ -914,7 +914,7 @@ async def download_payslip_pdf(payslip_id: str, user: dict = Depends(require_rol
 logs_router = APIRouter(prefix="/platform-logs", tags=["Logs plateforme"])
 # Lot 10 : la DG a les mêmes droits que la Direction (même menu, règle du lot 5).
 _LOG_ROLES = ["superviseur", "direction", "dg", "administrateur"]
-# Même compte que _PROTECT_EMAILS dans albarka_migrate.py — l'administrateur
+# Compte administrateur système (ex-_PROTECT_EMAILS de la migration, lot 14.1) — l'administrateur
 # système du portail (pas un simple rôle "administrateur" parmi d'autres).
 # Ses propres actions sont masquées du journal pour tout le monde SAUF pour
 # lui-même : personne d'autre — même un autre administrateur/superviseur —

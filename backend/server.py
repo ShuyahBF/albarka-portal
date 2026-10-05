@@ -67,7 +67,8 @@ from albarka_report_templates import router as report_templates_router  # noqa: 
 from albarka_reports_mgmt import router as reports_mgmt_router  # noqa: E402
 from albarka_wa_inbox import router as wa_inbox_router  # noqa: E402
 from albarka_wa_extras import router as wa_extras_router  # noqa: E402
-from albarka_migrate import router as migrate_router  # noqa: E402
+# Lot 14.1 : route temporaire de migration Emergent -> Atlas (albarka_migrate) retirée :
+# la migration est terminée ; plus aucune route ne peut écrire dans une autre base.
 from albarka_reports_router import router as reports_router  # noqa: E402
 from albarka_signing import router as signing_router  # noqa: E402
 from albarka_storage import storage_mode  # noqa: E402
@@ -109,7 +110,6 @@ api_router.include_router(pispi_router)
 api_router.include_router(pispi_notification_router)
 api_router.include_router(reports_router)
 api_router.include_router(reports_mgmt_router)
-api_router.include_router(migrate_router)
 api_router.include_router(report_templates_router)
 # Phase B — Contrats clients
 api_router.include_router(contracts_router)
