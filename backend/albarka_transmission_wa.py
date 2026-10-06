@@ -681,6 +681,23 @@ async def traiter_retour(corps: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "doublon": False}
 
 
+async def _repondre_stats_du_jour(corps: Dict[str, Any]):
+    """Réponse à {"type": "stats_du_jour", "debut", "fin"} (lot 15).
+
+    Période absente, illisible, inversée ou > 31 jours : 422. Toute autre
+    panne : 200 avec des indicateurs vides et utilisateurs_connectes à null."""
+    from albarka_stats_du_jour import PeriodeInvalide, lire_periode, repondre_stats
+    try:
+        lire_periode(corps)
+    except PeriodeInvalide as exc:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+    try:
+        return await repondre_stats(_base(), corps)
+    except Exception as exc:  # noqa: BLE001 — filet de sécurité : jamais de 500
+        logger.warning("Statistiques du jour non calculées : %s", type(exc).__name__)
+        return {"indicateurs": [], "faits_marquants": [], "utilisateurs_connectes": None}
+
+
 @retour_router.post("/liluvine-retour")
 async def recevoir_retour(request: Request):
     """Point d'entrée des retours SAWALI : signature HMAC + fenêtre ± 5 min
@@ -697,6 +714,10 @@ async def recevoir_retour(request: Request):
         return JSONResponse(status_code=422, content={"detail": "JSON invalide"})
     if not isinstance(corps, dict):
         return JSONResponse(status_code=422, content={"detail": "Objet JSON attendu"})
+    # Lot 15 — demande de statistiques du jour par SAWALI (même signature,
+    # même URL). Lecture seule ; période invalide -> 422 ; jamais de 500.
+    if str(corps.get("type") or "").strip() == "stats_du_jour":
+        return await _repondre_stats_du_jour(corps)
     try:
         res = await traiter_retour(corps)
     except Exception as exc:  # noqa: BLE001 — SAWALI réessaiera

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "14.1"
-LOT_LIBELLE = "Sécurité : route temporaire de migration des bases (Emergent vers Atlas) retirée — aucune copie vers une autre base n'est plus possible"
+LOT = "15"
+LOT_LIBELLE = "Statistiques du jour : ALBARKA répond à la demande quotidienne de SAWALI (indicateurs, faits marquants, utilisateurs connectés) sur l'URL de retour signée de la Transmission WA"
