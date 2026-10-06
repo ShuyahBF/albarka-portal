@@ -299,6 +299,18 @@ async def _demarrer_planificateur():
                     "actifs" if planificateur_actif() else "suspendus")
 
 
+@app.on_event("startup")
+async def _demarrer_presence_sawali():
+    """Lot 15.1 (règle 4) : déclaration de présence du serveur à SAWALI, en tâche de fond
+    (10 s après le démarrage puis toutes les 5 min). Jamais bloquant ; PRESENCE_SAWALI=0 la coupe."""
+    import asyncio
+    from albarka_presence_sawali import boucle_presence_sawali, presence_active
+    if presence_active():
+        # Référence gardée sur l'application pour que la tâche ne soit pas ramassée par le GC
+        app.state.tache_presence_sawali = asyncio.create_task(boucle_presence_sawali())
+        logger.info("Signal de présence SAWALI démarré (toutes les 5 min)")
+
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     mongo_client.close()

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "15"
-LOT_LIBELLE = "Statistiques du jour : ALBARKA répond à la demande quotidienne de SAWALI (indicateurs, faits marquants, utilisateurs connectés) sur l'URL de retour signée de la Transmission WA"
+LOT = "15.1"
+LOT_LIBELLE = "Présence auprès de SAWALI (règle 4) : le serveur ALBARKA envoie sa version 1.N et sa date de déploiement à SAWALI au démarrage puis toutes les 5 minutes"
