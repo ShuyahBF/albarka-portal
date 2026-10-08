@@ -96,7 +96,7 @@ _rafraichissement: Dict[str, Optional[asyncio.Task]] = {"tache": None}
 
 
 async def suspendus_actuels() -> List[str]:
-    """Services suspendus maintenant : état gardé en mémoire (ou en base au démarrage) ; s'il a plus de 30 min, il
+    """Services suspendus maintenant : état gardé en mémoire (ou en base au démarrage) ; s'il a plus de 5 min (lot 22.1), il
     est redemandé à SAWALI EN ARRIÈRE-PLAN (la requête en cours n'attend pas)."""
     import time
     import albarka_contrat_plateforme as cp

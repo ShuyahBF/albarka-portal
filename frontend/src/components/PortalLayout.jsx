@@ -406,6 +406,9 @@ export default function PortalLayout({ admin = false }) {
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-[hsl(var(--border))]">
+          {/* Lot 22.1 : bandeau du contrat SAWALI pour le DG, tout en haut de la zone de droite (hors barre latérale),
+              dans l'en-tête fixe : il reste visible même quand on fait défiler la page */}
+          {admin && <BandeauContrat />}
           <div className="flex items-center justify-between px-5 py-3 md:px-8">
             <div className="flex items-center gap-3">
               <button
@@ -440,8 +443,6 @@ export default function PortalLayout({ admin = false }) {
             </div>
           </div>
         </header>
-        {/* Lot 21 : contrat SAWALI — bandeau orange puis rouge pour le DG (le serveur décide de l'affichage) */}
-        {admin && <BandeauContrat />}
         <main className="flex-1 p-5 md:p-8 max-w-7xl w-full mx-auto">
           {/* Rien n'est affiché (ni chargé) pendant la redirection ci-dessus :
               le tableau de bord ne s'ouvre pas, même un instant. */}

@@ -13,15 +13,16 @@ export default function BandeauContrat() {
     let fini = false;
     const lire = () => apiClient.get("/contrat-plateforme").then((r) => { if (!fini) setBandeau(r.data); }).catch(() => {});
     lire();
-    const minuterie = setInterval(lire, 30 * 60 * 1000);
+    const minuterie = setInterval(lire, 5 * 60 * 1000);   // lot 22.1 : relu toutes les 5 min
     return () => { fini = true; clearInterval(minuterie); };
   }, []);
   if (!bandeau?.visible) return null;
   const rouge = bandeau.couleur === "rouge";
   return (
     <div role="alert" data-testid={`bandeau-contrat-${bandeau.couleur}`}
-      className={`flex items-start gap-2 px-5 py-2 text-sm font-medium ${rouge ? "bg-red-600 text-white" : "bg-amber-400 text-[#3b2a00]"}`}>
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      className={`flex w-full items-center justify-center gap-3 px-5 py-3 text-center text-sm md:text-base font-semibold shadow-sm ${rouge ? "bg-red-600 text-white" : "bg-amber-400 text-[#3b2a00]"}`}>
+      {/* Lot 22.1 : bandeau en travers de toute la zone de droite, en haut de l'en-tête fixe */}
+      <AlertTriangle className="h-5 w-5 shrink-0" />
       <span>{bandeau.message}</span>
     </div>
   );
