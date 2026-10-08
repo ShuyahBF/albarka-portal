@@ -60,6 +60,11 @@ export default function AdminBilling() {
   const canShareToClient = roles.includes("superviseur") || roles.some((r) => CLIENT_SPACE_ROLES.includes(r));
   // Lot 14 : réglage PI-SPI (QR de la banque) — Superviseur et Direction
   const canSetPispi = roles.includes("superviseur") || roles.includes("direction");
+  // Lot 17 : second numéro (manuel) — saisi par le secrétariat, le DG ou la direction ; seul le DG l'ouvre ensuite
+  const canSaisirNumeroManuel = roles.some((r) => ["secretariat", "dg", "direction"].includes(r));
+  const canOuvrirNumeroManuel = roles.includes("dg");
+  const [numeroCible, setNumeroCible] = useState(null);   // facture dont on saisit le numéro manuel
+  const [numeroSaisi, setNumeroSaisi] = useState("");
 
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
@@ -239,6 +244,7 @@ export default function AdminBilling() {
         tenant_id: invForm.tenant_id, title: invForm.title,
         document_type: invForm.document_type,
         client_visible: invForm.client_visible, // mis à disposition dès la création (client prévenu)
+        manual_number: canSaisirNumeroManuel ? ((invForm.manual_number || "").trim() || null) : null,   // lot 17
         items: items.map((it) => ({
           kind: isModel ? it.kind : "line", label: it.label, detail: isModel ? (it.detail || null) : null,
           quantity: Number(it.quantity) || (it.kind === "section" ? 0 : 1),
@@ -255,6 +261,30 @@ export default function AdminBilling() {
       toast.success(`${invForm.document_type === "recu" ? "Reçu" : invForm.document_type === "proforma" ? "Proforma" : "Facture"} créé(e)`);
       setOpenInv(false);
       setInvForm({ tenant_id: "", title: "", document_type: "facture", client_visible: false, items: [emptyItem()], ...emptyModel(), tva_rate: docDefaults.tva, withholding_rate: docDefaults.rateIfu, withholding_label: docDefaults.label });
+      await load();
+    } catch (err) { toast.error(extractError(err)); }
+  };
+
+  // --- Lot 17 : numéro manuel — le DG ouvre, le secrétariat / DG / direction saisit (refermé à l'enregistrement) ---
+  const ouvrirNumero = async (invoice) => {
+    try {
+      await apiClient.post(`/billing/invoices/${invoice.id}/manual-number/open`);
+      toast.success(`Numéro de ${invoice.manual_number || invoice.number} ouvert pour modification`);
+      await load();
+    } catch (err) { toast.error(extractError(err)); }
+  };
+  const enregistrerNumero = async () => {
+    try {
+      await apiClient.put(`/billing/invoices/${numeroCible.id}/manual-number`, { manual_number: numeroSaisi.trim() || null });
+      toast.success(numeroSaisi.trim() ? `Numéro manuel « ${numeroSaisi.trim()} » enregistré — la facture sera imprimée avec ce numéro` : "Numéro manuel retiré");
+      setNumeroCible(null);
+      await load();
+    } catch (err) { toast.error(extractError(err)); }
+  };
+  const refermerNumero = async () => {
+    try {
+      await apiClient.post(`/billing/invoices/${numeroCible.id}/manual-number/close`);
+      setNumeroCible(null);
       await load();
     } catch (err) { toast.error(extractError(err)); }
   };
@@ -496,6 +526,14 @@ export default function AdminBilling() {
                   </div>
                   <div><Label>Client</Label><EntitySelect value={invForm.tenant_id} onChange={(v) => setInvForm({ ...invForm, tenant_id: v })} testId="invoice-tenant-input" /></div>
                   <div><Label>Titre</Label><Input value={invForm.title} onChange={(e) => setInvForm({ ...invForm, title: e.target.value })} data-testid="invoice-title-input" /></div>
+                  {/* Lot 17 : second numéro (manuel), imprimé à la place du numéro de la plateforme s'il est saisi */}
+                  {canSaisirNumeroManuel && (
+                    <div><Label>N° manuel (facultatif)</Label>
+                      <Input value={invForm.manual_number || ""} onChange={(e) => setInvForm({ ...invForm, manual_number: e.target.value })}
+                        placeholder="ex. F2026/015 — imprimé sur la facture à la place du n° de la plateforme" data-testid="invoice-manual-number" />
+                      <p className="mt-1 text-[11px] text-muted-foreground">Après la création, le numéro est verrouillé : seul le DG peut l'ouvrir pour modification.</p>
+                    </div>
+                  )}
                   {isModel && (
                     // Format du modèle : date, papier à en-tête, encadré « Facturer à »
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -657,7 +695,28 @@ export default function AdminBilling() {
                   const rap = Number(i.total) - Number(i.paid_amount || 0);
                   return (
                   <TableRow key={i.id}>
-                    <TableCell className="font-mono text-xs">{i.number}</TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {/* Lot 17 : numéro manuel (imprimé) en premier, numéro de la plateforme en dessous */}
+                      {i.manual_number ? (
+                        <>
+                          <span className="font-semibold" title="Numéro manuel (imprimé sur la facture)">{i.manual_number}</span>
+                          <span className="block text-[10px] text-muted-foreground" title="Numéro de la plateforme">{i.number}</span>
+                        </>
+                      ) : i.number}
+                      <span className="mt-0.5 flex gap-1">
+                        {canOuvrirNumeroManuel && !i.manual_number_open && (
+                          <button type="button" className="text-[10px] text-[#0F6B4A] underline" onClick={() => ouvrirNumero(i)} data-testid={`manual-open-${i.id}`}>
+                            🔓 Ouvrir le n°
+                          </button>
+                        )}
+                        {i.manual_number_open && canSaisirNumeroManuel && (
+                          <button type="button" className="text-[10px] font-semibold text-amber-700 underline" onClick={() => { setNumeroCible(i); setNumeroSaisi(i.manual_number || ""); }} data-testid={`manual-edit-${i.id}`}>
+                            ✏️ Saisir le n° manuel
+                          </button>
+                        )}
+                        {i.manual_number_open && !canSaisirNumeroManuel && <span className="text-[10px] text-amber-700">n° ouvert</span>}
+                      </span>
+                    </TableCell>
                     <TableCell className="text-sm">{clientLabel(i.tenant_id)}</TableCell>
                     <TableCell>
                       <span className={`albarka-chip text-[10px] ${
@@ -765,9 +824,33 @@ export default function AdminBilling() {
         </TabsContent>
       </Tabs>
 
+      {/* Lot 17 : saisie du numéro manuel d'une facture ouverte par le DG */}
+      <Dialog open={!!numeroCible} onOpenChange={(o) => { if (!o) setNumeroCible(null); }}>
+        <DialogContent data-testid="manual-number-dialog">
+          <DialogHeader><DialogTitle>N° manuel — {numeroCible?.number}</DialogTitle></DialogHeader>
+          <div className="space-y-2">
+            <Label>Numéro manuel (imprimé sur la facture)</Label>
+            <Input value={numeroSaisi} onChange={(e) => setNumeroSaisi(e.target.value)} placeholder="ex. F2026/015 (vide = retirer)" data-testid="manual-number-input" />
+            <p className="text-[11px] text-muted-foreground">À l'enregistrement, le numéro est de nouveau verrouillé et la facture est régénérée avec ce numéro.</p>
+            {(numeroCible?.manual_number_history || []).length > 0 && (
+              <div className="text-[11px] text-muted-foreground">
+                <p className="font-semibold">Historique</p>
+                {numeroCible.manual_number_history.slice(-5).reverse().map((h, k) => (
+                  <p key={k}>{fmtDateTime(h.le)} · {h.par_nom || "—"} : {h.ancien || "(aucun)"} → {h.nouveau || "(aucun)"}</p>
+                ))}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            {canOuvrirNumeroManuel && <Button variant="outline" onClick={refermerNumero}>Refermer sans modifier</Button>}
+            <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={enregistrerNumero} data-testid="manual-number-save">Enregistrer</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={openPay} onOpenChange={setOpenPay}>
         <DialogContent data-testid="payment-dialog">
-          <DialogHeader><DialogTitle>Encaisser {payTarget?.number}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Encaisser {payTarget?.manual_number || payTarget?.number}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="text-sm text-muted-foreground">Reste dû : {Number((payTarget?.total || 0) - (payTarget?.paid_amount || 0)).toLocaleString()} {payTarget?.currency}</div>
             <div><Label>Montant</Label><Input type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} data-testid="payment-amount-input" /></div>

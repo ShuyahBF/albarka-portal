@@ -286,7 +286,7 @@ def _invoice_item(inv: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "source": "invoice", "id": inv["id"], "tenant_id": inv["tenant_id"], "category": inv["document_type"],
         "category_label": CATEGORIES.get(inv["document_type"], "Document"), "title": inv.get("title"),
-        "reference": inv.get("number"), "amount": total, "currency": inv.get("currency") or "XOF",
+        "reference": inv.get("manual_number") or inv.get("number"), "amount": total, "currency": inv.get("currency") or "XOF",
         "date": (inv.get("created_at") or "")[:10], "created_at": inv.get("created_at"),
         "filename": f"{inv['document_type']}_{inv.get('number')}.pdf", "content_type": "application/pdf",
         "status": inv.get("status"), "paid_amount": paid,

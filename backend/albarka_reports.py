@@ -434,7 +434,7 @@ def build_invoice_document_pdf(
         buf, pagesize=A4,
         leftMargin=1.8 * cm, rightMargin=1.8 * cm,
         topMargin=1.8 * cm, bottomMargin=1.8 * cm,
-        title=f"{_DOC_TYPE_LABELS.get(doc_type, 'FACTURE')} {invoice.get('number', '')} — Cabinet ALBARKA",
+        title=f"{_DOC_TYPE_LABELS.get(doc_type, 'FACTURE')} {invoice.get('manual_number') or invoice.get('number', '')} — Cabinet ALBARKA",   # lot 17
         author="Cabinet ALBARKA",
     )
     ss = _paragraph_styles()
@@ -444,7 +444,7 @@ def build_invoice_document_pdf(
     story.append(Paragraph("CABINET ALBARKA", ss["AlbSubtitle"]))
     story.append(Paragraph(_DOC_TYPE_LABELS.get(doc_type, "FACTURE"), ss["AlbTitle"]))
     story.append(Paragraph(
-        f"N° {invoice.get('number', '')} · Émise le "
+        f"N° {invoice.get('manual_number') or invoice.get('number', '')} · Émise le "   # lot 17 : numéro manuel
         f"{(invoice.get('created_at') or '')[:10]} · Client : {client_label}",
         ss["AlbSubtitle"],
     ))

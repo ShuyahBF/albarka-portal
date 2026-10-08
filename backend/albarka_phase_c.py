@@ -244,6 +244,8 @@ class InvoiceCreate(BaseModel):
     bill_to: Optional[str] = Field(None, max_length=600)
     letterhead_id: Optional[str] = None
     issue_date: Optional[str] = None
+    # Lot 17 : second numéro (manuel), saisi par le secrétariat, le DG ou la direction (voir albarka_numero_manuel.py)
+    manual_number: Optional[str] = Field(None, max_length=200)
 
     @field_validator("document_type")
     @classmethod
@@ -408,6 +410,9 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_ro
     for it in items:
         if it.get("kind") == "section":
             it["unit_price"] = 0
+    # Lot 17 : numéro manuel facultatif (droits, format et unicité contrôlés AVANT de créer le document)
+    from albarka_numero_manuel import champs_creation
+    numero_manuel = await champs_creation(payload.manual_number, payload.document_type, user)
     doc = await _new_billing_document(
         document_type=payload.document_type, tenant_id=payload.tenant_id, title=payload.title,
         items=items, user=user, currency=payload.currency,
@@ -415,7 +420,7 @@ async def create_invoice(payload: InvoiceCreate, user: dict = Depends(require_ro
         tva_rate=payload.tva_rate, withholding_rate=payload.withholding_rate,
         extra={"bill_to": (payload.bill_to or "").strip() or None, "letterhead_id": payload.letterhead_id,
                "withholding_label": payload.withholding_label or "retenue",
-               "issue_date": payload.issue_date or None},
+               "issue_date": payload.issue_date or None, **numero_manuel},
     )
     # Mise à disposition immédiate dans l'espace du client (case cochée à la
     # création) : le client est prévenu par WhatsApp selon les modèles réglés.
