@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Copy, Pencil, ShieldCheck } from "lucide-react";
+import { Plus, Copy, Pencil, ShieldCheck, KeyRound } from "lucide-react";
+import PinWhatsAppDialog from "@/components/PinWhatsAppDialog";   // lot 19 : connexion des clients par WhatsApp
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,8 +43,20 @@ export default function AdminClients() {
   const [editing, setEditing] = useState(null); // null = create mode
   const [form, setForm] = useState(emptyForm());
 
+  // Lot 19 — connexion des clients par WhatsApp : comptes ayant un PIN et fenêtre du PIN
+  const [pins, setPins] = useState({});
+  const [pinCible, setPinCible] = useState(null);
+  const chargerPins = async () => {
+    if (!canManage) return;
+    try {
+      const { data } = await apiClient.get("/staff-pin");
+      setPins(Object.fromEntries((data || []).map((x) => [x.user_id, x])));
+    } catch { setPins({}); }
+  };
+
   const load = async () => {
     setLoading(true);
+    chargerPins();
     try {
       const { data } = await apiClient.get("/clients");
       setItems(data);
@@ -98,11 +111,16 @@ export default function AdminClients() {
       }
       return;
     }
-    if (!form.email || !form.full_name || !form.password) {
-      toast.error("Email, nom et mot de passe requis"); return;
+    // Lot 19 : e-mail OU numéro WhatsApp ; mot de passe seulement avec un e-mail (sinon connexion WhatsApp + PIN)
+    if (!form.full_name) { toast.error("Nom requis"); return; }
+    if (!form.email && !form.whatsapp_number && !form.phone) {
+      toast.error("Renseignez l'e-mail ou le numéro WhatsApp du client"); return;
+    }
+    if (form.email && (form.password || "").length < 8) {
+      toast.error("Avec un e-mail, un mot de passe de 8 caractères au moins est requis"); return;
     }
     try {
-      await apiClient.post("/clients", form);
+      await apiClient.post("/clients", { ...form, email: form.email || null, password: form.email ? form.password : null });
       toast.success("Client créé");
       setOpen(false);
       setForm(emptyForm());
@@ -153,7 +171,8 @@ export default function AdminClients() {
             </DialogHeader>
             <div className="space-y-3">
               <div>
-                <Label>Email {editing && <span className="text-[10px] text-muted-foreground">(non modifiable)</span>}</Label>
+                <Label>Email {editing ? <span className="text-[10px] text-muted-foreground">(non modifiable)</span>
+                  : <span className="text-[10px] text-muted-foreground">(facultatif si le WhatsApp est renseigné)</span>}</Label>
                 <Input
                   type="email"
                   value={form.email}
@@ -169,7 +188,9 @@ export default function AdminClients() {
                 <Label>Numéro WhatsApp</Label>
                 <Input value={form.whatsapp_number} onChange={(e) => setForm({ ...form, whatsapp_number: e.target.value })} placeholder="Laisser vide si identique au téléphone" data-testid="client-whatsapp-input" />
               </div>
-              {!editing && (
+              {/* Lot 19 : sans e-mail, connexion par WhatsApp + code PIN (bouton « clé » de la liste) */}
+              {!editing && !form.email && <p className="text-[11px] text-muted-foreground">Sans e-mail, le client se connecte avec son numéro WhatsApp et un code PIN : générez-le ensuite avec le bouton « clé » de la liste.</p>}
+              {!editing && form.email && (
                 <div><Label>Mot de passe (temp)</Label><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="client-password-input" /></div>
               )}
               <label className="flex items-center gap-2 text-sm cursor-pointer pt-1">
@@ -223,7 +244,10 @@ export default function AdminClients() {
             {items.map((c) => (
               <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">{c.full_name}</TableCell>
-                <TableCell className="text-sm">{c.email}</TableCell>
+                <TableCell className="text-sm">
+                  {c.sans_email ? <span className="text-xs text-muted-foreground">WhatsApp seulement</span> : c.email}
+                  {pins[c.id] && <span className="ml-1 albarka-chip bg-emerald-100 text-emerald-800 text-[10px]">PIN WhatsApp</span>}
+                </TableCell>
                 <TableCell className="text-sm">{c.company || "—"}</TableCell>
                 <TableCell className="text-sm">
                   <div>{c.phone || "—"}</div>
@@ -268,6 +292,13 @@ export default function AdminClients() {
                   </button>
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
+                  {/* Lot 19 : code PIN de connexion par WhatsApp du client */}
+                  {canManage && (
+                    <button type="button" onClick={() => setPinCible(c)} title="Code PIN de connexion par WhatsApp"
+                      className={`${ui.act.iconDark} mr-1`} data-testid={`pin-client-${c.id}`}>
+                      <KeyRound className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   {canManage && (
                     // Modifier : bouton plein noir (design SAWALI)
                     <button type="button" onClick={() => openEdit(c)} title="Modifier" className={ui.act.iconDark} data-testid={`edit-client-${c.id}`}>
@@ -285,6 +316,9 @@ export default function AdminClients() {
           </TableBody>
         </Table>
       </div>
+      {/* Lot 19 — fenêtre « Connexion par WhatsApp » d'un client */}
+      <PinWhatsAppDialog cible={pinCible} etatPin={pinCible ? pins[pinCible.id] : undefined} titulaire="le client"
+        onFermer={() => setPinCible(null)} onChange={chargerPins} />
     </div>
   );
 }

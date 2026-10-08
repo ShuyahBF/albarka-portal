@@ -45,7 +45,7 @@ export default function Login() {
   const [step, setStep] = useState("credentials"); // credentials | otp
   // Lot 16 : mode de connexion — « email » (e-mail + mot de passe, code par
   // e-mail) ou « whatsapp » (numéro WhatsApp + code PIN, code par WhatsApp ;
-  // réservé au personnel ayant reçu un PIN dans « Personnels »).
+  // personnel ayant reçu un PIN dans « Personnels » et, depuis le lot 19, clients ayant reçu un PIN dans « Clients »).
   const [mode, setMode] = useState("email");
   const [numero, setNumero] = useState("");
   const [pin, setPin] = useState("");
@@ -205,7 +205,7 @@ export default function Login() {
                 </h2>
                 <p className="text-sm text-muted-foreground mt-2">
                   {mode === "whatsapp"
-                    ? "Personnel du cabinet : entrez votre numéro WhatsApp et votre code PIN pour recevoir votre code d'accès par WhatsApp."
+                    ? "Entrez votre numéro WhatsApp et le code PIN remis par le cabinet pour recevoir votre code d'accès par WhatsApp."
                     : "Entrez vos identifiants pour recevoir votre code d'accès."}
                 </p>
               </div>

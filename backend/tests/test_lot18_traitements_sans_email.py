@@ -78,4 +78,4 @@ def test_connexion_whatsapp_d_un_collaborateur_sans_email(env):
 
 def test_numero_de_lot():
     import lot
-    assert lot.LOT == "18"
+    assert float(lot.LOT.split(".")[0]) >= 18   # lots suivants : un numéro par déploiement

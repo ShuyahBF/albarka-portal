@@ -39,7 +39,9 @@ async def _apply_rgpd_masking(docs: List[dict], viewer: dict) -> List[dict]:
 
 
 class ClientCreate(BaseModel):
-    email: EmailStr
+    # Lot 19 : e-mail FACULTATIF si le numéro WhatsApp (ou le téléphone) est renseigné — le client se connecte alors
+    # par WhatsApp + code PIN. Le mot de passe n'est demandé qu'avec un e-mail.
+    email: Optional[EmailStr] = None
     full_name: str = Field(..., min_length=1, max_length=200)
     company: Optional[str] = None
     phone: Optional[str] = None
@@ -47,7 +49,7 @@ class ClientCreate(BaseModel):
     # identique (voir is_whatsapp_verified()/whatsapp_number_of() dans
     # albarka_models.py pour la logique de repli).
     whatsapp_number: Optional[str] = None
-    password: str = Field(..., min_length=8)
+    password: Optional[str] = Field(None, max_length=200)
     can_receive_notifications: bool = True
 
 
@@ -114,6 +116,22 @@ def est_email_technique(email: Optional[str]) -> bool:
     return (email or "").lower().endswith("@" + DOMAINE_SANS_EMAIL)
 
 
+def _identifiants_creation(email: Optional[str], mot_de_passe: Optional[str], telephone: Optional[str],
+                           qui: str) -> tuple:
+    """Lots 18-19 — (e-mail, mot de passe) d'un nouveau compte : avec un e-mail, mot de passe de 8 caractères exigé ;
+    sans e-mail, adresse technique tirée du numéro WhatsApp et mot de passe aléatoire jamais communiqué (connexion
+    par WhatsApp + code PIN). Lève 422 si ni e-mail ni numéro valable."""
+    from albarka_connexion_whatsapp import numero_international
+    if email:
+        if not mot_de_passe or len(mot_de_passe) < 8:
+            raise HTTPException(status_code=422, detail="Mot de passe de 8 caractères au moins (connexion par e-mail)")
+        return email.lower(), mot_de_passe
+    numero = numero_international(telephone)
+    if not numero:
+        raise HTTPException(status_code=422, detail=f"Renseignez l'e-mail ou le numéro WhatsApp (téléphone) du {qui}")
+    return email_technique(numero), secrets.token_urlsafe(24)
+
+
 def _public(user: dict) -> dict:
     user.pop("password_hash", None)
     # Lot 18 : l'adresse technique n'est jamais affichée (champ vide + indicateur « sans e-mail »)
@@ -129,6 +147,10 @@ async def list_clients(user: dict = Depends(require_staff())):
     docs = await db.users.find(
         {"roles": "client", **hide_test_accounts_filter(user)}, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
+    # Lot 19 : adresse technique des clients sans e-mail masquée (champ vide + « sans_email »)
+    for d in docs:
+        if est_email_technique(d.get("email")):
+            d["email"], d["sans_email"] = "", True
     return serialize_many(await _apply_rgpd_masking(docs, user))
 
 
@@ -147,13 +169,17 @@ async def list_staff(user: dict = Depends(require_staff())):
 
 @router.post("")
 async def create_client(payload: ClientCreate, user: dict = Depends(require_roles(CLIENT_MANAGE_ROLES))):
-    existing = await db.users.find_one({"email": payload.email.lower()})
+    # Lot 19 : même règle que le personnel (lot 18) — e-mail OU numéro WhatsApp ; sans e-mail, adresse technique
+    email, mot_de_passe = _identifiants_creation(payload.email, payload.password,
+                                                 payload.whatsapp_number or payload.phone, "client")
+    existing = await db.users.find_one({"email": email})
     if existing:
-        raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà")
+        raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà" if payload.email
+                            else "Un client sans e-mail utilise déjà ce numéro WhatsApp")
     user_doc = {
         "id": secrets.token_urlsafe(12),
-        "email": payload.email.lower(),
-        "password_hash": hash_password(payload.password),
+        "email": email,
+        "password_hash": hash_password(mot_de_passe),
         "full_name": payload.full_name,
         "roles": ["client"],
         "company": payload.company,
@@ -194,18 +220,7 @@ async def create_staff(payload: StaffCreate, user: dict = Depends(require_roles(
             detail="Seul un Administrateur ou le Superviseur peut créer un Administrateur",
         )
     # Lot 18 : e-mail OU numéro WhatsApp obligatoire ; sans e-mail, adresse technique et mot de passe aléatoire
-    from albarka_connexion_whatsapp import numero_international
-    numero = numero_international(payload.phone)
-    if payload.email:
-        email = payload.email.lower()
-        if not payload.password or len(payload.password) < 8:
-            raise HTTPException(status_code=422, detail="Mot de passe de 8 caractères au moins (connexion par e-mail)")
-        mot_de_passe = payload.password
-    elif numero:
-        email = email_technique(numero)
-        mot_de_passe = secrets.token_urlsafe(24)   # jamais communiqué : connexion par WhatsApp + code PIN
-    else:
-        raise HTTPException(status_code=422, detail="Renseignez l'e-mail ou le numéro WhatsApp (téléphone) du collaborateur")
+    email, mot_de_passe = _identifiants_creation(payload.email, payload.password, payload.phone, "collaborateur")
     existing = await db.users.find_one({"email": email})
     if existing:
         raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà" if payload.email
@@ -337,6 +352,9 @@ async def get_client(user_id: str, user: dict = Depends(require_staff())):
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     if is_client(doc):
         (await _apply_rgpd_masking([doc], user))
+    # Lots 18-19 : adresse technique d'un compte sans e-mail jamais affichée
+    if est_email_technique(doc.get("email")):
+        doc["email"], doc["sans_email"] = "", True
     return serialize(doc)
 
 
