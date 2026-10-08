@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Sprout, ArrowRight, Mail, Lock, KeyRound } from "lucide-react";
+import { Sprout, ArrowRight, Mail, Lock, KeyRound, Eye, EyeOff, MessageCircle, Phone, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -12,8 +12,44 @@ import { saveAccessCode, getAccessCode } from "@/lib/device";
 import MentionVersion from "@/components/MentionVersion";
 import EtatServeur from "@/components/EtatServeur";
 
+// Champ secret (mot de passe ou code PIN) avec pictogramme « œil » pour
+// voir / masquer la saisie (règle du propriétaire sur tous les sites).
+function ChampSecret({ id, value, onChange, visible, onToggle, testId, ...props }) {
+  return (
+    <div className="relative mt-1.5">
+      <Lock className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+      <Input
+        id={id}
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        className="pl-9 pr-10 h-11"
+        data-testid={testId}
+        {...props}
+      />
+      <button
+        type="button"
+        onClick={onToggle}
+        className="absolute right-2 top-2 h-7 w-7 inline-flex items-center justify-center rounded text-muted-foreground hover:text-[#0F6B4A]"
+        title={visible ? "Masquer la saisie" : "Afficher la saisie"}
+        aria-label={visible ? "Masquer la saisie" : "Afficher la saisie"}
+        data-testid={`${testId}-oeil`}
+      >
+        {visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+}
+
 export default function Login() {
   const [step, setStep] = useState("credentials"); // credentials | otp
+  // Lot 16 : mode de connexion — « email » (e-mail + mot de passe, code par
+  // e-mail) ou « whatsapp » (numéro WhatsApp + code PIN, code par WhatsApp ;
+  // réservé au personnel ayant reçu un PIN dans « Personnels »).
+  const [mode, setMode] = useState("email");
+  const [numero, setNumero] = useState("");
+  const [pin, setPin] = useState("");
+  const [voirSecret, setVoirSecret] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [session, setSession] = useState(null); // { session_token, dev_otp, message }
@@ -24,7 +60,7 @@ export default function Login() {
   const [captchaCfg, setCaptchaCfg] = useState({ enabled: false, site_key: null });
   const [captchaToken, setCaptchaToken] = useState(null);
   const captchaRef = useRef(null);
-  const { loginStart, loginVerify, isStaff } = useAuth();
+  const { loginStart, loginWhatsappStart, loginVerify, isStaff } = useAuth();
   const navigate = useNavigate();
   // Accès temporaire : lien reçu /login?acces=CODE (gardé pour l'étape du code OTP)
   const [accessCode, setAccessCode] = useState(() => {
@@ -63,19 +99,36 @@ export default function Login() {
     document.head.appendChild(s);
   }, [captchaCfg]);
 
+  // Étape 1 : e-mail + mot de passe, ou numéro WhatsApp + PIN (lot 16).
+  // Attente longue : toast « Patientez… » + jauge circulaire dans le bouton.
   const submitCredentials = async (e) => {
     e.preventDefault();
+    if (mode === "whatsapp" && !/^\d{4}$/.test(pin)) {
+      toast.error("Le code PIN comporte 4 chiffres");
+      return;
+    }
     setLoading(true);
+    const attente = toast.loading(mode === "whatsapp" ? "Patientez… envoi du code par WhatsApp" : "Patientez…");
     try {
-      const data = await loginStart(email, password, captchaToken);
+      const data = mode === "whatsapp"
+        ? await loginWhatsappStart(numero, pin, captchaToken)
+        : await loginStart(email, password, captchaToken);
       setSession(data);
       setStep("otp");
-      toast.success(data.message);
+      toast.success(data.message, { id: attente });
     } catch (err) {
-      toast.error(extractError(err, "Identifiants invalides"));
+      toast.error(extractError(err, mode === "whatsapp" ? "Numéro WhatsApp ou code PIN incorrect" : "Identifiants invalides"), { id: attente });
     } finally {
       setLoading(false);
     }
+  };
+
+  // Bascule e-mail <-> WhatsApp (les saisies secrètes sont effacées)
+  const changerMode = (m) => {
+    setMode(m);
+    setPassword("");
+    setPin("");
+    setVoirSecret(false);
   };
 
   const submitOtp = async (e) => {
@@ -158,9 +211,65 @@ export default function Login() {
                   Se connecter
                 </h2>
                 <p className="text-sm text-muted-foreground mt-2">
-                  Entrez vos identifiants pour recevoir votre code d'accès.
+                  {mode === "whatsapp"
+                    ? "Personnel du cabinet : entrez votre numéro WhatsApp et votre code PIN pour recevoir votre code d'accès par WhatsApp."
+                    : "Entrez vos identifiants pour recevoir votre code d'accès."}
                 </p>
               </div>
+              {/* Lot 16 : choix du mode de connexion */}
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-[#0F6B4A]/5 p-1" role="tablist" data-testid="login-mode">
+                <button type="button" role="tab" aria-selected={mode === "email"} onClick={() => changerMode("email")}
+                  className={`h-9 rounded-md text-sm flex items-center justify-center gap-1.5 ${mode === "email" ? "bg-white shadow text-[#0F6B4A] font-medium" : "text-muted-foreground"}`}
+                  data-testid="login-mode-email">
+                  <Mail className="w-4 h-4" /> Par e-mail
+                </button>
+                <button type="button" role="tab" aria-selected={mode === "whatsapp"} onClick={() => changerMode("whatsapp")}
+                  className={`h-9 rounded-md text-sm flex items-center justify-center gap-1.5 ${mode === "whatsapp" ? "bg-white shadow text-[#0F6B4A] font-medium" : "text-muted-foreground"}`}
+                  data-testid="login-mode-whatsapp">
+                  <MessageCircle className="w-4 h-4" /> Par WhatsApp
+                </button>
+              </div>
+              {mode === "whatsapp" ? (
+                <>
+                  <div>
+                    <Label htmlFor="numero-wa">Numéro WhatsApp</Label>
+                    <div className="relative mt-1.5">
+                      <Phone className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+                      <Input
+                        id="numero-wa"
+                        type="tel"
+                        autoComplete="tel"
+                        required
+                        value={numero}
+                        onChange={(e) => setNumero(e.target.value)}
+                        placeholder="+226 70 00 00 00"
+                        className="pl-9 h-11"
+                        data-testid="login-wa-numero"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="pin-wa">Code PIN (4 chiffres)</Label>
+                    <ChampSecret
+                      id="pin-wa"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      maxLength={4}
+                      required
+                      value={pin}
+                      onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="••••"
+                      visible={voirSecret}
+                      onToggle={() => setVoirSecret((v) => !v)}
+                      testId="login-wa-pin"
+                    />
+                    <p className="text-[11px] text-muted-foreground mt-1.5">
+                      Pas de code PIN ? Demandez-le à la Direction ou à l'Administrateur (menu Personnels).
+                    </p>
+                  </div>
+                </>
+              ) : (
+              <>
               <div>
                 <Label htmlFor="email">Email</Label>
                 <div className="relative mt-1.5">
@@ -180,21 +289,20 @@ export default function Login() {
               </div>
               <div>
                 <Label htmlFor="password">Mot de passe</Label>
-                <div className="relative mt-1.5">
-                  <Lock className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
-                  <Input
-                    id="password"
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="pl-9 h-11"
-                    data-testid="login-password-input"
-                  />
-                </div>
+                <ChampSecret
+                  id="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  visible={voirSecret}
+                  onToggle={() => setVoirSecret((v) => !v)}
+                  testId="login-password-input"
+                />
               </div>
+              </>
+              )}
               {captchaCfg.enabled && captchaCfg.site_key && (
                 <div ref={captchaRef} data-testid="recaptcha-widget" />
               )}
@@ -204,8 +312,10 @@ export default function Login() {
                 className="w-full h-11 bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"
                 data-testid="login-submit-btn"
               >
-                {loading ? "Envoi..." : "Recevoir mon code"}
-                <ArrowRight className="w-4 h-4 ml-2" />
+                {/* Jauge circulaire pendant l'attente */}
+                {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                {loading ? "Patientez…" : (mode === "whatsapp" ? "Recevoir mon code par WhatsApp" : "Recevoir mon code")}
+                {!loading && <ArrowRight className="w-4 h-4 ml-2" />}
               </Button>
               <div className="text-center text-sm text-muted-foreground">
                 <Link to="/" className="hover:text-[#0F6B4A]" data-testid="back-to-home">

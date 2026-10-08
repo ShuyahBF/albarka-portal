@@ -29,6 +29,8 @@ SECRET_KEY = os.environ["JWT_SECRET_KEY"]
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 jours
 OTP_EXPIRE_MINUTES = 10
+# Lot 16 : un code de connexion saisi faux 5 fois est annulé (e-mail ou WhatsApp).
+OTP_ESSAIS_MAX = 5
 
 _security = HTTPBearer()
 
@@ -180,6 +182,15 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
     if datetime.fromisoformat(otp["expires_at"]) < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Code expiré")
     if otp["code"] != payload.code.strip():
+        # Lot 16 : après 5 codes faux, ce code est annulé (il faut recommencer
+        # la connexion) — protège le code à 6 chiffres contre les essais au hasard.
+        essais = int(otp.get("essais") or 0) + 1
+        maj = {"essais": essais}
+        if essais >= OTP_ESSAIS_MAX:
+            maj.update({"used": True, "annule": True})
+        await db.otps.update_one({"id": otp["id"]}, {"$set": maj})
+        if essais >= OTP_ESSAIS_MAX:
+            raise HTTPException(status_code=400, detail="Trop de codes incorrects. Recommencez la connexion.")
         raise HTTPException(status_code=400, detail="Code incorrect")
 
     await db.otps.update_one({"id": otp["id"]}, {"$set": {"used": True}})
