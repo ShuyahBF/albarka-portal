@@ -39,6 +39,18 @@ export function AuthProvider({ children }) {
     return data; // { session_token, dev_otp, message }
   };
 
+  // Lot 16 — connexion du personnel par WhatsApp : numéro + code PIN à 4 chiffres.
+  // Le serveur envoie alors un code à 6 chiffres par WhatsApp ; la suite est
+  // identique à la connexion par e-mail (loginVerify avec le session_token).
+  const loginWhatsappStart = async (numero, pin, captchaToken) => {
+    const { data } = await apiClient.post("/auth/login-whatsapp", {
+      numero,
+      pin,
+      captcha_token: captchaToken || null,
+    });
+    return data; // { session_token, message } (jamais de dev_otp)
+  };
+
   const loginVerify = async (session_token, code, access_code = null) => {
     // Liste blanche du personnel : appareil + code d'accès temporaire éventuel
     const { data } = await apiClient.post("/auth/verify-otp", {
@@ -66,7 +78,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, loginStart, loginVerify, logout, refresh: fetchMe, isStaff, isClient, isSupervisor, isAdmin }}
+      value={{ user, loading, loginStart, loginWhatsappStart, loginVerify, logout, refresh: fetchMe, isStaff, isClient, isSupervisor, isAdmin }}
     >
       {children}
     </AuthContext.Provider>

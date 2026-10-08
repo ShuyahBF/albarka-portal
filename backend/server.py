@@ -92,6 +92,11 @@ async def _remember_client_ip(request, call_next):
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
+# Lot 16 : connexion du personnel par WhatsApp (numéro + PIN, puis code OTP)
+# et gestion des codes PIN dans « Personnels » (voir albarka_connexion_whatsapp.py)
+from albarka_connexion_whatsapp import auth_router as connexion_wa_router, router as staff_pin_router  # noqa: E402
+api_router.include_router(connexion_wa_router)
+api_router.include_router(staff_pin_router)
 api_router.include_router(admin_settings_router)
 api_router.include_router(branding_router)
 api_router.include_router(signing_router)
