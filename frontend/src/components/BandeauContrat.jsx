@@ -25,9 +25,9 @@ export default function BandeauContrat() {
   };
   return (
     <div role="alert" data-testid={`bandeau-contrat-${bandeau.couleur}`}
-      className={`flex w-full items-center justify-center gap-3 px-5 py-3 text-center text-sm md:text-base font-semibold shadow-sm ${couleurs[bandeau.couleur] || couleurs.orange}`}>
-      {/* Lot 22.1 : bandeau en travers de toute la zone de droite, en haut de l'en-tête fixe */}
-      <AlertTriangle className="h-5 w-5 shrink-0" />
+      className={`flex w-full items-center justify-center gap-2 px-5 py-2 text-center text-sm font-normal shadow-sm ${couleurs[bandeau.couleur] || couleurs.orange}`}>
+      {/* Lot 22.1 : bandeau en travers de toute la zone de droite ; lot 22.4 : police = celle des options du menu (text-sm) */}
+      <AlertTriangle className="h-4 w-4 shrink-0" />
       <span>{bandeau.message}</span>
     </div>
   );
