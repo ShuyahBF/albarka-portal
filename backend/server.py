@@ -92,6 +92,24 @@ async def _remember_client_ip(request, call_next):
     set_request_info(ip, request.headers.get("user-agent") or "")
     return await call_next(request)
 
+@app.middleware("http")
+async def _services_suspendus(request, call_next):
+    """Lot 22 : services cochés dans SAWALI, suspendus quand le contrat est échu → réponse 423 avec un message clair.
+    Retient aussi le chemin de la requête (les codes de connexion restent toujours envoyés)."""
+    from albarka_suspension import message_suspension, noter_chemin, service_du_chemin, suspendus_actuels
+    chemin = request.url.path
+    noter_chemin(chemin)
+    if chemin.startswith("/api/") and request.method != "OPTIONS":
+        try:
+            code = service_du_chemin(chemin, await suspendus_actuels())
+        except Exception:  # noqa: BLE001 — en cas de doute, on ne bloque pas
+            code = None
+        if code:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=423, content={"detail": message_suspension(code), "service_suspendu": code})
+    return await call_next(request)
+
+
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
 # Lot 16 : connexion du personnel par WhatsApp (numéro + PIN, puis code OTP)

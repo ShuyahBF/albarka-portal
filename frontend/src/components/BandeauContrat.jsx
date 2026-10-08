@@ -1,6 +1,8 @@
 // BandeauContrat.jsx — Lot 21 : bandeau du CONTRAT SAWALI en haut des pages du cabinet, pour le DG.
 // Orange autour de l'échéance (de J-5 à J+4), rouge au-delà (J+5) : « renouvelez, sinon certains services pourraient
 // être suspendus ». Le serveur décide de l'affichage (rôle DG, état du contrat lu dans SAWALI) ; relu toutes les 30 min.
+// Lot 22 : seulement à ± 5 jours de l'échéance — orange de J-5 au jour J, rouge de J+1 à J+5 (avec les services qui
+// seront suspendus et la date) ; en dehors de cette fenêtre, aucun bandeau.
 import React, { useEffect, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import { apiClient } from "@/lib/api";

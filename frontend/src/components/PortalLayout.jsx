@@ -149,6 +149,15 @@ const STAFF_MENU = [
 // Doit rester identique à ADMIN_ACCOUNT_EMAIL côté backend (albarka_models.py)
 const ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com";
 
+// Lot 22 : lien du menu → code du service qui peut être suspendu (contrat SAWALI échu, services cochés dans SAWALI).
+// Le lien reste visible mais grisé ; le serveur répond de toute façon « Service suspendu… » (423).
+const SERVICE_DU_LIEN = {
+  "/admin/rapports": "cr", "/admin/rapports/bulk": "cr", "/admin/whatsapp": "conversations_wa",
+  "/admin/modeles": "modeles", "/admin/paie": "paie", "/admin/forms": "formulaires",
+  "/admin/espace-client": "espace_client", "/admin/comptabilite": "compta",
+  "/portal/formulaires": "formulaires", "/portal/documents-cabinet": "espace_client",
+};
+
 function allowedFor(link, roles, email = "") {
   // Réservé au compte admin du portail, quel que soit le rôle
   if (link.superAdminOnly) return (email || "").toLowerCase() === ADMIN_ACCOUNT_EMAIL;
@@ -167,6 +176,14 @@ export default function PortalLayout({ admin = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const roles = user?.roles || [];
+  // Lot 22 : services suspendus en ce moment ({code: libellé}), pour griser les liens concernés
+  const [suspendus, setSuspendus] = useState({});
+  useEffect(() => {
+    if (!user) return;
+    apiClient.get("/services-suspendus")
+      .then(({ data }) => setSuspendus(Object.fromEntries((data.services || []).map((s) => [s.code, s.libelle]))))
+      .catch(() => {});
+  }, [user]);
   // Adresse désignée par admin pour créer des accès temporaires : elle voit
   // « Personnels » (où se trouve le bouton), même sans le rôle Direction.
   const [canIssueTokens, setCanIssueTokens] = useState(false);
@@ -311,12 +328,15 @@ export default function PortalLayout({ admin = false }) {
                 </div>
               );
             }
+            // Lot 22 : lien grisé si son service est suspendu
+            const suspendu = suspendus[SERVICE_DU_LIEN[link.to]];
             return (
             <NavLink
               key={link.to}
               to={link.to}
               end={link.end}
-              className={({ isActive }) => `albarka-sidebar-link ${isActive ? "active" : ""}`}
+              title={suspendu ? `Service suspendu (contrat SAWALI échu) : ${suspendu}` : undefined}
+              className={({ isActive }) => `albarka-sidebar-link ${isActive ? "active" : ""} ${suspendu ? "opacity-50" : ""}`}
               onClick={() => {
                 setOpenSidebar(false);
                 if (link.badgeKey === "diffusion_new") markSeen("diffusion");
@@ -325,6 +345,7 @@ export default function PortalLayout({ admin = false }) {
             >
               <link.icon className="w-4 h-4" />
               <span className="flex-1">{link.label}</span>
+              {suspendu && <span className="text-[10px]" aria-label="suspendu">⛔</span>}
               {!!count && (
                 <span
                   className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-semibold flex items-center justify-center"

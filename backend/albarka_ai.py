@@ -52,7 +52,12 @@ async def analyze_document(
 ) -> Dict[str, Any]:
     """Même signature qu'au lot 1 ; ne lève jamais — retourne toujours un dict.
 
-    Sans `model_id` (appel de albarka_myaccount.py), le modèle par défaut est utilisé."""
+    Sans `model_id` (appel de albarka_myaccount.py), le modèle par défaut est utilisé.
+    Lot 22 : service « ia » suspendu (contrat SAWALI échu) → erreur claire, aucun appel à l'IA (la pièce reste déposée)."""
+    from albarka_suspension import message_suspension, suspendus_actuels
+    if "ia" in await suspendus_actuels():
+        return {"error": message_suspension("ia"), "summary": None, "flags": [], "cost_usd": 0.0, "cost_xof": 0.0,
+                "pages_analyzed": 0, "duration_ms": 0}
     return await ocr_core.analyze_document(
         data, content_type, filename, model_id,
         system_prompt=SYSTEM_PROMPT, default_model=DEFAULT_MODEL_ID,

@@ -12,6 +12,9 @@ En résumé (pour un développeur WinDev) :
     rester affichable si SAWALI est momentanément injoignable ;
   - GET /api/contrat-plateforme : le bandeau à afficher — seulement pour le DG (et le Superviseur, pour vérifier) ;
     orange de J-5 à J+4 autour de l'échéance, rouge à partir de J+5 (délais réglés dans SAWALI).
+  - Lot 22 (08/10/2026) : « Le bandeau ne s'affiche qu'à ± 5 jours de la date d'expiration ; en dehors, pas de
+    bandeau » → orange de J-5 au jour J, rouge de J+1 à J+5 (avec la liste des services qui seront suspendus et la
+    date), puis plus rien : les services cochés dans SAWALI sont alors suspendus (albarka_suspension.py).
 """
 from __future__ import annotations
 
@@ -56,11 +59,12 @@ def _argent(v: Any, devise: str) -> str:
 
 def bandeau(etat_contrat: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Logique pure (testée) : bandeau à afficher d'après la réponse de SAWALI.
-    {visible, couleur ("orange" | "rouge"), message}."""
+    {visible, couleur ("orange" | "rouge"), message}.
+    Lot 22 : visible SEULEMENT dans la fenêtre ± N jours de l'échéance (niveaux « bientot » et « expire »)."""
     c = etat_contrat or {}
     etat = c.get("etat") or {}
     couleur = etat.get("couleur")
-    if couleur not in ("orange", "rouge"):
+    if couleur not in ("orange", "rouge") or etat.get("niveau") not in ("bientot", "expire"):
         return {"visible": False, "couleur": None, "message": ""}
     numero = f" n° {c['numero']}" if c.get("numero") else ""
     jours = etat.get("jours_restants")
@@ -69,13 +73,19 @@ def bandeau(etat_contrat: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         quand = "aujourd'hui" if jours == 0 else f"dans {jours} jour{'s' if jours and jours > 1 else ''}"
         message = (f"Votre contrat SAWALI{numero} arrive à échéance le {_date_fr(c.get('fin'))} ({quand}). "
                    f"Pensez à son renouvellement.{du}")
-    elif couleur == "orange":
-        message = (f"Votre contrat SAWALI{numero} est arrivé à échéance le {_date_fr(c.get('fin'))}. "
-                   f"Merci de procéder à son renouvellement.{du}")
     else:
         retard = -(jours or 0)
-        message = (f"Votre contrat SAWALI{numero} est échu depuis {retard} jours (le {_date_fr(c.get('fin'))}). "
-                   f"Renouvelez-le, sinon certains services pourraient être suspendus.{du}")
+        # Lot 22 : services cochés dans SAWALI, annoncés avec leur date de suspension
+        from albarka_suspension import libelle
+        noms = {s.get("code"): s.get("libelle") for s in (c.get("services_catalogue") or []) if isinstance(s, dict)}
+        services = [noms.get(code) or libelle(code) for code in (c.get("services_a_suspendre") or [])]
+        if services and c.get("suspension_le"):
+            suite = (f"Sans renouvellement, ces services seront suspendus le {_date_fr(c.get('suspension_le'))} : "
+                     f"{', '.join(services)}.")
+        else:
+            suite = "Renouvelez-le, sinon certains services pourraient être suspendus."
+        message = (f"Votre contrat SAWALI{numero} est échu depuis {retard} jour{'s' if retard > 1 else ''} "
+                   f"(le {_date_fr(c.get('fin'))}). {suite}{du}")
     return {"visible": True, "couleur": couleur, "message": message}
 
 
@@ -112,8 +122,17 @@ async def lire_etat(force: bool = False) -> Optional[Dict[str, Any]]:
 
 @router.get("/contrat-plateforme")
 async def contrat_plateforme(user: dict = Depends(get_current_user)):
-    """Bandeau du contrat pour le DG (orange autour de l'échéance, rouge au-delà) ; invisible pour les autres."""
+    """Bandeau du contrat pour le DG (orange avant l'échéance, rouge juste après, rien ensuite) ; invisible pour les
+    autres."""
     if not (set(user.get("roles") or []) & ROLES_BANDEAU):
         return {"visible": False, "couleur": None, "message": ""}
     etat = await lire_etat()
     return {**bandeau(etat), "fin": (etat or {}).get("fin"), "numero": (etat or {}).get("numero")}
+
+
+@router.get("/services-suspendus")
+async def services_suspendus(user: dict = Depends(get_current_user)):
+    """Lot 22 : services suspendus en ce moment (pour griser les menus) — tout utilisateur connecté."""
+    from albarka_suspension import libelle, suspendus_actuels
+    codes = await suspendus_actuels()
+    return {"services": [{"code": c, "libelle": libelle(c)} for c in codes]}
