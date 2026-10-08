@@ -30,6 +30,7 @@ from albarka_missions import router as missions_router  # noqa: E402
 from albarka_badges import router as badges_router  # noqa: E402
 from albarka_billing_docs import router as billing_docs_router  # noqa: E402
 from albarka_numero_manuel import router as numero_manuel_router  # noqa: E402  (lot 17 : numéro manuel des factures)
+from albarka_contrat_plateforme import router as contrat_plateforme_router  # noqa: E402  (lot 21 : contrat SAWALI)
 from albarka_settings_tests import router as settings_tests_router  # noqa: E402
 from albarka_myaccount import router as myaccount_router  # noqa: E402
 from albarka_ohada import router as ohada_router  # noqa: E402
@@ -124,6 +125,7 @@ api_router.include_router(chat_router)
 api_router.include_router(billing_router)
 api_router.include_router(billing_docs_router)
 api_router.include_router(numero_manuel_router)   # lot 17
+api_router.include_router(contrat_plateforme_router)   # lot 21 : bandeau du contrat pour le DG
 api_router.include_router(settings_tests_router)
 api_router.include_router(badges_router)
 api_router.include_router(hr_router)

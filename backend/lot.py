@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "20"
-LOT_LIBELLE = "Factures par WhatsApp universel (numéros au format +226) et envois de test du super-admin"
+LOT = "21"
+LOT_LIBELLE = "Contrat SAWALI : bandeau orange puis rouge pour le DG à l’approche et après l’échéance"
