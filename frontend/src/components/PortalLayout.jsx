@@ -44,6 +44,8 @@ import PaymentBubble from "@/components/PaymentBubble";
 import { usePresenceHeartbeat, sendOffline } from "@/components/Presence";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
 import SidebarInfoBar from "@/components/SidebarInfoBar";
+import { ChevronDown, Layers, Landmark, Calculator, UsersRound } from "lucide-react";   // lot 18 : menu « Traitements »
+import { TRAITEMENTS } from "@/lib/traitements";
 
 // Actualisation des badges non-lus (WhatsApp/Diffusion) par polling — pas de
 // WebSocket/SSE dans l'application, même convention que ChatBubble.jsx.
@@ -94,6 +96,9 @@ const STAFF_MENU = [
   // Lot 7 : ordres / avis de mission, courriers… rédigés comme dans Word, modèles à variables
   { to: "/admin/modeles", label: "Documents & modèles", icon: FilePen,
     roles: ["superviseur", "direction", "administrateur", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
+  // Lot 18 : menu dépliable « Traitements » (Fiscal, Comptable, RH) — chaque collaborateur voit les sous-menus de son rôle
+  ...TRAITEMENTS.map((t) => ({ to: `/admin/traitements/${t.cle}`, label: t.label, roles: t.roles, groupe: "traitements",
+    icon: { fiscal: Landmark, comptable: Calculator, rh: UsersRound }[t.cle] })),
   { to: "/admin/echeances", label: "Échéances fiscales", icon: Scale,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable"] },
   { to: "/admin/paie", label: "Paie & RH", icon: Wallet,
@@ -218,6 +223,16 @@ export default function PortalLayout({ admin = false }) {
     return () => document.body.classList.remove("portal-ui");
   }, []);
 
+  // Lot 18 — groupe dépliable « Traitements » (comme les menus dépliables de SAWALI) : ouvert d'office quand la page
+  // affichée en fait partie, sinon il garde le dernier choix (navigateur)
+  const [traitementsOuvert, setTraitementsOuvert] = useState(() => {
+    try { return localStorage.getItem("albarka.menu.traitements") === "1"; } catch { return false; }
+  });
+  const basculerTraitements = () => setTraitementsOuvert((avant) => {
+    try { localStorage.setItem("albarka.menu.traitements", avant ? "0" : "1"); } catch { /* ignore */ }
+    return !avant;
+  });
+
   const handleLogout = async () => {
     await sendOffline(); // hors ligne tout de suite, avant de perdre le jeton
     logout();
@@ -262,8 +277,39 @@ export default function PortalLayout({ admin = false }) {
             les derniers liens (ex. "Paramètres") par ce bloc, qui était
             positionné en `absolute` par-dessus le menu. */}
         <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
-          {links.map((link) => {
+          {links.map((link, index) => {
             const count = link.badgeKey ? badges[link.badgeKey] : 0;
+            // Lot 18 : les liens du groupe « Traitements » sont dessinés sous un seul titre dépliable,
+            // à la place du premier d'entre eux (les suivants sont sautés ici)
+            if (link.groupe === "traitements") {
+              if (links.findIndex((l) => l.groupe === "traitements") !== index) return null;
+              const enfants = links.filter((l) => l.groupe === "traitements");
+              const actif = enfants.some((e) => location.pathname.startsWith(e.to));
+              const ouvert = traitementsOuvert || actif;
+              return (
+                <div key="groupe-traitements" data-testid="sidebar-groupe-traitements">
+                  <button type="button" onClick={basculerTraitements} aria-expanded={ouvert}
+                    className={`albarka-sidebar-link w-full ${actif && !ouvert ? "active" : ""}`}
+                    title={ouvert ? "Replier le menu Traitements" : "Déplier le menu Traitements"}>
+                    <Layers className="w-4 h-4" />
+                    <span className="flex-1 text-left">Traitements</span>
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${ouvert ? "rotate-180" : ""}`} />
+                  </button>
+                  {ouvert && (
+                    <div className="ml-3 mt-1 space-y-1 border-l border-white/10 pl-2">
+                      {enfants.map((e) => (
+                        <NavLink key={e.to} to={e.to} onClick={() => setOpenSidebar(false)}
+                          className={({ isActive }) => `albarka-sidebar-link ${isActive ? "active" : ""}`}
+                          data-testid={`sidebar-link-traitement-${e.to.split("/").pop()}`}>
+                          <e.icon className="w-4 h-4" />
+                          <span className="flex-1">{e.label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            }
             return (
             <NavLink
               key={link.to}

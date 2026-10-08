@@ -148,4 +148,4 @@ def test_impression_avec_le_numero_manuel():
 
 def test_numero_de_lot():
     import lot
-    assert lot.LOT == "17"
+    assert float(lot.LOT.split(".")[0]) >= 17   # lots suivants : un numéro par déploiement

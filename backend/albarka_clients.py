@@ -52,12 +52,14 @@ class ClientCreate(BaseModel):
 
 
 class StaffCreate(BaseModel):
-    email: EmailStr
+    # Lot 18 : e-mail FACULTATIF si le numéro WhatsApp (téléphone) est renseigné — le collaborateur se connecte alors
+    # par WhatsApp + code PIN (lot 16). Le mot de passe n'est demandé qu'avec un e-mail (connexion e-mail + code).
+    email: Optional[EmailStr] = None
     full_name: str = Field(..., min_length=1, max_length=200)
     roles: List[str] = Field(..., min_length=1)
     company: Optional[str] = None
     phone: Optional[str] = None
-    password: str = Field(..., min_length=8)
+    password: Optional[str] = Field(None, max_length=200)
     can_receive_notifications: bool = True
 
     @field_validator("roles")
@@ -96,8 +98,28 @@ class UserUpdate(BaseModel):
         return v
 
 
+# Lot 18 — collaborateur SANS e-mail (WhatsApp seulement) : une adresse TECHNIQUE, jamais utilisée pour écrire, garde
+# l'unicité de la base (index unique sur « email ») et le code existant qui lit user["email"]. Le domaine « .invalid »
+# est réservé (RFC 2606) : aucun message ne peut y partir, et send_email() l'écarte de toute façon.
+DOMAINE_SANS_EMAIL = "sans-email.invalid"
+
+
+def email_technique(numero_international: str) -> str:
+    """Adresse technique d'un collaborateur sans e-mail : « wa-22670112233@sans-email.invalid »."""
+    return f"wa-{numero_international.lstrip('+')}@{DOMAINE_SANS_EMAIL}"
+
+
+def est_email_technique(email: Optional[str]) -> bool:
+    """Vrai pour une adresse technique (collaborateur créé sans e-mail)."""
+    return (email or "").lower().endswith("@" + DOMAINE_SANS_EMAIL)
+
+
 def _public(user: dict) -> dict:
     user.pop("password_hash", None)
+    # Lot 18 : l'adresse technique n'est jamais affichée (champ vide + indicateur « sans e-mail »)
+    if est_email_technique(user.get("email")):
+        user["email"] = ""
+        user["sans_email"] = True
     return serialize(user)
 
 
@@ -116,6 +138,10 @@ async def list_staff(user: dict = Depends(require_staff())):
     docs = await db.users.find(
         {"roles": {"$nin": ["client"]}, **hide_test_accounts_filter(user)}, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
+    # Lot 18 : adresse technique des collaborateurs sans e-mail masquée (champ vide + « sans_email »)
+    for d in docs:
+        if est_email_technique(d.get("email")):
+            d["email"], d["sans_email"] = "", True
     return serialize_many(docs)
 
 
@@ -167,13 +193,27 @@ async def create_staff(payload: StaffCreate, user: dict = Depends(require_roles(
             status_code=403,
             detail="Seul un Administrateur ou le Superviseur peut créer un Administrateur",
         )
-    existing = await db.users.find_one({"email": payload.email.lower()})
+    # Lot 18 : e-mail OU numéro WhatsApp obligatoire ; sans e-mail, adresse technique et mot de passe aléatoire
+    from albarka_connexion_whatsapp import numero_international
+    numero = numero_international(payload.phone)
+    if payload.email:
+        email = payload.email.lower()
+        if not payload.password or len(payload.password) < 8:
+            raise HTTPException(status_code=422, detail="Mot de passe de 8 caractères au moins (connexion par e-mail)")
+        mot_de_passe = payload.password
+    elif numero:
+        email = email_technique(numero)
+        mot_de_passe = secrets.token_urlsafe(24)   # jamais communiqué : connexion par WhatsApp + code PIN
+    else:
+        raise HTTPException(status_code=422, detail="Renseignez l'e-mail ou le numéro WhatsApp (téléphone) du collaborateur")
+    existing = await db.users.find_one({"email": email})
     if existing:
-        raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà")
+        raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà" if payload.email
+                            else "Un collaborateur sans e-mail utilise déjà ce numéro WhatsApp")
     user_doc = {
         "id": secrets.token_urlsafe(12),
-        "email": payload.email.lower(),
-        "password_hash": hash_password(payload.password),
+        "email": email,
+        "password_hash": hash_password(mot_de_passe),
         "full_name": payload.full_name,
         "roles": payload.roles,
         "company": payload.company,
