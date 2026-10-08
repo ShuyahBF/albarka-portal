@@ -148,7 +148,8 @@ def test_pin_exige_un_numero_whatsapp(env):
 
 def test_pin_refuse_superviseur_client_et_inconnu(env):
     assert env.c.post("/api/staff-pin/u-sup", json={}, headers=_h("dg")).status_code == 400
-    assert env.c.post("/api/staff-pin/c1", json={}, headers=_h("dg")).status_code == 400
+    # Lot 19 : les clients ont désormais droit à un PIN (voir test_lot19_clients_whatsapp.py)
+    assert env.c.post("/api/staff-pin/c1", json={}, headers=_h("dg")).status_code == 200
     assert env.c.post("/api/staff-pin/inconnu", json={}, headers=_h("dg")).status_code == 404
 
 

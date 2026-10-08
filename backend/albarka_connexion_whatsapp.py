@@ -26,6 +26,9 @@ Protections :
     portail (super-administrateurs : connexion par e-mail uniquement) ;
   - le code OTP n'est JAMAIS renvoyé au navigateur (pas de « dev_otp » ici).
 
+Lot 19 (08/10/2026, « oui étends la connexion WhatsApp aux clients ») : les CLIENTS aussi peuvent recevoir un PIN
+(généré depuis « Clients » par la Direction, le DG, l'Administrateur ou le secrétariat) et se connecter par WhatsApp.
+
 Aucune variable d'environnement nouvelle : l'envoi réutilise
 albarka_transmission_wa.envoyer_whatsapp (paramètres WABA de la page
 Paramètres, ou LILUVINE_WA_URL / LILUVINE_WA_HMAC déjà en place).
@@ -49,6 +52,7 @@ from albarka_auth import (
     verify_password,
 )
 from albarka_models import (
+    CLIENT_MANAGE_ROLES,
     STAFF_MANAGE_ROLES,
     LoginResponse,
     is_admin_account,
@@ -71,6 +75,9 @@ ESSAIS_PIN_MAX = 5
 FENETRE_ESSAIS_PIN_MINUTES = 15
 # Indicatif ajouté à un numéro local à 8 chiffres (Burkina Faso).
 INDICATIF_PAR_DEFAUT = "226"
+
+# Lot 19 : rôles qui peuvent ouvrir la gestion des PIN (le contrôle fin par compte est fait dans _peut_gerer)
+_GESTION_PIN_ROLES = sorted(set(STAFF_MANAGE_ROLES) | set(CLIENT_MANAGE_ROLES))
 
 # Routeurs : la connexion (publique) sous /auth, la gestion des PIN sous /staff-pin.
 auth_router = APIRouter(prefix="/auth", tags=["Authentification"])
@@ -119,13 +126,14 @@ def numero_du_compte(user: dict) -> str:
 
 def motif_exclusion(user: Optional[dict]) -> Optional[str]:
     """Raison pour laquelle ce compte ne peut PAS se connecter par WhatsApp,
-    ou None s'il le peut. Exclus : compte inexistant, client, compte
-    désactivé, Superviseur et compte admin du portail (super-administrateurs)."""
+    ou None s'il le peut. Exclus : compte inexistant ou sans rôle, compte
+    désactivé, Superviseur et compte admin du portail (super-administrateurs).
+    Lot 19 : les clients sont désormais acceptés."""
     if not user:
         return "Compte introuvable"
     roles = set(user.get("roles") or [])
-    if not roles or roles == {"client"} or "client" in roles:
-        return "La connexion par WhatsApp est réservée au personnel du cabinet"
+    if not roles:
+        return "Compte sans rôle"
     if "superviseur" in roles or is_admin_account(user):
         return "Les comptes Superviseur et le compte admin du portail se connectent uniquement par e-mail"
     if not user.get("is_active", True):
@@ -150,8 +158,13 @@ async def _journal(acteur: dict, action: str, cible: Optional[str], meta: dict) 
 def _peut_gerer(acteur: dict, cible: dict) -> None:
     """Contrôle des droits sur la cible (lève 403/400 sinon) : un
     Administrateur ne peut être géré que par un Administrateur, le Superviseur
-    ou le compte admin (même règle que la fiche du personnel)."""
+    ou le compte admin (même règle que la fiche du personnel).
+    Lot 19 : le PIN d'un CLIENT est géré par les rôles qui gèrent les clients ; celui d'un collaborateur par les
+    gestionnaires du personnel (un secrétariat ne touche donc pas au PIN d'un collaborateur)."""
     roles_acteur = set(acteur.get("roles") or [])
+    autorises = CLIENT_MANAGE_ROLES if "client" in (cible.get("roles") or []) else STAFF_MANAGE_ROLES
+    if "superviseur" not in roles_acteur and not (roles_acteur & set(autorises)):
+        raise HTTPException(status_code=403, detail="Permission refusée")
     acteur_admin = bool(roles_acteur & {"administrateur", "superviseur"}) or is_admin_account(acteur)
     if "administrateur" in (cible.get("roles") or []) and not acteur_admin:
         raise HTTPException(status_code=403, detail="Seul un Administrateur ou le Superviseur peut gérer le PIN d'un Administrateur")
@@ -169,7 +182,7 @@ class DemandePin(BaseModel):
 
 
 @router.get("")
-async def lister_pins(user: dict = Depends(require_roles(STAFF_MANAGE_ROLES))):
+async def lister_pins(user: dict = Depends(require_roles(_GESTION_PIN_ROLES))):
     """Comptes du personnel qui ont un PIN (identifiant et date uniquement —
     jamais le hachage). Sert à afficher « PIN actif » dans Personnels."""
     docs = await db.pins_whatsapp.find({}, {"_id": 0, "user_id": 1, "defini_le": 1, "defini_par_nom": 1}).to_list(5000)
@@ -178,7 +191,7 @@ async def lister_pins(user: dict = Depends(require_roles(STAFF_MANAGE_ROLES))):
 
 @router.post("/{user_id}")
 async def generer_pin_personnel(user_id: str, demande: Optional[DemandePin] = None,
-                                user: dict = Depends(require_roles(STAFF_MANAGE_ROLES))):
+                                user: dict = Depends(require_roles(_GESTION_PIN_ROLES))):
     """Génère (ou remplace) le code PIN à 4 chiffres d'un collaborateur.
 
     Le PIN est rendu EN CLAIR une seule fois, ici, pour être remis au
@@ -216,11 +229,11 @@ async def generer_pin_personnel(user_id: str, demande: Optional[DemandePin] = No
 
 
 @router.delete("/{user_id}")
-async def retirer_pin_personnel(user_id: str, user: dict = Depends(require_roles(STAFF_MANAGE_ROLES))):
+async def retirer_pin_personnel(user_id: str, user: dict = Depends(require_roles(_GESTION_PIN_ROLES))):
     """Retire le code PIN : le collaborateur ne peut plus se connecter par WhatsApp."""
     cible = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
-    # Retirer le PIN d'un Administrateur : réservé à un Administrateur / au Superviseur
-    if cible and "administrateur" in (cible.get("roles") or []):
+    # Droits sur la cible (Administrateur, client / collaborateur — lot 19)
+    if cible:
         _peut_gerer(user, cible)
     resultat = await db.pins_whatsapp.delete_one({"user_id": user_id})
     if resultat.deleted_count == 0:

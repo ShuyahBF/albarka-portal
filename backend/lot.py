@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "18"
-LOT_LIBELLE = "Menu « Traitements » (Fiscal, Comptable, RH) et collaborateurs sans e-mail (WhatsApp seulement)"
+LOT = "19"
+LOT_LIBELLE = "Clients : connexion par WhatsApp + code PIN et création sans e-mail"
