@@ -23,6 +23,7 @@ from albarka_auth import require_roles
 from albarka_models import CAISSE_PDF_ACTION_ROLES
 from albarka_storage import build_path, delete_object, get_object, put_object
 from db import db
+from albarka_numero_manuel import numero_imprime   # lot 17 : numéro imprimé (manuel ou plateforme)
 
 logger = logging.getLogger("albarka.billing_docs")
 
@@ -137,7 +138,7 @@ async def view_invoice_pdf(
         invoice = await ensure_invoice_pdf(invoice)
         data, _ct = await get_object(invoice["pdf_storage_path"])
     disposition = "attachment" if download else "inline"
-    filename = f"{invoice['document_type']}_{invoice['number']}.pdf"
+    filename = f"{invoice['document_type']}_{numero_imprime(invoice)}.pdf".replace("/", "-")   # lot 17
     return Response(
         content=data, media_type="application/pdf",
         headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
@@ -199,7 +200,7 @@ async def send_invoice_document(
         raise HTTPException(status_code=404, detail="Client introuvable")
     invoice = await ensure_invoice_pdf(invoice)
     data, _ct = await get_object(invoice["pdf_storage_path"])
-    filename = f"{invoice['document_type']}_{invoice['number']}.pdf"
+    filename = f"{invoice['document_type']}_{numero_imprime(invoice)}.pdf".replace("/", "-")   # lot 17
     label = _DOC_LABEL.get(invoice["document_type"], "document")
 
     if payload.channel == "email":
@@ -210,7 +211,7 @@ async def send_invoice_document(
         html = (
             f"<div style=\"font-family:Arial,sans-serif;color:#0F172A;padding:16px;\">"
             f"<p>Bonjour,</p><p>Veuillez trouver ci-joint votre {label} "
-            f"<strong>{invoice['number']}</strong> ({client_label}).</p></div>"
+            f"<strong>{numero_imprime(invoice)}</strong> ({client_label}).</p></div>"
         )
         attachment = {
             "filename": filename,
@@ -218,7 +219,7 @@ async def send_invoice_document(
             "content_type": "application/pdf",
         }
         message_id = await send_email(
-            to=[recipient], subject=f"{label.capitalize()} {invoice['number']}", html=html, attachments=[attachment],
+            to=[recipient], subject=f"{label.capitalize()} {numero_imprime(invoice)}", html=html, attachments=[attachment],
         )
         if not message_id:
             raise HTTPException(status_code=502, detail="Échec envoi email (proxy indisponible ou rejeté)")
@@ -237,7 +238,7 @@ async def send_invoice_document(
     # Universelle Liluvine avec le PDF joint ; repli Liluvine si le WABA échoue.
     result = await send_whatsapp_fichier(
         to_phone=phone, data=data, filename=filename, content_type="application/pdf",
-        caption=f"{label.capitalize()} {invoice['number']}",
+        caption=f"{label.capitalize()} {numero_imprime(invoice)}",
     )
     if not result.get("ok"):
         raise HTTPException(status_code=502, detail=f"Échec envoi WhatsApp : {result.get('error') or 'erreur inconnue'}")

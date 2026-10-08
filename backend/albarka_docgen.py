@@ -834,7 +834,9 @@ async def verify_document(token: str):
         client = await db.users.find_one({"id": inv.get("tenant_id")}, {"_id": 0, "company": 1, "full_name": 1}) or {}
         kyc = await db.client_kyc.find_one({"tenant_id": inv.get("tenant_id")}, {"_id": 0, "business_name": 1}) or {}
         return {"valid": True, "issuer": issuer, "kind": _KIND_LABELS.get(inv.get("document_type"), "Document"),
-                "number": inv.get("number"), "date": (inv.get("issue_date") or inv.get("created_at") or "")[:10],
+                # Lot 17 : numéro imprimé (manuel s'il existe) + numéro de la plateforme
+                "number": inv.get("manual_number") or inv.get("number"), "platform_number": inv.get("number"),
+                "date": (inv.get("issue_date") or inv.get("created_at") or "")[:10],
                 # Même nom que l'encadré « Facturer à » (raison sociale de la fiche KYC en priorité)
                 "client": kyc.get("business_name") or client.get("company") or client.get("full_name") or "—",
                 "amount": inv.get("net_to_pay", inv.get("total")), "currency": inv.get("currency") or "XOF",

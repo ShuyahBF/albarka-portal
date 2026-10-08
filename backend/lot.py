@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "16.1"
-LOT_LIBELLE = "Page de connexion : identifiants des comptes de démonstration retirés"
+LOT = "17"
+LOT_LIBELLE = "Factures : second numéro (manuel) saisi par le secrétariat, le DG ou la direction ; ouverture par le DG ; imprimé sur la facture"

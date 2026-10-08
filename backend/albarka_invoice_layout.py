@@ -22,6 +22,7 @@ reste dû, référence) sous la somme en lettres, si l'encaissement PI-SPI est
 actif — en plus du QR de vérification, jamais à sa place.
 """
 from __future__ import annotations
+from albarka_numero_manuel import numero_imprime   # lot 17 : numéro imprimé (manuel ou plateforme)
 
 import io
 from typing import Optional
@@ -171,13 +172,14 @@ def build_invoice_model_pdf(
 
     buf = io.BytesIO()
     pdf = SimpleDocTemplate(buf, pagesize=A4, leftMargin=left, rightMargin=right, topMargin=top, bottomMargin=bottom,
-                            title=f"{TITLES.get(doc_type, 'FACTURE')} {invoice.get('number', '')}")
+                            title=f"{TITLES.get(doc_type, 'FACTURE')} {numero_imprime(invoice)}")   # lot 17
     story = []
 
     # ---- 1. Bandeau du titre
     date_txt = (invoice.get("issue_date") or invoice.get("created_at") or "")[:10]
     date_fr = "/".join(reversed(date_txt.split("-"))) if date_txt else ""
-    band = Table([[Paragraph(f"{TITLES.get(doc_type, 'FACTURE')} N° {escape(str(invoice.get('number', '')))}", st["band"]),
+    # Lot 17 : numéro manuel s'il existe, sinon celui de la plateforme
+    band = Table([[Paragraph(f"{TITLES.get(doc_type, 'FACTURE')} N° {escape(numero_imprime(invoice))}", st["band"]),
                    Paragraph(f"Date : {date_fr}", st["band_r"])]],
                  colWidths=[content_w * 0.68, content_w * 0.32])
     band.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), BAND), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),

@@ -269,7 +269,8 @@ async def bloc_pispi_pour_document(invoice: dict) -> Optional[Dict[str, Any]]:
         "titulaire": p.get("titulaire") or "",
         "banque": libelle_banque(p),
         "montant": montant,
-        "reference": str(invoice.get("number") or ""),
+        # Lot 17 : référence = numéro IMPRIMÉ sur la facture (manuel s'il existe), celui que le payeur recopie
+        "reference": str(invoice.get("manual_number") or invoice.get("number") or ""),
         "consigne": (p.get("consigne") or "").strip() or CONSIGNE_DEFAUT,
     }
 

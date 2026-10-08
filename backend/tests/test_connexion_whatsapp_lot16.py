@@ -235,4 +235,5 @@ def test_saisie_invalide_refusee_sans_appel(env):
 
 def test_numero_de_lot():
     import lot
-    assert lot.LOT == "16" and "WhatsApp" in lot.LOT_LIBELLE
+    # Le lot 16 est en ligne ; les lots suivants changent le numéro (règle : un lot par déploiement)
+    assert float(lot.LOT.split(".")[0]) >= 16
