@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "22.2"
-LOT_LIBELLE = "Barre rouge chez le DG tant que des services sont suspendus (contrat SAWALI échu)"
+LOT = "22.3"
+LOT_LIBELLE = "Bandeau du contrat : rouge adouci de J+1 à J+5, rouge vif quand des services sont suspendus"

@@ -17,10 +17,15 @@ export default function BandeauContrat() {
     return () => { fini = true; clearInterval(minuterie); };
   }, []);
   if (!bandeau?.visible) return null;
-  const rouge = bandeau.couleur === "rouge";
+  // Barème (lot 22.3) : orange J-5..J ; rouge adouci J+1..J+5 ; rouge vif quand des services sont suspendus
+  const couleurs = {
+    orange: "bg-amber-400 text-[#3b2a00]",
+    rouge: "bg-red-200 text-red-900 border-b border-red-300",
+    rouge_vif: "bg-red-600 text-white",
+  };
   return (
     <div role="alert" data-testid={`bandeau-contrat-${bandeau.couleur}`}
-      className={`flex w-full items-center justify-center gap-3 px-5 py-3 text-center text-sm md:text-base font-semibold shadow-sm ${rouge ? "bg-red-600 text-white" : "bg-amber-400 text-[#3b2a00]"}`}>
+      className={`flex w-full items-center justify-center gap-3 px-5 py-3 text-center text-sm md:text-base font-semibold shadow-sm ${couleurs[bandeau.couleur] || couleurs.orange}`}>
       {/* Lot 22.1 : bandeau en travers de toute la zone de droite, en haut de l'en-tête fixe */}
       <AlertTriangle className="h-5 w-5 shrink-0" />
       <span>{bandeau.message}</span>

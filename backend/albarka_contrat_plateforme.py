@@ -73,7 +73,8 @@ def bandeau(etat_contrat: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         services = ", ".join(noms.get(code) or libelle(code) for code in c["services_suspendus"])
         numero = f" n° {c['numero']}" if c.get("numero") else ""
         depuis = f" depuis le {_date_fr(c.get('suspension_le'))}" if c.get("suspension_le") else ""
-        return {"visible": True, "couleur": "rouge", "message": (
+        # Lot 22.3 : « rouge_vif » (services suspendus) ≠ « rouge » adouci de J+1 à J+5
+        return {"visible": True, "couleur": "rouge_vif", "message": (
             f"Votre contrat SAWALI{numero} est échu (le {_date_fr(c.get('fin'))}). Services suspendus{depuis} : "
             f"{services}. Renouvelez le contrat pour les rétablir.{du_txt}")}
     if couleur not in ("orange", "rouge") or etat.get("niveau") not in ("bientot", "expire"):
