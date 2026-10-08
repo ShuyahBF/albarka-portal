@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import AdminTraitement from "@/pages/admin/AdminTraitement";   // lot 18 : menu « Traitements »
 import ProtectedRoute from "@/components/ProtectedRoute";
 import PortalLayout from "@/components/PortalLayout";
 
@@ -114,6 +115,7 @@ function App() {
             <Route path="documents" element={<AdminDocuments />} />
             <Route path="missions" element={<AdminMissions />} />
             <Route path="modeles" element={<AdminTemplates />} />
+            <Route path="traitements/:domaine" element={<AdminTraitement />} />   {/* lot 18 : Fiscal, Comptable, RH */}
             <Route path="echeances" element={<AdminEcheances />} />
             <Route path="rapports" element={<AdminReports />} />
             <Route path="rapports/bulk" element={<AdminBulkReports />} />

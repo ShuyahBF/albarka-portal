@@ -185,6 +185,8 @@ async def send_email(*, to, subject: str, html: str, reply_to: Optional[str] = N
     _assert_safe_email(subject, html)
     cfg = await _get_email_config()
     to_list = [to] if isinstance(to, str) else [t for t in to if t]
+    # Lot 18 : adresses techniques des collaborateurs sans e-mail (« …@sans-email.invalid ») jamais utilisées
+    to_list = [t for t in to_list if t and not str(t).lower().endswith("@sans-email.invalid")]
     if not to_list:
         return None
     if smtp_actif:

@@ -178,11 +178,18 @@ export default function AdminStaff() {
       return;
     }
     // Create mode
-    if (!form.email || !form.full_name || !form.password || form.roles.length === 0) {
-      toast.error("Champs requis manquants"); return;
+    // Lot 18 : e-mail OU téléphone WhatsApp ; mot de passe seulement avec un e-mail (sinon connexion WhatsApp + PIN)
+    if (!form.full_name || form.roles.length === 0) {
+      toast.error("Nom et au moins un rôle requis"); return;
+    }
+    if (!form.email && !form.phone) {
+      toast.error("Renseignez l'e-mail ou le téléphone WhatsApp du collaborateur"); return;
+    }
+    if (form.email && (form.password || "").length < 8) {
+      toast.error("Avec un e-mail, un mot de passe de 8 caractères au moins est requis"); return;
     }
     try {
-      await apiClient.post("/clients/staff", form);
+      await apiClient.post("/clients/staff", { ...form, email: form.email || null, password: form.email ? form.password : null });
       toast.success("Personnel créé");
       setOpen(false);
       setForm(emptyForm());
@@ -283,7 +290,8 @@ export default function AdminStaff() {
             </DialogHeader>
             <div className="space-y-3">
               <div>
-                <Label>Email {editing && <span className="text-[10px] text-muted-foreground">(non modifiable)</span>}</Label>
+                <Label>Email {editing ? <span className="text-[10px] text-muted-foreground">(non modifiable)</span>
+                  : <span className="text-[10px] text-muted-foreground">(facultatif si le téléphone WhatsApp est renseigné)</span>}</Label>
                 <Input
                   type="email"
                   value={form.email}
@@ -293,8 +301,11 @@ export default function AdminStaff() {
                 />
               </div>
               <div><Label>Nom complet</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="staff-name-input" /></div>
-              <div><Label>Téléphone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="staff-phone-input" /></div>
-              {!editing && (
+              <div><Label>Téléphone (WhatsApp)</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="staff-phone-input" />
+                {/* Lot 18 : sans e-mail, connexion par WhatsApp + code PIN (bouton « PIN » de la liste) */}
+                {!editing && !form.email && <p className="mt-1 text-[11px] text-muted-foreground">Sans e-mail, le collaborateur se connecte avec son numéro WhatsApp et un code PIN : générez-le ensuite avec le bouton « PIN ».</p>}
+              </div>
+              {!editing && form.email && (
                 <div><Label>Mot de passe</Label><div className="relative"><Input type={voirMdp ? "text" : "password"} className="pr-10" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="staff-password-input" /><BoutonOeil /></div></div>
               )}
               <div>
@@ -370,7 +381,7 @@ export default function AdminStaff() {
                   {/* Compte de test : visible du superviseur uniquement */}
                   {s.is_test_account && <span className="ml-2 albarka-chip text-[10px] bg-amber-100 text-amber-800" data-testid={`test-badge-${s.id}`}>TEST</span>}
                 </TableCell>
-                <TableCell className="text-sm">{s.email}</TableCell>
+                <TableCell className="text-sm">{s.sans_email ? <span className="text-xs text-muted-foreground">WhatsApp seulement</span> : s.email}</TableCell>
                 <TableCell className="text-xs">
                   <div className="flex flex-wrap gap-1">
                     {s.roles?.map((r) => (
