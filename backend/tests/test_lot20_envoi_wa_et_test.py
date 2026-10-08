@@ -108,4 +108,4 @@ def test_autre_utilisateur_non_concerne(base, liluvine, reseau):
 
 def test_numero_de_lot():
     import lot
-    assert lot.LOT == "20"
+    assert float(lot.LOT.split(".")[0]) >= 20   # lots suivants : un numéro par déploiement

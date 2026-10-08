@@ -44,6 +44,7 @@ import PaymentBubble from "@/components/PaymentBubble";
 import { usePresenceHeartbeat, sendOffline } from "@/components/Presence";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
 import SidebarInfoBar from "@/components/SidebarInfoBar";
+import BandeauContrat from "@/components/BandeauContrat";   // lot 21 : contrat SAWALI
 import { ChevronDown, Layers, Landmark, Calculator, UsersRound } from "lucide-react";   // lot 18 : menu « Traitements »
 import { TRAITEMENTS } from "@/lib/traitements";
 
@@ -418,6 +419,8 @@ export default function PortalLayout({ admin = false }) {
             </div>
           </div>
         </header>
+        {/* Lot 21 : contrat SAWALI — bandeau orange puis rouge pour le DG (le serveur décide de l'affichage) */}
+        {admin && <BandeauContrat />}
         <main className="flex-1 p-5 md:p-8 max-w-7xl w-full mx-auto">
           {/* Rien n'est affiché (ni chargé) pendant la redirection ci-dessus :
               le tableau de bord ne s'ouvre pas, même un instant. */}
