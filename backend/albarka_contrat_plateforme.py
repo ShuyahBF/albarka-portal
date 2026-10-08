@@ -112,7 +112,9 @@ async def lire_etat(force: bool = False) -> Optional[Dict[str, Any]]:
     if cfg:
         try:
             import httpx
-            corps = "{}"
+            # Lot 22.5 : le corps signé déclare à SAWALI les services qu'ALBARKA sait suspendre
+            from albarka_suspension import catalogue_a_declarer
+            corps = json.dumps({"services": catalogue_a_declarer()}, ensure_ascii=False)
             ts = str(int(time.time()))
             async with httpx.AsyncClient(timeout=10) as client:
                 r = await client.post(url_contrat(cfg["url"]), content=corps, headers={

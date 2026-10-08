@@ -57,6 +57,30 @@ def noter_chemin(chemin: str) -> None:
     _chemin.set(chemin or "")
 
 
+# Lot 22.5 : description de chaque service, envoyée à SAWALI avec le catalogue (affichée sous la case à cocher)
+DESCRIPTIONS = {
+    "wa": "Factures, documents, notifications et messages envoyés par WhatsApp (les codes de connexion restent envoyés)",
+    "email": "Envois d'e-mails aux clients et au personnel (les codes de connexion restent envoyés)",
+    "cr": "Génération, modèles et envoi des rapports clients",
+    "conversations_wa": "Centre de conversations (les messages reçus restent enregistrés)",
+    "ia": "Lecture automatique des pièces et relances d'analyse",
+    "espace_client": "Dépôts et consultation des documents de l'espace client",
+    "formulaires": "Formulaires en ligne, envois et réponses",
+    "pispi": "QR codes et réglages de paiement instantané",
+    "modeles": "Courriers, attestations et documents à variables",
+    "paie": "Bulletins, livre et tableau de paie",
+    "compta": "Plan comptable, journaux et états",
+    "chat": "Messagerie instantanée du personnel",
+    "push": "Notifications sur les navigateurs et téléphones",
+}
+
+
+def catalogue_a_declarer() -> list:
+    """Lot 22.5 : services qu'ALBARKA sait suspendre, déclarés à SAWALI à chaque lecture du contrat
+    (chaque plateforme a les siens : SAWALI n'affiche que ceux-là sur le contrat d'ALBARKA)."""
+    return [{"code": c, "libelle": v["libelle"], "description": DESCRIPTIONS.get(c, "")} for c, v in SERVICES.items()]
+
+
 def libelle(code: str) -> str:
     """Libellé lisible d'un code de service."""
     return (SERVICES.get(code) or {}).get("libelle") or code
