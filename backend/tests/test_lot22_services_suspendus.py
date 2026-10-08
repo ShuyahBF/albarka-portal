@@ -33,7 +33,10 @@ def _etat_en_cache(etat):
 
 
 def test_bandeau_seulement_autour_de_l_echeance():
-    assert cp.bandeau(ECHU)["visible"] is False                       # au-delà de J+5 : plus de bandeau
+    # Lot 22.2 : contrat échu AVEC services suspendus → barre rouge permanente qui les nomme
+    suspendu = cp.bandeau(ECHU)
+    assert suspendu["visible"] and suspendu["couleur"] == "rouge" and "Services suspendus depuis le 21/10/2027" in suspendu["message"]
+    assert cp.bandeau({**ECHU, "services_suspendus": []})["visible"] is False   # échu sans service coché : rien
     assert cp.bandeau({"etat": {"niveau": "ok", "couleur": None}})["visible"] is False
     rouge = cp.bandeau({**ECHU, "etat": {"niveau": "expire", "couleur": "rouge", "jours_restants": -2},
                         "services_catalogue": [{"code": "cr", "libelle": "Comptes rendus"}]})
