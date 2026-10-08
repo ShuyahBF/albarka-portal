@@ -8,7 +8,7 @@ En résumé (pour un développeur WinDev) :
   - ALBARKA demande l'état de SON contrat à SAWALI : POST <SAWALI>/api/webhook/plateforme-contrat, signé avec la clé
     de la transmission WhatsApp universelle (LILUVINE_WA_HMAC, LILUVINE_WA_EMETTEUR) : aucune nouvelle variable ;
     l'adresse est déduite de LILUVINE_WA_URL ;
-  - la réponse est gardée 30 minutes en mémoire et recopiée en base (db.settings {_id: "contrat_plateforme"}) pour
+  - la réponse est gardée 5 minutes en mémoire (30 avant le lot 22.1) et recopiée en base (db.settings {_id: "contrat_plateforme"}) pour
     rester affichable si SAWALI est momentanément injoignable ;
   - GET /api/contrat-plateforme : le bandeau à afficher — seulement pour le DG (et le Superviseur, pour vérifier) ;
     orange de J-5 à J+4 autour de l'échéance, rouge à partir de J+5 (délais réglés dans SAWALI).
@@ -31,7 +31,7 @@ from db import db
 
 logger = logging.getLogger("albarka.contrat_plateforme")
 
-DUREE_CACHE_S = 30 * 60
+DUREE_CACHE_S = 5 * 60   # lot 22.1 : 5 min (au lieu de 30) — un changement fait dans SAWALI arrive vite chez le DG
 ROLES_BANDEAU = {"dg", "superviseur"}
 _cache: Dict[str, Any] = {"le": 0.0, "etat": None}
 
