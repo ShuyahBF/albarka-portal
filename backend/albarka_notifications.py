@@ -19,7 +19,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from albarka_models import whatsapp_number_of
+from albarka_models import numero_international_wa, whatsapp_number_of
 
 logger = logging.getLogger("albarka.notifications")
 
@@ -187,6 +187,9 @@ async def send_email(*, to, subject: str, html: str, reply_to: Optional[str] = N
     to_list = [to] if isinstance(to, str) else [t for t in to if t]
     # Lot 18 : adresses techniques des collaborateurs sans e-mail (« …@sans-email.invalid ») jamais utilisées
     to_list = [t for t in to_list if t and not str(t).lower().endswith("@sans-email.invalid")]
+    # Lot 20 : envoi déclenché par le super-admin → uniquement son adresse e-mail de test (jamais le client)
+    from albarka_envoi_test import emails_effectifs
+    to_list = await emails_effectifs(to_list)
     if not to_list:
         return None
     if smtp_actif:
@@ -353,6 +356,11 @@ async def send_whatsapp(*, to_phone: str, message: str) -> dict:
 async def _send_whatsapp_waba(cfg: dict, to_phone: str, message: str) -> dict:
     """Envoi d'un texte par l'API Meta (WABA d'ALBARKA), découpé en segments
     de 4 096 caractères. Même forme de retour que send_whatsapp()."""
+    # Lot 20 : envoi du super-admin → numéro WhatsApp de test (refus s'il manque, jamais le client)
+    from albarka_envoi_test import echec_wa, numero_effectif
+    to_phone, refus = await numero_effectif(to_phone)
+    if refus:
+        return echec_wa(refus)
     window_state = _wa_window_open(await _wa_last_inbound_iso(to_phone))
     outside = (window_state is False)  # False = fermée ; None = indéterminée
     to = to_phone.lstrip("+")
@@ -467,6 +475,12 @@ async def send_whatsapp_template(*, to_phone: str, template_name: str, language:
 
 
 async def _send_template_waba(cfg: dict, payload: dict, template_name: str, to_phone: str) -> dict:
+    # Lot 20 : envoi du super-admin → numéro WhatsApp de test (refus s'il manque, jamais le client)
+    from albarka_envoi_test import echec_wa, numero_effectif
+    to_phone, refus = await numero_effectif(to_phone)
+    if refus:
+        return echec_wa(refus)
+    payload = {**payload, "to": to_phone.lstrip("+")}
     """Envoi d'un modèle par l'API Meta. Même forme de retour que send_whatsapp()."""
     url = f"https://graph.facebook.com/{cfg['graph_version']}/{cfg['phone_number_id']}/messages"
     headers = {"Authorization": f"Bearer {cfg['access_token']}", "Content-Type": "application/json"}
@@ -527,6 +541,11 @@ async def _wa_upload_media(*, pdf_bytes: bytes, filename: str, content_type: str
 async def _wa_send_media_message(*, to_phone: str, msg_type: str, media_payload: dict) -> dict:
     """Cœur partagé d'envoi d'un message média (document ou image) déjà
     uploadé — même contrat de retour que send_whatsapp."""
+    # Lot 20 : envoi du super-admin → numéro WhatsApp de test (refus s'il manque, jamais le client)
+    from albarka_envoi_test import echec_wa, numero_effectif
+    to_phone, refus = await numero_effectif(to_phone)
+    if refus:
+        return echec_wa(refus)
     cfg = await _get_wa_config()
     if not cfg:
         return {"ok": False, "message_id": None, "status": None,
@@ -804,8 +823,9 @@ async def notify_echeance(user: dict, echeance: dict, days_left: int) -> dict:
     if user.get("is_active", True) and user.get("can_receive_notifications") is not False and _user_wa_phone.startswith("+"):
         wa_phones.add(_user_wa_phone)
     for c in await notifiable_contacts_for(user["id"], channel="whatsapp"):
-        if (c.get("phone") or "").startswith("+"):
-            wa_phones.add(c["phone"])
+        numero_contact = numero_international_wa(c.get("phone"))   # lot 20 : format +226…
+        if numero_contact:
+            wa_phones.add(numero_contact)
 
     wa_sent = 0
     wa_last_id = None
@@ -898,7 +918,7 @@ async def notify_upload(db, *, document: dict, tenant: dict) -> dict:
             f"Statut : analyse en cours."
         )
         for s in staff:
-            phone = (s.get("phone") or "").strip()
+            phone = numero_international_wa(s.get("phone")) or (s.get("phone") or "").strip()   # lot 20
             if phone.startswith("+"):
                 result = await send_whatsapp(to_phone=phone, message=wa_text)
                 if result.get("ok"):

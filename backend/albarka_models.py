@@ -208,10 +208,28 @@ def is_whatsapp_verified(user_doc: dict) -> bool:
     return bool(user_doc.get("phone_verified"))
 
 
+def numero_international_wa(numero: Optional[str]) -> str:
+    """Lot 20 — numéro au format international « +226XXXXXXXX » (source UNIQUE de la règle) :
+    « 70 11 22 33 » → « +22670112233 » ; « 00226 70… » → « +22670… » ; « +226 70-11-22-33 » → « +22670112233 ».
+    Renvoie "" si le numéro est vide ou trop court."""
+    import re as _re
+    chiffres = _re.sub(r"\D", "", numero or "")
+    if chiffres.startswith("00"):
+        chiffres = chiffres[2:]
+    if len(chiffres) == 8:          # numéro local burkinabè sans indicatif
+        chiffres = "226" + chiffres
+    if len(chiffres) < 9:
+        return ""
+    return "+" + chiffres
+
+
 def whatsapp_number_of(user_doc: dict) -> Optional[str]:
     """Numéro à utiliser pour un envoi WhatsApp : le numéro dédié s'il existe,
-    sinon le téléphone (numéro unique historique servant aux deux usages)."""
-    return user_doc.get("whatsapp_number") or user_doc.get("phone")
+    sinon le téléphone (numéro unique historique servant aux deux usages).
+    Lot 20 : toujours rendu au format international (+226…) quand c'est possible — un numéro saisi
+    « 70 11 22 33 » faisait refuser l'envoi (« format +226… attendu ») avant même d'essayer WhatsApp."""
+    brut = user_doc.get("whatsapp_number") or user_doc.get("phone")
+    return numero_international_wa(brut) or brut
 
 
 # Compte admin du portail : le SEUL qui peut attribuer ou retirer le rôle

@@ -245,6 +245,12 @@ async def envoyer_liluvine(numero: str, message: str, *, source: Optional[str] =
     if not cfg:
         return _resultat(False, None, erreur="Transmission WA Universelle non configurée "
                                              "(LILUVINE_WA_URL / LILUVINE_WA_HMAC absentes)", statut=None)
+    # Lot 20 : numéro au format +226… ; envoi du super-admin → numéro WhatsApp de test (jamais le client)
+    from albarka_envoi_test import numero_effectif
+    from albarka_models import numero_international_wa
+    numero, refus = await numero_effectif(numero_international_wa(numero) or (numero or "").strip())
+    if refus:
+        return _resultat(False, canal, erreur=refus, statut=None, definitif=True)
     numero = (numero or "").strip()
     if not numero.startswith("+"):
         return _resultat(False, canal, erreur="Numéro attendu au format international (+226…)", statut=None)
