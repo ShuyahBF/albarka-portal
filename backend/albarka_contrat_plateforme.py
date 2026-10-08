@@ -64,6 +64,18 @@ def bandeau(etat_contrat: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     c = etat_contrat or {}
     etat = c.get("etat") or {}
     couleur = etat.get("couleur")
+    du_txt = f" Montant dû : {_argent(c.get('du'), c.get('devise'))}." if (c.get("du") or 0) > 0 else ""
+    # Lot 22.2 : services EFFECTIVEMENT suspendus (contrat échu) → barre rouge permanente qui explique pourquoi
+    # les menus sont grisés, tant que le contrat n'est pas renouvelé
+    if etat.get("niveau") == "echu" and c.get("services_suspendus"):
+        from albarka_suspension import libelle
+        noms = {s.get("code"): s.get("libelle") for s in (c.get("services_catalogue") or []) if isinstance(s, dict)}
+        services = ", ".join(noms.get(code) or libelle(code) for code in c["services_suspendus"])
+        numero = f" n° {c['numero']}" if c.get("numero") else ""
+        depuis = f" depuis le {_date_fr(c.get('suspension_le'))}" if c.get("suspension_le") else ""
+        return {"visible": True, "couleur": "rouge", "message": (
+            f"Votre contrat SAWALI{numero} est échu (le {_date_fr(c.get('fin'))}). Services suspendus{depuis} : "
+            f"{services}. Renouvelez le contrat pour les rétablir.{du_txt}")}
     if couleur not in ("orange", "rouge") or etat.get("niveau") not in ("bientot", "expire"):
         return {"visible": False, "couleur": None, "message": ""}
     numero = f" n° {c['numero']}" if c.get("numero") else ""
@@ -124,7 +136,9 @@ async def lire_etat(force: bool = False) -> Optional[Dict[str, Any]]:
 async def contrat_plateforme(user: dict = Depends(get_current_user)):
     """Bandeau du contrat pour le DG (orange avant l'échéance, rouge juste après, rien ensuite) ; invisible pour les
     autres."""
-    if not (set(user.get("roles") or []) & ROLES_BANDEAU):
+    from albarka_models import is_admin_account
+    # DG et Superviseur ; lot 22.2 : aussi le compte super-admin du portail (tests de SAWALI)
+    if not (set(user.get("roles") or []) & ROLES_BANDEAU) and not is_admin_account(user):
         return {"visible": False, "couleur": None, "message": ""}
     etat = await lire_etat()
     return {**bandeau(etat), "fin": (etat or {}).get("fin"), "numero": (etat or {}).get("numero")}
