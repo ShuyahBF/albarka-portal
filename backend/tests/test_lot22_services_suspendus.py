@@ -97,3 +97,10 @@ def test_analyse_ia_refusee():
 def test_numero_de_lot():
     import lot
     assert int(lot.LOT.split(".")[0]) >= 22
+
+
+def test_catalogue_declare_a_sawali():
+    """Lot 22.5 : chaque service suspendable est déclaré avec libellé et description."""
+    cat = su.catalogue_a_declarer()
+    assert [x["code"] for x in cat] == list(su.SERVICES)
+    assert all(x["libelle"] and x["description"] for x in cat)
