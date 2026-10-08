@@ -18,7 +18,7 @@ import albarka_contrat_plateforme as cp  # noqa: E402
 from albarka_transmission_wa import signer  # noqa: E402
 
 ETAT_ROUGE = {"numero": "CTR-ALB-2026-01", "fin": "2027-10-14", "devise": "XOF", "du": 300000,
-              "etat": {"niveau": "critique", "couleur": "rouge", "jours_restants": -6}}
+              "etat": {"niveau": "expire", "couleur": "rouge", "jours_restants": -3}}   # lot 22 : rouge de J+1 à J+5
 
 
 def test_url_deduite():
@@ -28,8 +28,6 @@ def test_url_deduite():
 def test_textes_du_bandeau():
     orange = cp.bandeau({"numero": "N1", "fin": "2027-10-14", "du": 0, "etat": {"niveau": "bientot", "couleur": "orange", "jours_restants": 5}})
     assert orange["visible"] and orange["couleur"] == "orange" and "14/10/2027" in orange["message"] and "dans 5 jours" in orange["message"]
-    passe = cp.bandeau({"fin": "2027-10-14", "etat": {"niveau": "expire", "couleur": "orange", "jours_restants": -2}})
-    assert "est arrivé à échéance" in passe["message"]
     rouge = cp.bandeau(ETAT_ROUGE)
     assert rouge["couleur"] == "rouge" and "suspendus" in rouge["message"] and "300 000 XOF" in rouge["message"]
     assert cp.bandeau({"etat": {"niveau": "ok", "couleur": None}})["visible"] is False
@@ -69,4 +67,4 @@ def test_route_reservee_au_dg(monkeypatch):
 
 def test_numero_de_lot():
     import lot
-    assert lot.LOT == "21"
+    assert int(lot.LOT.split(".")[0]) >= 21

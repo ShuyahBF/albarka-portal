@@ -60,7 +60,12 @@ async def _reglages() -> Tuple[str, str]:
 
 async def numero_effectif(numero: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     """(numéro à utiliser, erreur). Hors mode test : le numéro reçu, sans erreur. En mode test : le numéro de test,
-    ou (None, message) s'il n'est pas configuré — l'appelant n'envoie alors RIEN."""
+    ou (None, message) s'il n'est pas configuré — l'appelant n'envoie alors RIEN.
+    Lot 22 : (None, message) aussi quand le service WhatsApp est suspendu (contrat SAWALI échu)."""
+    from albarka_suspension import refus_envoi
+    suspendu = await refus_envoi("wa")
+    if suspendu:
+        return None, suspendu
     if not mode_test_actif():
         return numero, None
     test_wa, _ = await _reglages()
@@ -74,7 +79,11 @@ async def numero_effectif(numero: Optional[str]) -> Tuple[Optional[str], Optiona
 
 async def emails_effectifs(destinataires: List[str]) -> List[str]:
     """Destinataires e-mail à utiliser : inchangés hors mode test ; en mode test, la SEULE adresse de test
-    (liste vide si elle n'est pas configurée : aucun e-mail ne part)."""
+    (liste vide si elle n'est pas configurée : aucun e-mail ne part).
+    Lot 22 : liste vide aussi quand le service e-mail est suspendu (contrat SAWALI échu)."""
+    from albarka_suspension import refus_envoi
+    if await refus_envoi("email"):
+        return []
     if not mode_test_actif():
         return destinataires
     _, test_email = await _reglages()
