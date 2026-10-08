@@ -177,15 +177,8 @@ export default function Login() {
             chaque pièce déposée.
           </p>
 
-          <div className="mt-12 pt-8 border-t border-white/10">
-            <div className="text-xs uppercase tracking-widest text-white/40 mb-2">
-              Comptes de démo
-            </div>
-            <div className="text-xs text-white/60 space-y-1 font-mono">
-              <div>superviseur@albarka-demo.bf — Superviseur2026!</div>
-              <div>client1@albarka-demo.bf — Client2026!</div>
-            </div>
-          </div>
+          {/* Lot 16.1 — les identifiants des comptes de démonstration ne sont plus affichés sur la page de
+              connexion (demande du propriétaire : site en production, identifiants publics = risque). */}
         </div>
       </div>
 
