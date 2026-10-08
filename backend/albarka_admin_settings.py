@@ -57,6 +57,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "report_prefix": "RAP",
     # WhatsApp click-to-chat public (Partie 0 — prospects, avant WABA validé)
     "whatsapp_contact_number": "",
+    # Lot 20 : envois de test du super-admin — TOUT envoi qu'il déclenche part vers ces contacts, jamais vers un client
+    "test_envoi_whatsapp": "",
+    "test_envoi_email": "",
     "whatsapp_contact_message": "Bonjour, je souhaite en savoir plus sur vos services comptables.",
     # Chat interne
     "voice_notes_enabled": True,
@@ -156,6 +159,9 @@ def _mask(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class SettingsUpdate(BaseModel):
+    # Lot 20 : contacts de test du super-admin (voir albarka_envoi_test.py)
+    test_envoi_whatsapp: Optional[str] = Field(None, max_length=40)
+    test_envoi_email: Optional[str] = Field(None, max_length=200)
     # Cabinet
     cabinet_name: Optional[str] = None
     cabinet_email: Optional[str] = None
@@ -237,7 +243,14 @@ async def update_settings(payload: SettingsUpdate, user: dict = Depends(require_
         if changes.get(k) == "********":
             changes.pop(k, None)
     # Validate email address fields; empty string clears the setting.
-    for k in ("email_from_address", "email_reply_to"):
+    # Lot 20 : contacts de test du super-admin (numéro normalisé +226…, e-mail vérifié)
+    if "test_envoi_whatsapp" in changes:
+        from albarka_models import numero_international_wa
+        brut = (changes["test_envoi_whatsapp"] or "").strip()
+        changes["test_envoi_whatsapp"] = numero_international_wa(brut) if brut else ""
+        if brut and not changes["test_envoi_whatsapp"]:
+            raise HTTPException(status_code=400, detail="Numéro WhatsApp de test invalide (ex. +226 70 00 00 00)")
+    for k in ("email_from_address", "email_reply_to", "test_envoi_email"):
         if k in changes:
             val = (changes[k] or "").strip()
             if val and not _EMAIL_RE.match(val):

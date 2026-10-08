@@ -107,15 +107,10 @@ def numero_international(numero: Optional[str]) -> str:
 
     « 70 11 22 33 » → « +22670112233 » ; « 00226 70… » → « +22670… » ;
     « +226 70-11-22-33 » → « +22670112233 ». Renvoie "" si le numéro est vide
-    ou trop court pour être un vrai numéro."""
-    chiffres = re.sub(r"\D", "", numero or "")
-    if chiffres.startswith("00"):
-        chiffres = chiffres[2:]
-    if len(chiffres) == 8:          # numéro local burkinabè sans indicatif
-        chiffres = INDICATIF_PAR_DEFAUT + chiffres
-    if len(chiffres) < 9:
-        return ""
-    return "+" + chiffres
+    ou trop court pour être un vrai numéro.
+    Lot 20 : même règle que tous les envois (source unique albarka_models.numero_international_wa)."""
+    from albarka_models import numero_international_wa
+    return numero_international_wa(numero)
 
 
 def numero_du_compte(user: dict) -> str:

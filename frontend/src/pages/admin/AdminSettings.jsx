@@ -404,6 +404,29 @@ export default function AdminSettings() {
 
         {/* --- WHATSAPP --- */}
         <TabsContent value="whatsapp" className="pt-6">
+          {/* Lot 20 — envois de test du super-admin : tout ce qu'il envoie part ici, jamais vers un client */}
+          <div className="albarka-card p-6 space-y-3 max-w-2xl mb-6" data-testid="test-envoi-card">
+            <div>
+              <div className="font-semibold">Envois de test du super-admin</div>
+              <div className="text-sm text-muted-foreground">
+                Quand le compte super-admin du portail envoie une facture, un document ou une notification, l'envoi part
+                <b> uniquement</b> vers ce numéro WhatsApp et cette adresse e-mail (à défaut : ceux de son propre compte) — jamais vers le client. Sans aucun numéro
+                (ou e-mail), l'envoi est refusé.
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div><Label>Numéro WhatsApp de test</Label>
+                <Input value={settings.test_envoi_whatsapp || ""} placeholder="+226 70 00 00 00"
+                  onChange={(e) => setSettings({ ...settings, test_envoi_whatsapp: e.target.value })} data-testid="test-envoi-wa" /></div>
+              <div><Label>Adresse e-mail de test</Label>
+                <Input type="email" value={settings.test_envoi_email || ""} placeholder="vous@exemple.com"
+                  onChange={(e) => setSettings({ ...settings, test_envoi_email: e.target.value })} data-testid="test-envoi-email" /></div>
+            </div>
+            <Button onClick={() => save({ test_envoi_whatsapp: settings.test_envoi_whatsapp || "", test_envoi_email: settings.test_envoi_email || "" })}
+              disabled={saving} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="save-test-envoi-btn">
+              <Save className="w-4 h-4 mr-2" />Enregistrer
+            </Button>
+          </div>
           <div className="albarka-card p-6 space-y-4 max-w-2xl">
             <div className="flex items-start justify-between">
               <div>

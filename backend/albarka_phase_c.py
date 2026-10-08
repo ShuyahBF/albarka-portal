@@ -25,6 +25,7 @@ from albarka_admin_settings import get_settings_doc
 from albarka_docgen import new_verify_token
 from albarka_auth import get_current_user, require_roles, require_staff
 from albarka_models import (
+    numero_international_wa,
     BILLING_ROLES, CAISSE_DATE_RANGE_ROLES, CHAT_THREAD_CREATE_ROLES, NOT_TEST_ACCOUNT, can_encaisser, is_client,
 )
 from db import db, serialize, serialize_many
@@ -1166,7 +1167,7 @@ async def send_broadcast(
     else:  # whatsapp
         from albarka_notifications import send_whatsapp as _send_wa
         for r in recipients:
-            phone = r.get("phone")
+            phone = numero_international_wa(r.get("phone")) or r.get("phone")   # lot 20 : format +226…
             if not phone or not phone.startswith("+"):
                 continue
             if r.get("can_receive_notifications") is False:

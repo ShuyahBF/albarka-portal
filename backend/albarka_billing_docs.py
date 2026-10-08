@@ -203,8 +203,17 @@ async def send_invoice_document(
     filename = f"{invoice['document_type']}_{numero_imprime(invoice)}.pdf".replace("/", "-")   # lot 17
     label = _DOC_LABEL.get(invoice["document_type"], "document")
 
+    # Lot 20 : envoi de test du super-admin → ses propres contacts de test (Paramètres), jamais le client
+    from albarka_envoi_test import emails_effectifs, mode_test_actif, numero_effectif
+    test = mode_test_actif()
+
     if payload.channel == "email":
         recipient = (client.get("email") or "").strip()
+        if test:
+            recipient = (await emails_effectifs([recipient or "test"]) or [""])[0]
+            if not recipient:
+                raise HTTPException(status_code=400, detail="Envoi de test du super-admin : renseignez votre adresse "
+                                                            "e-mail de test dans Paramètres (« Envois de test du super-admin »)")
         if not recipient:
             raise HTTPException(status_code=400, detail="Aucune adresse email disponible pour ce client")
         client_label = client.get("company") or client.get("full_name", "")
@@ -232,6 +241,10 @@ async def send_invoice_document(
                    "(ou aux rôles superviseur/direction/DG/administrateur/secrétariat)",
         )
     phone = whatsapp_number_of(client) or ""
+    if test:
+        phone, refus = await numero_effectif(phone)
+        if refus:
+            raise HTTPException(status_code=400, detail=refus)
     if not phone.startswith("+"):
         raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…) pour ce client")
     # Lot 13.9 : WABA d'ALBARKA (téléversement Meta) sinon Transmission WA

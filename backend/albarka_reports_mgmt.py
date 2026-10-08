@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from albarka_admin_settings import get_settings_doc
 from albarka_auth import get_current_user, require_staff
 from albarka_branding import load_branding_images as _load_branding
-from albarka_models import is_client, tenant_id_of, whatsapp_number_of
+from albarka_models import numero_international_wa, is_client, tenant_id_of, whatsapp_number_of
 from albarka_notifications import send_email
 from albarka_report_templates import get_template
 from albarka_reports import build_client_report_pdf
@@ -440,7 +440,7 @@ async def _perform_wa_send(*, report: dict, payload: SendReportWhatsAppPayload, 
         for c in contacts:
             if c.get("phone") and c.get("can_receive_notifications", True) \
                     and "whatsapp" in (c.get("channels") or ["email"]):
-                phones.add(c["phone"])
+                phones.add(numero_international_wa(c["phone"]) or c["phone"])   # lot 20 : format +226…
     if payload.to_groups:
         groups = await db.contact_groups.find(
             {"id": {"$in": payload.to_groups}, "tenant_id": report["tenant_id"]},

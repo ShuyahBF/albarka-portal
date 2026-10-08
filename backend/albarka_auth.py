@@ -118,6 +118,9 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_securi
             changed_ts = None
         if changed_ts and (payload.get("iat") or 0) < int(changed_ts):
             raise HTTPException(status_code=401, detail="Session expirée : mot de passe réinitialisé, reconnectez-vous")
+    # Lot 20 : le super-admin du portail n'envoie jamais rien aux clients (envois redirigés vers ses contacts de test)
+    from albarka_envoi_test import marquer_acteur
+    marquer_acteur(user)
     return user
 
 

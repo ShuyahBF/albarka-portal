@@ -30,6 +30,7 @@ import ocr_core  # module commun d'OCR (copie identique, source : dépôt Shuyah
 from albarka_ai import DEFAULT_MODEL_ID, analyze_document, get_model
 from albarka_auth import get_current_user, require_staff
 from albarka_models import (
+    numero_international_wa,
     client_modules,
     DOCS_DELETE_ROLES,
     DOCS_PRIVILEGED_ROLES,
@@ -515,6 +516,7 @@ async def send_document_whatsapp(
                    "(ou aux rôles superviseur/direction/DG/administrateur/secrétariat)",
         )
     phone = (payload.to or whatsapp_number_of(owner) or "").strip()
+    phone = numero_international_wa(phone) or phone   # lot 20 : « 70 11 22 33 » → « +22670112233 »
     if not phone.startswith("+"):
         raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp éligible (format +226…)")
 

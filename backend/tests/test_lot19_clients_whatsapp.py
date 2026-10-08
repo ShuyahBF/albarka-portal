@@ -73,4 +73,4 @@ def test_client_sans_contrat_actif_refuse(env):
 
 def test_numero_de_lot():
     import lot
-    assert lot.LOT == "19"
+    assert float(lot.LOT.split(".")[0]) >= 19   # lots suivants : un numéro par déploiement
