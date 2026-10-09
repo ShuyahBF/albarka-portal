@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "22.5"
-LOT_LIBELLE = "Contrat SAWALI : ALBARKA déclare à SAWALI les services qu’il sait suspendre"
+LOT = "23"
+LOT_LIBELLE = "Pictogramme « Assistance » : discussion avec le support SAWALI depuis le portail (cabinet et clients)"

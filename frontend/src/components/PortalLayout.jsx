@@ -45,6 +45,7 @@ import { usePresenceHeartbeat, sendOffline } from "@/components/Presence";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
 import SidebarInfoBar from "@/components/SidebarInfoBar";
 import BandeauContrat from "@/components/BandeauContrat";   // lot 21 : contrat SAWALI
+import SupportSawali from "@/components/SupportSawali";   // lot 23 : pictogramme « Assistance » (support SAWALI)
 import { ChevronDown, Layers, Landmark, Calculator, UsersRound } from "lucide-react";   // lot 18 : menu « Traitements »
 import { TRAITEMENTS } from "@/lib/traitements";
 
@@ -431,6 +432,9 @@ export default function PortalLayout({ admin = false }) {
             <div className="flex items-center gap-3">
               {/* État de la connexion au serveur, toujours visible dans l'en-tête fixe */}
               <EtatServeur className="hidden md:flex mr-3" />
+              {/* Lot 23 : pictogramme « Assistance » → discussion avec le support SAWALI, pour tout utilisateur
+                  connecté (cabinet et espace client) ; caché si ALBARKA n'est pas relié à SAWALI */}
+              <SupportSawali />
               <div className="hidden sm:block text-right">
                 <div className="text-sm font-medium text-foreground">{user?.full_name}</div>
                 {user?.company && (
