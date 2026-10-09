@@ -16,6 +16,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Headset, Loader2, Send, X } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
+import { BarrePictos, PieceJointe } from "./SupportPictos";   // lot 24 (SAWALI lot 93) : emojis, photo, trombone, note vocale
 
 const RAFRAICHIR_OUVERT_MS = 5000;     // lecture du fil, fenêtre ouverte
 const RAFRAICHIR_FERME_MS = 60000;     // vérification des réponses non lues, fenêtre fermée
@@ -222,7 +223,9 @@ export default function SupportSawali() {
                   {m.de !== "moi" && !m.systeme && (
                     <p className="mb-0.5 text-[11px] font-semibold text-[#0F6B4A]">{m.auteur}</p>
                   )}
-                  <p className="whitespace-pre-wrap break-words">{m.texte}</p>
+                  {/* Lot 24 : photo, document ou vidéo joint au message */}
+                  {m.media && <div className="mb-1"><PieceJointe api={apiClient} media={m.media} moi={m.de === "moi"} /></div>}
+                  {m.texte && <p className="whitespace-pre-wrap break-words">{m.texte}</p>}
                   <p className={`mt-1 text-right text-[10px] ${m.de === "moi" ? "text-white/60" : "text-muted-foreground"}`}>
                     {heure(m.le)}
                   </p>
@@ -235,7 +238,9 @@ export default function SupportSawali() {
           {erreur && <p className="bg-red-50 px-3 py-1.5 text-xs text-red-700" data-testid="support-sawali-erreur">{erreur}</p>}
 
           {/* Zone de saisie : Entrée envoie, Maj+Entrée passe à la ligne */}
-          <form onSubmit={envoyer} className="flex gap-2 border-t border-[hsl(var(--border))] p-2">
+          {/* Lot 24 : pictogrammes comme dans le chat SAWALI (emojis, photo, trombone, note vocale) */}
+          <BarrePictos api={apiClient} texte={texte} setTexte={setTexte} desactive={envoi} onEnvoye={lireFil} onErreur={setErreur} />
+          <form onSubmit={envoyer} className="flex gap-2 p-2">
             <textarea
               value={texte}
               onChange={(e) => setTexte(e.target.value)}
