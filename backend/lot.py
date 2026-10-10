@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "24"
-LOT_LIBELLE = "Fenêtre d’assistance : emojis, photo, trombone (documents, vidéos) et note vocale transcrite, comme dans le chat SAWALI"
+LOT = "25"
+LOT_LIBELLE = "Fenêtre d’assistance : pictogramme « Capture d’écran » pour montrer son écran au support"

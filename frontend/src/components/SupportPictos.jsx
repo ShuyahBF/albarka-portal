@@ -8,6 +8,8 @@
 //   🖼️ Photo     : choisit une photo (ou l'appareil photo sur téléphone), réduite à 1 600 px avant l'envoi ;
 //   📎 Trombone  : document (PDF, Word, Excel, PowerPoint, texte, CSV) ou vidéo MP4/WebM ;
 //   🎤 Micro     : note vocale → texte (transcription automatique), ajouté au message pour relecture.
+//   🖥️ Capture   : capture de l'écran (l'utilisateur choisit l'écran, la fenêtre ou l'onglet à montrer), envoyée
+//                 comme une photo — demande du propriétaire du 10/10/2026 (ordinateur seulement).
 // Le texte déjà saisi part comme légende de la photo ou du document.
 // La palette (image IA) et le calendrier (disponibilités) restent des outils de l'ÉQUIPE du support dans SAWALI :
 // leurs résultats (image, lien d'agenda) s'affichent ici comme n'importe quelle réponse.
@@ -66,6 +68,7 @@ const IcoPhoto = () => <Icone d={<><rect x="3" y="3" width="18" height="18" rx="
 const IcoTrombone = () => <Icone d={<path d="m21.4 11.1-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5" />} />
 const IcoMicro = () => <Icone d={<><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><path d="M12 19v3" /></>} />
 const IcoStop = () => <Icone d={<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" />} />
+const IcoCapture = () => <Icone d={<><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></>} />
 const IcoEmoji = () => <Icone d={<><circle cx="12" cy="12" r="10" /><path d="M8 14s1.5 2 4 2 4-2 4-2" /><path d="M9 9h.01M15 9h.01" /></>} />
 
 const classeBouton = 'inline-flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40'
@@ -152,6 +155,35 @@ export function BarrePictos({ api, texte, setTexte, desactive = false, onEnvoye,
     }
   }
 
+  // Capture d'écran : le navigateur demande quel écran / quelle fenêtre / quel onglet montrer, on en prend UNE
+  // image, puis le partage s'arrête aussitôt ; l'image part comme une photo (le texte saisi sert de légende).
+  // Indisponible sur téléphone (le navigateur ne le permet pas) : le bouton n'est alors pas affiché.
+  const captureDisponible = typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia
+  const capturerEcran = async () => {
+    onErreur?.('')
+    let flux = null
+    try {
+      flux = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false })
+      const video = document.createElement('video')
+      video.srcObject = flux
+      video.muted = true
+      await video.play()
+      await new Promise((ok) => setTimeout(ok, 300))          // première image bien affichée
+      const toile = document.createElement('canvas')
+      toile.width = video.videoWidth
+      toile.height = video.videoHeight
+      toile.getContext('2d').drawImage(video, 0, 0)
+      const blob = await new Promise((ok) => toile.toBlob(ok, 'image/png'))
+      if (!blob) throw new Error('capture vide')
+      await envoyerFichier(new File([blob], `capture-${Date.now()}.png`, { type: 'image/png' }), true)
+    } catch (err) {
+      // L'utilisateur a annulé le choix de l'écran : rien à signaler
+      if (err?.name !== 'NotAllowedError' && err?.name !== 'AbortError') onErreur?.("Capture d'écran impossible sur ce navigateur.")
+    } finally {
+      flux?.getTracks().forEach((p) => p.stop())
+    }
+  }
+
   const bloque = desactive || (occupe !== '' && occupe !== 'enregistrement')
   return (
     <div className="relative border-t border-slate-200 px-2 pt-2">
@@ -163,6 +195,9 @@ export function BarrePictos({ api, texte, setTexte, desactive = false, onEnvoye,
         <button type="button" className={classeBouton} disabled={bloque} onClick={() => setEmojisOuverts((v) => !v)} title="Emojis" aria-label="Emojis" aria-expanded={emojisOuverts}><IcoEmoji /></button>
         <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={(e) => envoyerFichier(e.target.files?.[0], true)} />
         <button type="button" className={classeBouton} disabled={bloque || occupe === 'enregistrement'} onClick={() => photoRef.current?.click()} title="Envoyer une photo (galerie, appareil photo)" aria-label="Envoyer une photo"><IcoPhoto /></button>
+        {captureDisponible && (
+          <button type="button" className={classeBouton} disabled={bloque || occupe === 'enregistrement'} onClick={capturerEcran} title="Capture d'écran : montrer mon écran au support" aria-label="Capture d'écran"><IcoCapture /></button>
+        )}
         <input ref={tromboneRef} type="file" accept={TYPES_TROMBONE} className="hidden" onChange={(e) => envoyerFichier(e.target.files?.[0], false)} />
         <button type="button" className={classeBouton} disabled={bloque || occupe === 'enregistrement'} onClick={() => tromboneRef.current?.click()} title="Joindre un document ou une vidéo (PDF, Word, Excel, PowerPoint, texte, CSV, MP4)" aria-label="Joindre un document ou une vidéo"><IcoTrombone /></button>
         <button type="button" disabled={bloque} onClick={basculerMicro}
