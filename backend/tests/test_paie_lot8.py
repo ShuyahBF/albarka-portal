@@ -123,6 +123,8 @@ def test_invoice_rounding_half_up():
 USERS = {
     "rh": {"id": "u-rh", "email": "rh@albarka.bf", "full_name": "RH", "roles": ["rh"], "is_active": True},
     "secr": {"id": "u-secr", "email": "s@albarka.bf", "full_name": "Secrétaire", "roles": ["secretariat"], "is_active": True},
+    # Lot 26.1 : super-administrateur du portail (seul autorisé à « Restaurer les valeurs par défaut »)
+    "sa": {"id": "u-sa", "email": "admin@sawalismartsystems.com", "full_name": "Super-admin", "roles": ["administrateur"], "is_active": True},
     "c1": {"id": "c1", "email": "card@exemple.bf", "full_name": "M. Yaolile", "company": "CARD-IPRO SARL", "roles": ["client"], "is_active": True},
 }
 
@@ -169,7 +171,9 @@ def test_templates_and_employer_config(env):
     assert t2["params"]["flat_abatement"]["mode"] == "by_category" and t2["params"]["patriotic_support"]["rate"] == 2
     bad = dict(params, iuts_brackets=[{"up_to": 5, "rate": 10}, {"up_to": 1, "rate": 10}])
     assert c.put(f"/api/hr/paie/modeles/{t['id']}", headers=H, json={"name": "X", "params": bad}).status_code == 400
-    t3 = c.post(f"/api/hr/paie/modeles/{t['id']}/restore-defaults", headers=H).json()
+    # Lot 26.1 : « Restaurer les valeurs par défaut » est refusé au RH (bouton grisé), permis au super-admin
+    assert c.post(f"/api/hr/paie/modeles/{t['id']}/restore-defaults", headers=H).status_code == 403
+    t3 = c.post(f"/api/hr/paie/modeles/{t['id']}/restore-defaults", headers={"X-User": "sa"}).json()
     # Lot 26 : l'abattement forfaitaire par défaut dépend de la catégorie
     # (cadre 20 %, non cadre 25 %, classeur d'ALBARKA) ; avant : taux unique.
     assert t3["params"]["patriotic_support"]["rate"] == 1 and t3["params"]["flat_abatement"]["mode"] == "by_category"

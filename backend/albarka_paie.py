@@ -43,6 +43,7 @@ from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 
 from albarka_auth import require_roles
+from albarka_models import is_admin_account   # lot 26.1 : « Restaurer les valeurs par défaut » réservé au super-admin
 from albarka_docgen import MONTHS_FR, fcfa, new_verify_token, now_iso, qr_png, verify_url
 from albarka_paie_moteur import DEFAULT_PARAMS, base_for_net, compute_payslip, normalize_params, upgrade_params_lot26
 from db import db
@@ -207,7 +208,12 @@ async def update_template(tid: str, payload: TemplateIn, user: dict = Depends(re
 
 @router.post("/modeles/{tid}/restore-defaults")
 async def restore_template_defaults(tid: str, user: dict = Depends(require_roles(HR_ROLES))):
-    """« Restaurer les valeurs par défaut » du modèle."""
+    """« Restaurer les valeurs par défaut » du modèle.
+    Lot 26.1 (demande du propriétaire, 12/10/2026) : réservé au SUPER-ADMIN du portail. Ce bouton écrase tous les
+    réglages du modèle (y compris ceux personnalisés par le cabinet) ; les nouvelles formules du lot 26 ont déjà été
+    appliquées automatiquement, il ne doit donc plus être utilisé par erreur."""
+    if not is_admin_account(user):
+        raise HTTPException(status_code=403, detail="Réservé au super-administrateur du portail")
     await _template(tid)
     await db.paie_modeles.update_one({"id": tid}, {"$set": {"params": normalize_params(None), "updated_at": now_iso(),
                                                              "updated_by": user.get("email")}})
