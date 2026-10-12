@@ -10,7 +10,12 @@
     - abattement forfaitaire : taux unique OU taux selon la catégorie ;
     - charges de famille : lignes « nombre de charges → taux » (ajout /
       suppression ; la dernière ligne vaut au-delà) ;
-    - prime d'ancienneté (à partir de 3 ans par défaut), soutien patriotique ;
+    - prime d'ancienneté (à partir de 3 ans par défaut), FSP (prélèvement pour
+      effort de paix) ;
+    - lot 26 (classeur d'ALBARKA) : prime exceptionnelle et avantage en nature
+      (soumis ou non à la CNSS), composantes du plafond fiscal de la CNSS
+      (base + ancienneté + prime exceptionnelle) et de l'abattement forfaitaire
+      (base + ancienneté + avantage en nature) ;
     - arrondis (pas : franc, 5, 10, 25, 50, 100… ; au plus proche / inférieur / supérieur).
   À droite : APERÇU du calcul en direct sur un salarié d'exemple (bulletin du
   fichier du cabinet), modifiable.
@@ -116,8 +121,8 @@ function Preview({ params }) {
             {[["Prime d'ancienneté", res.seniority], ["Salaire brut", res.gross, true], ["CNSS", res.cnss], ["Imposable IUTS", res.taxable],
               ["Exonérations", res.exemptions_total], [`Abattement forfaitaire (${res.flat_abatement_rate} %)`, res.flat_abatement],
               ["Base IUTS", res.iuts_base], ["IUTS brut", res.iuts_gross], [`Abattement famille (${res.family_rate} %)`, res.family_abatement],
-              ["IUTS net", res.iuts], ["Salaire net", res.net, true], ["Soutien patriotique", res.patriotic_support],
-              ["Net à payer", res.net_to_pay, true], ["Charges patronales", res.employer_total]].map(([l, v, b]) => (
+              ["IUTS net", res.iuts], ["Salaire net", res.net, true], ["FSP (effort de paix)", res.patriotic_support],
+              ["Net à payer", res.net_to_pay, true], ["Charges patronales", res.employer_total], ["Masse salariale", res.employer_cost]].map(([l, v, b]) => (
               <tr key={l} className={b ? "font-semibold" : ""}><td className="py-0.5 text-slate-600">{l}</td><td className="text-right tabular-nums">{fcfa(v)}</td></tr>
             ))}
           </tbody>
@@ -154,6 +159,9 @@ export default function PaieParamsEditor({ value, onChange }) {
             <label className="flex items-center gap-1">Plafond du brut <input type="number" value={p.cnss.ceiling} onChange={(e) => setIn("cnss", { ceiling: numOrEmpty(e) })} className={num} /></label>
             <label className="flex items-center gap-1"><input type="checkbox" checked={p.cnss.fiscal_cap_enabled} onChange={(e) => setIn("cnss", { fiscal_cap_enabled: e.target.checked })} />
               CNSS déductible de l'IUTS limitée à <input type="number" value={p.cnss.fiscal_cap_rate} onChange={(e) => setIn("cnss", { fiscal_cap_rate: numOrEmpty(e) })} className={num} /> % du salaire de base</label>
+            {/* Lot 26 : composantes ajoutées au salaire de base pour ce plafond (classeur d'ALBARKA) */}
+            <label className="flex items-center gap-1"><input type="checkbox" checked={p.cnss.fiscal_cap_with_seniority ?? true} onChange={(e) => setIn("cnss", { fiscal_cap_with_seniority: e.target.checked })} data-testid="cnss-cap-seniority" /> + prime d'ancienneté</label>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={p.cnss.fiscal_cap_with_exceptional ?? true} onChange={(e) => setIn("cnss", { fiscal_cap_with_exceptional: e.target.checked })} data-testid="cnss-cap-exceptional" /> + prime exceptionnelle</label>
           </div>
           <p className="text-xs font-semibold text-slate-700 pt-2">CNSS patronale (livre de paie)</p>
           <label className="flex items-center gap-1 text-xs">Plafond <input type="number" value={p.cnss.employer_ceiling} onChange={(e) => setIn("cnss", { employer_ceiling: numOrEmpty(e) })} className={num} /></label>
@@ -188,9 +196,15 @@ export default function PaieParamsEditor({ value, onChange }) {
         <Section title="Abattement forfaitaire" hint={p.flat_abatement.mode === "single" ? `${p.flat_abatement.rate} % pour tous` : "selon la catégorie"} testId="sec-flat">
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-1"><input type="radio" checked={p.flat_abatement.mode === "single"} onChange={() => setIn("flat_abatement", { mode: "single" })} data-testid="flat-single" />
-              Taux unique <input type="number" value={p.flat_abatement.rate} onChange={(e) => setIn("flat_abatement", { rate: numOrEmpty(e) })} className={num} /> % du salaire de base</label>
+              Taux unique <input type="number" value={p.flat_abatement.rate} onChange={(e) => setIn("flat_abatement", { rate: numOrEmpty(e) })} className={num} /> % de l'assiette</label>
             <label className="flex items-center gap-1"><input type="radio" checked={p.flat_abatement.mode === "by_category"} onChange={() => setIn("flat_abatement", { mode: "by_category" })} data-testid="flat-category" />
               Selon la catégorie du salarié</label>
+          </div>
+          {/* Lot 26 : assiette = salaire de base + ancienneté + avantage en nature (classeur d'ALBARKA) */}
+          <div className="flex flex-wrap gap-4 text-xs text-slate-600">
+            <span>Assiette : salaire de base</span>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={p.flat_abatement.with_seniority ?? true} onChange={(e) => setIn("flat_abatement", { with_seniority: e.target.checked })} data-testid="flat-seniority" /> + prime d'ancienneté</label>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={p.flat_abatement.with_in_kind ?? true} onChange={(e) => setIn("flat_abatement", { with_in_kind: e.target.checked })} data-testid="flat-in-kind" /> + avantage en nature</label>
           </div>
           {p.flat_abatement.mode === "by_category" && (
             <Rows rows={p.flat_abatement.categories} onChange={(rows) => setIn("flat_abatement", { categories: rows })}
@@ -221,7 +235,21 @@ export default function PaieParamsEditor({ value, onChange }) {
           <p className="text-[11px] text-slate-500">Calculée sur le salaire de base, d'après la date d'embauche (années complètes à la fin du mois).</p>
         </Section>
 
-        <Section title="Soutien patriotique" hint={p.patriotic_support.enabled ? `${p.patriotic_support.rate} % du net` : "désactivé"} testId="sec-patriotic">
+        {/* Lot 26 : prime exceptionnelle (cochée sur le bulletin) et avantage en nature (fiche salarié) */}
+        <Section title="Prime exceptionnelle et avantage en nature" hint="hors base CNSS par défaut" testId="sec-special">
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-1">Libellé <input value={p.exceptional_bonus?.label ?? ""} onChange={(e) => setIn("exceptional_bonus", { label: e.target.value })} className={`${txt} w-48`} /></label>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={!!p.exceptional_bonus?.subject_to_cnss} onChange={(e) => setIn("exceptional_bonus", { subject_to_cnss: e.target.checked })} data-testid="exc-cnss" /> soumise à la CNSS</label>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-1">Libellé <input value={p.in_kind?.label ?? ""} onChange={(e) => setIn("in_kind", { label: e.target.value })} className={`${txt} w-48`} /></label>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={!!p.in_kind?.subject_to_cnss} onChange={(e) => setIn("in_kind", { subject_to_cnss: e.target.checked })} data-testid="inkind-cnss" /> soumis à la CNSS</label>
+            <label className="flex items-center gap-1"><input type="checkbox" checked={p.in_kind?.deduct_from_net ?? true} onChange={(e) => setIn("in_kind", { deduct_from_net: e.target.checked })} data-testid="inkind-net" /> retiré du salaire net (non versé en argent)</label>
+          </div>
+          <p className="text-[11px] text-slate-500">Les deux sont compris dans le brut et l'IUTS. La prime exceptionnelle se coche sur une prime du bulletin ; l'avantage en nature se saisit sur la fiche du salarié.</p>
+        </Section>
+
+        <Section title="Prélèvement pour effort de paix (FSP)" hint={p.patriotic_support.enabled ? `${p.patriotic_support.rate} % du net` : "désactivé"} testId="sec-patriotic">
           <div className="flex flex-wrap gap-4">
             <label className="flex items-center gap-1"><input type="checkbox" checked={p.patriotic_support.enabled} onChange={(e) => setIn("patriotic_support", { enabled: e.target.checked })} /> Appliquer</label>
             <label className="flex items-center gap-1">Taux <input type="number" value={p.patriotic_support.rate} onChange={(e) => setIn("patriotic_support", { rate: numOrEmpty(e) })} className={num} /> % du salaire net</label>
@@ -229,7 +257,7 @@ export default function PaieParamsEditor({ value, onChange }) {
           </div>
         </Section>
 
-        <Section title="Arrondis" hint="pas de décimales ; centaine par défaut pour la base IUTS et le net" testId="sec-rounding">
+        <Section title="Arrondis" hint="base IUTS à la centaine inférieure ; net au franc supérieur" testId="sec-rounding">
           {Object.entries(ROUNDING_LABELS).map(([k, l]) => (
             <div key={k} className="flex flex-wrap items-center gap-2">
               <span className="w-56 text-slate-700">{l}</span>

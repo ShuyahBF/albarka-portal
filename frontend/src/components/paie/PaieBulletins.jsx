@@ -8,7 +8,11 @@
     - pour chaque bulletin : éléments du mois (primes imposables, acomptes,
       prêts, autres retenues, ancienneté saisie, observations), rubriques
       calculées, Valider / Rouvrir, PDF ; « Tout imprimer » en un seul PDF.
-  Livre de paie : tableau du mois (brut, CNSS, IUTS, soutien patriotique,
+    - lot 26 : une prime peut être cochée « exceptionnelle » (hors base CNSS,
+      classeur d'ALBARKA) ; « Soutien patriotique » devient « Prélèvement pour
+      effort de paix (FSP) » (libellé venant du modèle) ; toast « Patientez… »
+      pendant les calculs et la génération des PDF.
+  Livre de paie : tableau du mois (brut, CNSS, IUTS, FSP,
   retenues, net à payer, charges patronales, coût total), détail des charges
   patronales, PDF et Excel.
 */
@@ -18,23 +22,33 @@ import { apiClient, extractError } from "@/lib/api";
 import { RefreshCw, Printer, FileText, Lock, Unlock, Plus, Trash2, X, FileSpreadsheet } from "lucide-react";
 import { EmployerSelect, MonthInput, useEmployers, fcfa, previousMonth, GREEN } from "@/components/paie/paieCommon";
 
+// Ouvre un PDF (bulletin, lot du mois, livre de paie) ; génération parfois
+// longue : toast « Patientez… » pendant l'attente (règle du propriétaire)
 const openPdf = async (url, params) => {
+  const wait = toast.loading("Patientez…");
   try {
     const { data } = await apiClient.get(url, { params, responseType: "blob" });
     window.open(URL.createObjectURL(data), "_blank");
-  } catch (e) { toast.error(extractError(e)); }
+  } catch (e) { toast.error(extractError(e)); } finally { toast.dismiss(wait); }
 };
 
-// Lignes « libellé / montant » (primes ou retenues du mois)
-function ItemsEditor({ items, onChange, placeholder, disabled, testId }) {
+// Lignes « libellé / montant » (primes ou retenues du mois).
+// withExceptional : case « exceptionnelle » par prime (lot 26 : prime hors base CNSS)
+function ItemsEditor({ items, onChange, placeholder, disabled, testId, withExceptional = false }) {
   return (
     <div className="space-y-1" data-testid={testId}>
       {items.map((it, i) => (
-        <div key={i} className="flex gap-2">
+        <div key={i} className="flex flex-wrap items-center gap-2">
           <input value={it.label} disabled={disabled} placeholder={placeholder} onChange={(e) => onChange(items.map((x, k) => (k === i ? { ...x, label: e.target.value } : x)))}
             className="h-8 flex-1 rounded border border-slate-300 px-2 text-sm" />
           <input type="number" value={it.amount} disabled={disabled} onChange={(e) => onChange(items.map((x, k) => (k === i ? { ...x, amount: e.target.value } : x)))}
             className="h-8 w-28 rounded border border-slate-300 px-2 text-sm text-right" />
+          {withExceptional && (
+            <label className="flex items-center gap-1 text-[11px] text-slate-600 whitespace-nowrap" title="Prime exceptionnelle : comprise dans le brut et l'IUTS, mais hors base CNSS">
+              <input type="checkbox" checked={!!it.exceptional} disabled={disabled} data-testid={`${testId}-exceptional-${i}`}
+                onChange={(e) => onChange(items.map((x, k) => (k === i ? { ...x, exceptional: e.target.checked } : x)))} />
+              exceptionnelle (hors CNSS)</label>
+          )}
           {!disabled && <button type="button" onClick={() => onChange(items.filter((_, k) => k !== i))} className="p-1 text-slate-400 hover:text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>}
         </div>
       ))}
@@ -58,13 +72,15 @@ function BulletinDrawer({ id, onClose, onChanged }) {
   const locked = b.status === "validated";
   const r = b.result || {};
 
+  // Enregistre les éléments du mois puis recalcule (la case « exceptionnelle » est transmise)
   const save = async () => {
     setBusy(true);
+    const wait = toast.loading("Patientez…");
     try {
       await apiClient.put(`/hr/paie/bulletins/${id}`, { ...vars, seniority_amount: vars.seniority_amount === "" ? null : Number(vars.seniority_amount),
-        extras: vars.extras.map((x) => ({ ...x, amount: Number(x.amount) || 0 })), deductions: vars.deductions.map((x) => ({ ...x, amount: Number(x.amount) || 0 })) });
+        extras: vars.extras.map((x) => ({ ...x, amount: Number(x.amount) || 0, exceptional: !!x.exceptional })), deductions: vars.deductions.map((x) => ({ ...x, amount: Number(x.amount) || 0 })) });
       toast.success("Bulletin recalculé"); await load(); onChanged();
-    } catch (e) { toast.error(extractError(e)); } finally { setBusy(false); }
+    } catch (e) { toast.error(extractError(e)); } finally { toast.dismiss(wait); setBusy(false); }
   };
   const toggle = async () => {
     try { await apiClient.post(`/hr/paie/bulletins/${id}/${locked ? "reopen" : "validate"}`); await load(); onChanged(); toast.success(locked ? "Bulletin rouvert" : "Bulletin validé"); }
@@ -84,7 +100,7 @@ function BulletinDrawer({ id, onClose, onChanged }) {
         <table className="w-full text-sm" data-testid="bulletin-lines">
           <thead className="text-[11px] uppercase text-slate-500"><tr><th className="text-left">Rubrique</th><th className="text-right">Base</th><th className="text-right">Taux</th><th className="text-right">Gains</th><th className="text-right">Retenues</th></tr></thead>
           <tbody>
-            {/* Même ordre que le PDF : gains, brut, CNSS et IUTS, net, puis soutien patriotique et retenues */}
+            {/* Même ordre que le PDF : gains, brut, CNSS et IUTS, total des retenues, net, puis FSP et retenues */}
             {(() => {
               const isAfter = (ln) => ln.code === "patriotic" || ln.code.startsWith("ded_");
               const row = (ln, i) => (
@@ -105,6 +121,8 @@ function BulletinDrawer({ id, onClose, onChanged }) {
                   <tr className="border-t font-semibold"><td className="py-1">Salaire brut</td><td /><td /><td className="text-right">{fcfa(r.gross)}</td><td /></tr>
                   {taxes.map(row)}
                   <tr className="font-semibold"><td className="py-1">IUTS net</td><td /><td /><td /><td className="text-right">{fcfa(r.iuts)}</td></tr>
+                  {/* Lot 26 : total des retenues sociales et fiscales (CNSS + IUTS net), comme sur le bulletin d'ALBARKA */}
+                  <tr className="font-semibold"><td className="py-1">Total retenues sociales et fiscales</td><td /><td /><td /><td className="text-right">{fcfa(r.withholdings_total ?? ((r.cnss || 0) + (r.iuts || 0)))}</td></tr>
                   <tr className="border-t font-semibold"><td className="py-1">Salaire net</td><td /><td /><td className="text-right">{fcfa(r.net)}</td><td /></tr>
                   {after.map(row)}
                   <tr className="border-t font-bold text-lg" style={{ color: GREEN }}><td className="py-1">Net à payer</td><td /><td /><td className="text-right" data-testid="bulletin-net-to-pay">{fcfa(r.net_to_pay)}</td><td /></tr>
@@ -113,10 +131,10 @@ function BulletinDrawer({ id, onClose, onChanged }) {
             })()}
           </tbody>
         </table>
-        <p className="text-[11px] text-slate-500">Base IUTS {fcfa(r.iuts_base)} · exonérations {fcfa(r.exemptions_total)} · abattement forfaitaire {fcfa(r.flat_abatement)} · charges patronales {fcfa(r.employer_total)}</p>
+        <p className="text-[11px] text-slate-500">Base IUTS {fcfa(r.iuts_base)} · exonérations {fcfa(r.exemptions_total)} · abattement forfaitaire {fcfa(r.flat_abatement)} · charges patronales {fcfa(r.employer_total)} · masse salariale {fcfa(r.employer_cost)}</p>
         <div className="rounded-xl bg-slate-50 p-3 space-y-3 text-sm">
           <p className="font-semibold">Éléments du mois</p>
-          <div><p className="text-xs text-slate-600 mb-1">Primes (imposables)</p><ItemsEditor items={vars.extras} disabled={locked} placeholder="Prime de rendement…" onChange={(extras) => setVars({ ...vars, extras })} testId="bulletin-extras" /></div>
+          <div><p className="text-xs text-slate-600 mb-1">Primes (imposables) — cochez « exceptionnelle » pour une prime hors base CNSS</p><ItemsEditor items={vars.extras} disabled={locked} placeholder="Prime de rendement…" onChange={(extras) => setVars({ ...vars, extras })} testId="bulletin-extras" withExceptional /></div>
           <div><p className="text-xs text-slate-600 mb-1">Retenues (acomptes, prêts, autres)</p><ItemsEditor items={vars.deductions} disabled={locked} placeholder="Acompte…" onChange={(deductions) => setVars({ ...vars, deductions })} testId="bulletin-deductions" /></div>
           <label className="block text-xs text-slate-600">Prime d'ancienneté saisie (vide = calculée : {fcfa(r.seniority)})
             <input type="number" value={vars.seniority_amount} disabled={locked} onChange={(e) => setVars({ ...vars, seniority_amount: e.target.value })} className="mt-1 block h-8 w-40 rounded border border-slate-300 px-2 text-sm" /></label>
@@ -148,12 +166,14 @@ export function PaieBulletins() {
   }, [eid, month]);
   useEffect(() => { load().catch((e) => toast.error(extractError(e))); }, [load]);
 
+  // Prépare / recalcule tous les bulletins du mois (attente possible : toast « Patientez… »)
   const prepare = async () => {
     setBusy(true);
+    const wait = toast.loading("Patientez…");
     try {
       const { data: r } = await apiClient.post("/hr/paie/bulletins/prepare", { employer_id: eid, period_month: month });
       toast.success(`${r.created} bulletin(s) créé(s), ${r.updated} recalculé(s)`); await load();
-    } catch (e) { toast.error(extractError(e)); } finally { setBusy(false); }
+    } catch (e) { toast.error(extractError(e)); } finally { toast.dismiss(wait); setBusy(false); }
   };
   const t = data?.totals || {};
   return (

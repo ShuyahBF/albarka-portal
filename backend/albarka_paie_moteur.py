@@ -6,27 +6,36 @@ ligne. Les paramètres viennent d'un MODÈLE de configuration (ou de sa version
 personnalisée pour un employeur) ; DEFAULT_PARAMS sert de « valeurs par défaut »
 (bouton « Restaurer les valeurs par défaut »).
 
-Calcul (repris du fichier Excel « Assistante_cardi_pro_ESSAI.xlsx ») :
+Calcul (lot 26 : classeur Excel d'ALBARKA, feuille « Taux 20% (3) », août 2024) :
   1. prime d'ancienneté  : à partir de N années de service (3 par défaut),
      taux de départ + un pas par année supplémentaire, plafonné ;
-  2. salaire brut        : base + ancienneté + indemnités + primes du mois ;
-  3. CNSS salariale      : taux × brut plafonné (5,5 % × 600 000 = 33 000 max) ;
-  4. CNSS « fiscale »    : CNSS retenue, limitée à 8 % du salaire de base ;
+  2. salaire brut        : base + ancienneté + indemnités + primes du mois
+     + avantage en nature + prime(s) exceptionnelle(s) ;
+  3. CNSS salariale      : taux × base CNSS plafonnée (5,5 % × 800 000 = 44 000
+     max). Base CNSS = brut SANS la prime exceptionnelle ni l'avantage en
+     nature (Excel : somme de D14 à D21) — chacun réglable dans le modèle ;
+  4. CNSS « fiscale »    : CNSS retenue, limitée à 8 % de (salaire de base
+     + ancienneté + prime exceptionnelle) — composantes réglables ;
   5. imposable IUTS      : brut − CNSS fiscale ;
-  6. exonérations        : par indemnité, min(montant versé, taux × imposable,
-     plafond) — logement 20 %/75 000, transport 5 %/30 000, fonction 5 %/50 000 ;
-     une indemnité peut être déclarée « non exonérée » sur la fiche ;
-  7. abattement forfaitaire : taux × salaire de base, unique (25 %) ou selon
-     la catégorie du salarié (ex. cadre 20 %, non cadre 25 %) ;
-  8. base IUTS           : imposable − exonérations − abattement (arrondie) ;
+  6. exonérations        : par RÈGLE, min(total versé des indemnités qui y sont
+     rattachées, taux × imposable, plafond) — logement 20 %/75 000,
+     transport 5 %/30 000, fonction 5 %/50 000 (fonction, sujétion,
+     représentation, caisse, responsabilité : un seul plafond commun, comme la
+     ligne D18 du classeur) ; une indemnité peut être « non exonérée » ;
+  7. abattement forfaitaire : taux × (salaire de base + ancienneté + avantage
+     en nature), selon la catégorie (cadre 20 %, non cadre 25 %) ;
+  8. base IUTS           : imposable − exonérations − abattement, arrondie à
+     la centaine inférieure ;
   9. IUTS brut           : barème progressif par tranches ;
  10. abattement charges de famille : % de l'IUTS selon le nombre de charges
-     (table libre : nombre de charges → taux, la dernière ligne vaut au-delà) ;
- 11. IUTS net, salaire net (brut − CNSS − IUTS), arrondi (centaine par défaut) ;
- 12. soutien patriotique : 1 % du salaire net ;
- 13. net à payer         : net − soutien patriotique − retenues (acomptes, prêts…).
-Charges patronales (pour le livre de paie) : CNSS employeur par branche et
-taxes patronales (TPA…), sur le brut plafonné ou non.
+     (1 → 8 % … 7 et plus → 20 %, la dernière ligne vaut au-delà) ;
+ 11. salaire net = ARRONDI SUPÉRIEUR au franc de (brut − CNSS − IUTS net
+     − avantage en nature, non versé en argent) ;
+ 12. FSP « Prélèvement pour effort de paix » : 1 % du salaire net ;
+ 13. net à payer         : net − FSP − retenues (acomptes, prêts…).
+Charges patronales : CNSS employeur 16 % (par branche, plafond 800 000, même
+assiette que la CNSS salariale) et taxe patronale (TPA 3 % du brut) ;
+masse salariale = brut + cotisations patronales + taxe.
 
 Arrondis : règle { step, mode } — step 0 = pas d'arrondi, 1 = au franc,
 5, 10, 25, 50, 100… ; mode « nearest » (au plus proche, 0,5 vers le haut),
@@ -46,13 +55,17 @@ DEFAULT_PARAMS: Dict[str, Any] = {
     "country": "Burkina Faso",
     # Rubriques d'indemnités proposées sur la fiche salarié.
     # « exemption » : clé de la règle d'exonération qui s'y applique (ou None).
+    # Lot 26 : sujétion, représentation, caisse et responsabilité relèvent de
+    # l'indemnité de FONCTION (ligne D18 du classeur) : même règle, même plafond.
     "allowances": [
         {"key": "housing", "label": "Indemnité de logement", "exemption": "housing"},
         {"key": "transport", "label": "Indemnité de transport", "exemption": "transport"},
         {"key": "function", "label": "Indemnité de fonction", "exemption": "function"},
-        {"key": "responsibility", "label": "Indemnité de responsabilité", "exemption": None},
+        {"key": "responsibility", "label": "Indemnité de responsabilité", "exemption": "function"},
+        {"key": "subjection", "label": "Indemnité de sujétion", "exemption": "function"},
+        {"key": "representation", "label": "Indemnité de représentation", "exemption": "function"},
+        {"key": "cash", "label": "Indemnité de caisse", "exemption": "function"},
         {"key": "risk", "label": "Indemnité de risque", "exemption": None},
-        {"key": "subjection", "label": "Indemnité de sujétion", "exemption": None},
         {"key": "guard", "label": "Indemnité de garde", "exemption": None},
         {"key": "other", "label": "Autre indemnité", "exemption": None},
     ],
@@ -62,12 +75,14 @@ DEFAULT_PARAMS: Dict[str, Any] = {
         {"key": "function", "label": "Fonction", "rate": 5.0, "cap": 50000},
     ],
     "cnss": {
-        "employee_rate": 5.5,           # % du brut
-        "ceiling": 600000,              # brut plafonné (5,5 % × 600 000 = 33 000)
+        "employee_rate": 5.5,           # % de la base CNSS
+        "ceiling": 800000,              # base plafonnée (5,5 % × 800 000 = 44 000)
         "fiscal_cap_enabled": True,     # CNSS déductible de l'IUTS limitée…
-        "fiscal_cap_rate": 8.0,         # … à 8 % du salaire de base
-        "employer_ceiling": 600000,
-        "employer_lines": [             # CNSS patronale (livre de paie)
+        "fiscal_cap_rate": 8.0,         # … à 8 % de (salaire de base
+        "fiscal_cap_with_seniority": True,    # + prime d'ancienneté
+        "fiscal_cap_with_exceptional": True,  # + prime exceptionnelle)
+        "employer_ceiling": 800000,
+        "employer_lines": [             # CNSS patronale : 16 % au total
             {"label": "Prestations familiales", "rate": 7.0},
             {"label": "Risques professionnels", "rate": 3.5},
             {"label": "Pension vieillesse", "rate": 5.5},
@@ -76,9 +91,25 @@ DEFAULT_PARAMS: Dict[str, Any] = {
     "employer_taxes": [                 # taxes patronales sur le brut (non plafonné)
         {"label": "Taxe patronale d'apprentissage (TPA)", "rate": 3.0},
     ],
+    # Lot 26 — prime exceptionnelle (cochée « exceptionnelle » sur une prime du
+    # mois) : dans le brut et l'IUTS, mais hors base CNSS (classeur : D23).
+    "exceptional_bonus": {
+        "label": "Prime exceptionnelle",
+        "subject_to_cnss": False,
+    },
+    # Lot 26 — avantage en nature (fiche salarié) : dans le brut et l'IUTS,
+    # hors base CNSS (D22), compté dans l'abattement forfaitaire, puis retiré
+    # du net car il n'est pas versé en argent.
+    "in_kind": {
+        "label": "Avantage en nature",
+        "subject_to_cnss": False,
+        "deduct_from_net": True,
+    },
     "flat_abatement": {
-        "mode": "single",               # single | by_category
-        "rate": 25.0,                   # % du salaire de base (mode single)
+        "mode": "by_category",          # single | by_category
+        "rate": 25.0,                   # taux unique, ou taux d'un salarié sans catégorie
+        "with_seniority": True,         # assiette : salaire de base + ancienneté…
+        "with_in_kind": True,           # … + avantage en nature
         "categories": [
             {"key": "cadre", "label": "Cadre", "rate": 20.0},
             {"key": "non_cadre", "label": "Non cadre", "rate": 25.0},
@@ -100,8 +131,7 @@ DEFAULT_PARAMS: Dict[str, Any] = {
         {"charges": 4, "rate": 14.0},
         {"charges": 5, "rate": 16.0},
         {"charges": 6, "rate": 18.0},
-        {"charges": 7, "rate": 20.0},
-        {"charges": 8, "rate": 22.0},
+        {"charges": 7, "rate": 20.0},   # 7 charges et plus : 20 % (maximum)
     ],
     "seniority": {
         "enabled": True,
@@ -110,13 +140,27 @@ DEFAULT_PARAMS: Dict[str, Any] = {
         "step_rate": 1.0,               # + 1 point par année supplémentaire
         "max_rate": 25.0,
     },
-    "patriotic_support": {"enabled": True, "rate": 1.0, "label": "Soutien patriotique"},
+    # FSP — « Prélèvement pour effort de paix » (clé historique conservée pour
+    # rester compatible avec les modèles enregistrés).
+    "patriotic_support": {"enabled": True, "rate": 1.0, "label": "Prélèvement pour effort de paix (FSP)"},
     "rounding": {
         "amounts": {"step": 1, "mode": "nearest"},      # CNSS, IUTS, primes… : au franc
         "iuts_base": {"step": 100, "mode": "down"},     # base IUTS : centaine inférieure
-        "net": {"step": 100, "mode": "nearest"},        # salaire net : centaine la plus proche
+        "net": {"step": 1, "mode": "up"},               # salaire net : franc supérieur (classeur)
     },
 }
+
+# Anciennes valeurs par défaut (avant le lot 26) : servent à la mise à jour
+# des modèles déjà enregistrés (upgrade_params_lot26), qui ne remplace QUE les
+# valeurs restées identiques à ces anciens défauts.
+OLD_DEFAULTS_LOT8 = {
+    "ceiling": 600000,
+    "family_abatement": [{"charges": n, "rate": r} for n, r in
+                         [(1, 8.0), (2, 10.0), (3, 12.0), (4, 14.0), (5, 16.0), (6, 18.0), (7, 20.0), (8, 22.0)]],
+    "net_rounding": {"step": 100, "mode": "nearest"},
+    "patriotic_label": "Soutien patriotique",
+}
+PARAMS_VERSION = 26                     # version des paramètres (lot 26)
 
 ROUND_MODES = {"nearest", "down", "up"}
 
@@ -210,6 +254,9 @@ def normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             "ceiling": amount(c.get("ceiling"), "Plafond CNSS"),
             "fiscal_cap_enabled": bool(c.get("fiscal_cap_enabled", True)),
             "fiscal_cap_rate": pct(c.get("fiscal_cap_rate"), "Plafond fiscal CNSS"),
+            # Lot 26 : composantes de l'assiette du plafond fiscal (8 %)
+            "fiscal_cap_with_seniority": bool(c.get("fiscal_cap_with_seniority", True)),
+            "fiscal_cap_with_exceptional": bool(c.get("fiscal_cap_with_exceptional", True)),
             "employer_ceiling": amount(c.get("employer_ceiling"), "Plafond CNSS patronale"),
             "employer_lines": [{"label": str(x.get("label") or "CNSS patronale").strip()[:80],
                                 "rate": pct(x.get("rate"), "CNSS patronale")} for x in (c.get("employer_lines") or [])]}
@@ -227,7 +274,18 @@ def normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         cats.append({"key": key, "label": str(cat.get("label") or key).strip()[:80], "rate": pct(cat.get("rate"), f"Catégorie {key}")})
     if mode == "by_category" and not cats:
         raise ValueError("Abattement par catégorie : ajoutez au moins une catégorie")
-    flat = {"mode": mode, "rate": pct(f.get("rate"), "Abattement forfaitaire"), "categories": cats}
+    flat = {"mode": mode, "rate": pct(f.get("rate"), "Abattement forfaitaire"),
+            # Lot 26 : assiette = salaire de base (+ ancienneté) (+ avantage en nature)
+            "with_seniority": bool(f.get("with_seniority", True)), "with_in_kind": bool(f.get("with_in_kind", True)),
+            "categories": cats}
+    # Lot 26 : prime exceptionnelle et avantage en nature
+    xb = p.get("exceptional_bonus") or {}
+    exceptional = {"label": str(xb.get("label") or "Prime exceptionnelle").strip()[:80],
+                   "subject_to_cnss": bool(xb.get("subject_to_cnss", False))}
+    ik = p.get("in_kind") or {}
+    in_kind = {"label": str(ik.get("label") or "Avantage en nature").strip()[:80],
+               "subject_to_cnss": bool(ik.get("subject_to_cnss", False)),
+               "deduct_from_net": bool(ik.get("deduct_from_net", True))}
     # Barème IUTS : bornes croissantes, dernière tranche ouverte
     brackets, last = [], -1.0
     raw_b = p.get("iuts_brackets") or []
@@ -262,8 +320,8 @@ def normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if seniority["start_years"] < 0:
         raise ValueError("Ancienneté : nombre d'années positif")
     ps = p["patriotic_support"]
-    patriotic = {"enabled": bool(ps.get("enabled", True)), "rate": pct(ps.get("rate"), "Soutien patriotique"),
-                 "label": str(ps.get("label") or "Soutien patriotique").strip()[:80]}
+    patriotic = {"enabled": bool(ps.get("enabled", True)), "rate": pct(ps.get("rate"), "Prélèvement pour effort de paix"),
+                 "label": str(ps.get("label") or DEFAULT_PARAMS["patriotic_support"]["label"]).strip()[:80]}
     rounding = {}
     for rk, rv in p["rounding"].items():
         if rk not in DEFAULT_PARAMS["rounding"]:
@@ -277,7 +335,58 @@ def normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         rounding[rk] = {"step": int(step) if float(step).is_integer() else step, "mode": m}
     return {"country": str(p.get("country") or "Burkina Faso")[:60], "allowances": allowances, "exemptions": exemptions,
             "cnss": cnss, "employer_taxes": employer_taxes, "flat_abatement": flat, "iuts_brackets": brackets,
-            "family_abatement": fam, "seniority": seniority, "patriotic_support": patriotic, "rounding": rounding}
+            "family_abatement": fam, "seniority": seniority, "patriotic_support": patriotic, "rounding": rounding,
+            "exceptional_bonus": exceptional, "in_kind": in_kind}
+
+
+def upgrade_params_lot26(params: Optional[Dict[str, Any]]) -> tuple:
+    """Mise à jour d'un jeu de paramètres ENREGISTRÉ avant le lot 26.
+
+    Ne remplace QUE les valeurs restées identiques aux anciens défauts
+    (une valeur modifiée volontairement par le cabinet est conservée) :
+      - plafonds CNSS salariale et patronale 600 000 → 800 000 ;
+      - table des charges de famille d'origine (8 charges → 22 %) → 7 et plus : 20 % ;
+      - arrondi du net « centaine la plus proche » → « franc supérieur » ;
+      - libellé « Soutien patriotique » → « Prélèvement pour effort de paix (FSP) » ;
+      - abattement forfaitaire « taux unique 25 % » avec les catégories
+        d'origine → selon la catégorie (cadre 20 %, non cadre 25 %) ;
+      - sujétion et responsabilité sans exonération → exonération « fonction »,
+        et ajout des rubriques représentation et caisse si absentes.
+    Rend (paramètres normalisés, liste des changements en clair)."""
+    p = normalize_params(params)
+    changes: List[str] = []
+    c = p["cnss"]
+    for k, what in (("ceiling", "Plafond CNSS salariale"), ("employer_ceiling", "Plafond CNSS patronale")):
+        if c.get(k) == OLD_DEFAULTS_LOT8["ceiling"]:
+            c[k] = DEFAULT_PARAMS["cnss"][k]
+            changes.append(f"{what} 600 000 → 800 000")
+    if p["family_abatement"] == OLD_DEFAULTS_LOT8["family_abatement"]:
+        p["family_abatement"] = copy.deepcopy(DEFAULT_PARAMS["family_abatement"])
+        changes.append("Charges de famille : ligne « 8 charges → 22 % » supprimée (7 et plus : 20 %)")
+    if p["rounding"].get("net") == OLD_DEFAULTS_LOT8["net_rounding"]:
+        p["rounding"]["net"] = dict(DEFAULT_PARAMS["rounding"]["net"])
+        changes.append("Arrondi du net : centaine la plus proche → franc supérieur")
+    if p["patriotic_support"]["label"] == OLD_DEFAULTS_LOT8["patriotic_label"]:
+        p["patriotic_support"]["label"] = DEFAULT_PARAMS["patriotic_support"]["label"]
+        changes.append("Libellé « Soutien patriotique » → « Prélèvement pour effort de paix (FSP) »")
+    fa = p["flat_abatement"]
+    if fa["mode"] == "single" and fa["rate"] == 25 and fa["categories"] == DEFAULT_PARAMS["flat_abatement"]["categories"]:
+        fa["mode"] = "by_category"
+        changes.append("Abattement forfaitaire : selon la catégorie (cadre 20 %, non cadre 25 %)")
+    ex_keys = {e["key"] for e in p["exemptions"]}
+    if "function" in ex_keys:
+        old_labels = {"responsibility": "Indemnité de responsabilité", "subjection": "Indemnité de sujétion"}
+        for a in p["allowances"]:
+            if a["key"] in old_labels and a["exemption"] is None and a["label"] == old_labels[a["key"]]:
+                a["exemption"] = "function"
+                changes.append(f"{a['label']} : rattachée à l'exonération « fonction »")
+        keys = {a["key"] for a in p["allowances"]}
+        for extra in ("representation", "cash"):
+            if extra not in keys:
+                d = next(x for x in DEFAULT_PARAMS["allowances"] if x["key"] == extra)
+                p["allowances"].append(dict(d))
+                changes.append(f"Rubrique ajoutée : {d['label']}")
+    return normalize_params(p), changes
 
 
 def years_of_service(hire_date: Optional[str], period_month: Optional[str]) -> int:
@@ -337,13 +446,31 @@ def flat_rate(category: Optional[str], f: Dict[str, Any]) -> float:
 # ---------------------------------------------------------------------------
 # Calcul du bulletin
 # ---------------------------------------------------------------------------
+def _split_rounded(total_base: float, rows: List[Dict[str, Any]], R) -> List[float]:
+    """Montants par ligne dont la SOMME vaut l'arrondi du total.
+
+    Ex. CNSS patronale 7 % + 3,5 % + 5,5 % sur 75 841 : arrondir chaque ligne
+    donne 12 134, alors que 16 % × 75 841 = 12 135 (bulletin d'ALBARKA). On
+    arrondit donc les montants CUMULÉS : ligne i = arrondi(cumul i) −
+    arrondi(cumul i−1) ; le total est toujours celui du taux global."""
+    out, cum_rate, prev = [], 0.0, 0
+    for x in rows:
+        cum_rate += x["rate"]
+        cur = R(total_base * cum_rate / 100)
+        out.append(cur - prev)
+        prev = cur
+    return out
+
+
 def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] = None,
                     period_month: Optional[str] = None) -> Dict[str, Any]:
     """Bulletin calculé.
 
     `employee` : base_salary, allowances {clé: montant}, non_exempt [clés],
     category, dependents, hire_date, seniority_amount (facultatif : saisi),
-    extras [{label, amount}] (primes du mois, imposables),
+    in_kind (avantage en nature mensuel, lot 26),
+    extras [{label, amount, exceptional?}] (primes du mois, imposables ;
+    exceptional = true : prime exceptionnelle, hors base CNSS),
     deductions [{label, amount}] (acomptes, prêts, autres retenues).
     """
     p = normalize_params(params)
@@ -366,7 +493,8 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
         seniority = R(base * s_rate / 100)
     if seniority:
         line("seniority", f"Prime d'ancienneté ({years} an{'s' if years > 1 else ''})", seniority, "gain", base, s_rate or None)
-    # 2. Indemnités (dans l'ordre du modèle) et primes du mois
+    # 2. Indemnités (dans l'ordre du modèle), primes du mois, avantage en nature,
+    #    prime(s) exceptionnelle(s)
     allowances = []
     for a in p["allowances"]:
         amt = _num(allow_in.get(a["key"]))
@@ -378,34 +506,62 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
         if k not in known and _num(v):
             allowances.append({"key": k, "label": k, "exemption": None, "amount": _num(v)})
             line(f"allow_{k}", k, _num(v), "gain")
-    extras_total = 0.0
+    extras_total = exceptional_total = 0.0
+    exceptional_lines = []
     for i, x in enumerate(employee.get("extras") or []):
         amt = _num(x.get("amount"))
-        if amt:
+        if not amt:
+            continue
+        if x.get("exceptional"):                        # prime exceptionnelle : affichée en fin de gains
+            exceptional_total += amt
+            exceptional_lines.append((f"exc_{i}", str(x.get("label") or p["exceptional_bonus"]["label"]), amt))
+        else:
             extras_total += amt
             line(f"extra_{i}", str(x.get("label") or "Prime"), amt, "gain")
-    gross = base + seniority + sum(a["amount"] for a in allowances) + extras_total
-    # 3. CNSS
+    in_kind = _num(employee.get("in_kind"))
+    if in_kind:
+        line("in_kind", p["in_kind"]["label"], in_kind, "gain")
+    for code, label, amt in exceptional_lines:
+        line(code, label, amt, "gain")
+    gross = base + seniority + sum(a["amount"] for a in allowances) + extras_total + in_kind + exceptional_total
+    # 3. CNSS : brut sans prime exceptionnelle ni avantage en nature (selon le modèle), plafonné
     c = p["cnss"]
-    cnss_base = min(gross, c["ceiling"]) if c["ceiling"] else gross
+    cnss_assiette = gross
+    if not p["exceptional_bonus"]["subject_to_cnss"]:
+        cnss_assiette -= exceptional_total
+    if not p["in_kind"]["subject_to_cnss"]:
+        cnss_assiette -= in_kind
+    cnss_base = min(cnss_assiette, c["ceiling"]) if c["ceiling"] else cnss_assiette
     cnss = R(cnss_base * c["employee_rate"] / 100)
     line("cnss", "CNSS (part salariale)", cnss, "deduction", cnss_base, c["employee_rate"])
-    # 4-5. CNSS fiscale et imposable
-    cnss_fiscal = min(cnss, R(base * c["fiscal_cap_rate"] / 100)) if c["fiscal_cap_enabled"] else cnss
+    # 4-5. CNSS fiscale : limitée à 8 % de (base + ancienneté + prime exceptionnelle)
+    fiscal_cap_base = base + (seniority if c["fiscal_cap_with_seniority"] else 0) \
+        + (exceptional_total if c["fiscal_cap_with_exceptional"] else 0)
+    cnss_fiscal = min(cnss, R(fiscal_cap_base * c["fiscal_cap_rate"] / 100)) if c["fiscal_cap_enabled"] else cnss
     taxable = gross - cnss_fiscal
-    # 6. Exonérations
+    # 6. Exonérations : une par RÈGLE, sur le total des indemnités qui y sont
+    #    rattachées (ex. fonction + sujétion + responsabilité : un seul plafond)
     ex_rules = {e["key"]: e for e in p["exemptions"]}
-    exemptions = []
+    groups: Dict[str, Dict[str, Any]] = {}
     for a in allowances:
         rule = ex_rules.get(a.get("exemption"))
         if not rule or a["key"] in non_exempt:
             continue
-        amt = min(a["amount"], R(taxable * rule["rate"] / 100), rule["cap"] if rule["cap"] else float("inf"))
-        exemptions.append({"key": a["key"], "label": a["label"], "amount": amt, "rate": rule["rate"], "cap": rule["cap"]})
+        g = groups.setdefault(rule["key"], {"rule": rule, "paid": 0.0, "labels": []})
+        g["paid"] += a["amount"]
+        g["labels"].append(a["label"])
+    exemptions = []
+    for key, g in groups.items():
+        rule = g["rule"]
+        amt = min(g["paid"], R(taxable * rule["rate"] / 100), rule["cap"] if rule["cap"] else float("inf"))
+        exemptions.append({"key": key, "label": rule["label"], "allowances": g["labels"], "paid": g["paid"],
+                           "amount": amt, "rate": rule["rate"], "cap": rule["cap"]})
     ex_total = sum(e["amount"] for e in exemptions)
-    # 7. Abattement forfaitaire
-    f_rate = flat_rate(employee.get("category"), p["flat_abatement"])
-    flat = R(base * f_rate / 100)
+    # 7. Abattement forfaitaire : taux × (base + ancienneté + avantage en nature)
+    fa = p["flat_abatement"]
+    f_rate = flat_rate(employee.get("category"), fa)
+    flat_base = base + (seniority if fa["with_seniority"] else 0) + (in_kind if fa["with_in_kind"] else 0)
+    flat = R(flat_base * f_rate / 100)
     # 8-10. IUTS
     iuts_base = max(0, round_rule(taxable - ex_total - flat, p["rounding"].get("iuts_base")))
     iuts_gross = R(progressive_tax(iuts_base, p["iuts_brackets"]))
@@ -416,11 +572,14 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
     line("iuts", "IUTS", iuts_gross, "deduction", iuts_base, None)
     if fam:
         line("iuts_family", f"Abattement charges de famille ({charges})", -fam, "deduction", iuts_gross, fam_rate)
-    # 11. Salaire net (arrondi)
-    net_raw = gross - cnss - iuts
+    # 11. Salaire net (arrondi) : l'avantage en nature, non versé en argent, en est retiré
+    in_kind_deducted = in_kind if p["in_kind"]["deduct_from_net"] else 0
+    if in_kind_deducted:
+        line("in_kind_net", f"{p['in_kind']['label']} (non versé)", in_kind_deducted, "deduction")
+    net_raw = gross - cnss - iuts - in_kind_deducted
     net = round_rule(net_raw, p["rounding"].get("net"))
     rounding_diff = net - net_raw
-    # 12. Soutien patriotique
+    # 12. FSP (prélèvement pour effort de paix) : % du salaire net
     ps = p["patriotic_support"]
     patriotic = R(net * ps["rate"] / 100) if ps["enabled"] else 0
     if patriotic:
@@ -433,24 +592,37 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
             ded_total += amt
             line(f"ded_{i}", str(d.get("label") or "Retenue"), amt, "deduction")
     net_to_pay = net - patriotic - ded_total
-    # Charges patronales (livre de paie)
-    emp_base = min(gross, c["employer_ceiling"]) if c["employer_ceiling"] else gross
-    employer = [{"label": x["label"], "base": emp_base, "rate": x["rate"], "amount": R(emp_base * x["rate"] / 100)}
-                for x in c["employer_lines"]]
-    employer += [{"label": x["label"], "base": gross, "rate": x["rate"], "amount": R(gross * x["rate"] / 100)}
+    # Charges patronales : CNSS employeur sur la même assiette que la CNSS
+    # salariale (plafond employeur), taxes patronales sur le brut
+    emp_base = min(cnss_assiette, c["employer_ceiling"]) if c["employer_ceiling"] else cnss_assiette
+    emp_amounts = _split_rounded(emp_base, c["employer_lines"], R)
+    employer = [{"label": x["label"], "base": emp_base, "rate": x["rate"], "amount": amt, "kind": "cnss"}
+                for x, amt in zip(c["employer_lines"], emp_amounts)]
+    employer += [{"label": x["label"], "base": gross, "rate": x["rate"], "amount": R(gross * x["rate"] / 100), "kind": "tax"}
                  for x in p["employer_taxes"]]
-    employer_total = sum(x["amount"] for x in employer)
+    employer_cnss = sum(x["amount"] for x in employer if x["kind"] == "cnss")
+    employer_tax = sum(x["amount"] for x in employer if x["kind"] == "tax")
+    employer_total = employer_cnss + employer_tax
     return {
         "lines": lines,
         "years_of_service": years, "seniority_rate": s_rate, "seniority": seniority,
-        "gross": gross, "cnss": cnss, "cnss_base": cnss_base, "cnss_fiscal": cnss_fiscal,
+        "gross": gross, "exceptional_total": exceptional_total, "in_kind": in_kind,
+        "cnss": cnss, "cnss_base": cnss_base, "cnss_rate": c["employee_rate"],
+        "cnss_fiscal_cap_base": fiscal_cap_base, "cnss_fiscal": cnss_fiscal,
         "taxable": taxable, "exemptions": exemptions, "exemptions_total": ex_total,
-        "flat_abatement_rate": f_rate, "flat_abatement": flat,
+        "flat_abatement_rate": f_rate, "flat_abatement_base": flat_base, "flat_abatement": flat,
         "iuts_base": iuts_base, "iuts_gross": iuts_gross, "family_charges": charges,
         "family_rate": fam_rate, "family_abatement": fam, "iuts": iuts,
+        "withholdings_total": cnss + iuts,              # total retenues sociales et fiscales
+        "in_kind_deducted": in_kind_deducted,
         "net_raw": net_raw, "rounding_diff": rounding_diff, "net": net,
-        "patriotic_support": patriotic, "deductions_total": ded_total, "net_to_pay": net_to_pay,
-        "employer_charges": employer, "employer_total": employer_total, "employer_cost": gross + employer_total,
+        "patriotic_support": patriotic, "patriotic_rate": ps["rate"] if ps["enabled"] else 0,
+        "patriotic_label": ps["label"],
+        "deductions_total": ded_total, "net_to_pay": net_to_pay,
+        "employer_charges": employer, "employer_cnss_base": emp_base,
+        "employer_cnss_rate": sum(x["rate"] for x in c["employer_lines"]),
+        "employer_cnss": employer_cnss, "employer_tax": employer_tax,
+        "employer_total": employer_total, "employer_cost": gross + employer_total,   # masse salariale
     }
 
 

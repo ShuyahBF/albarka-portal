@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "25"
-LOT_LIBELLE = "Fenêtre d’assistance : pictogramme « Capture d’écran » pour montrer son écran au support"
+LOT = "26"
+LOT_LIBELLE = "Paie : formules du classeur ALBARKA (CNSS 44 000, prime exceptionnelle, FSP, net au franc) et bulletin modernisé"

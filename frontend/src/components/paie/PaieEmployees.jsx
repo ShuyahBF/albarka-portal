@@ -7,7 +7,10 @@
       catégorie (si l'abattement dépend de la catégorie), charges de famille,
       date d'embauche (prime d'ancienneté), indemnités (rubriques du modèle) et
       « non exonérée » par indemnité, mode « brut → net » ou « net négocié → brut » ;
-    - calcul en direct avec les paramètres de l'employeur.
+    - calcul en direct avec les paramètres de l'employeur ;
+    - lot 26 : avantage en nature mensuel (logement, véhicule… : dans le brut
+      et l'IUTS, hors CNSS, retiré du net car non versé en argent) ; libellé
+      « FSP » (Prélèvement pour effort de paix) au lieu de « Soutien patriotique ».
 */
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -16,7 +19,7 @@ import { Plus, Pencil, Trash2, X } from "lucide-react";
 import { EmployerSelect, useEmployers, fcfa, GREEN } from "@/components/paie/paieCommon";
 
 const empty = { full_name: "", role: "", matricule: "", cnss_number: "", category: "", dependents: 0, hire_date: "",
-  pay_mode: "gross", base_salary: "", net_target: "", allowances: {}, non_exempt: [], email: "", phone: "" };
+  pay_mode: "gross", base_salary: "", net_target: "", allowances: {}, non_exempt: [], in_kind: "", email: "", phone: "" };
 const inp = "mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm";
 
 function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
@@ -30,7 +33,7 @@ function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
   useEffect(() => {
     const t = setTimeout(() => {
       apiClient.post("/hr/paie/simulate", { employer_id: employerId, period_month: new Date().toISOString().slice(0, 7),
-        employee: { ...f, base_salary: Number(f.base_salary) || 0, net_target: Number(f.net_target) || null } })
+        employee: { ...f, base_salary: Number(f.base_salary) || 0, net_target: Number(f.net_target) || null, in_kind: Number(f.in_kind) || 0 } })
         .then(({ data }) => setCalc(data)).catch(() => setCalc(null));
     }, 350);
     return () => clearTimeout(t);
@@ -40,7 +43,7 @@ function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
     if (!f.full_name.trim()) { toast.error("Nom du salarié requis"); return; }
     setBusy(true);
     const body = { ...f, tenant_id: employerId, base_salary: Number(f.base_salary) || 0, net_target: f.pay_mode === "net" ? Number(f.net_target) || null : null,
-      dependents: Number(f.dependents) || 0, hire_date: f.hire_date || null, category: f.category || null };
+      dependents: Number(f.dependents) || 0, hire_date: f.hire_date || null, category: f.category || null, in_kind: Number(f.in_kind) || 0 };
     try {
       if (initial?.id) await apiClient.put(`/hr/paie/employees/${initial.id}`, body);
       else await apiClient.post("/hr/paie/employees", body);
@@ -78,7 +81,7 @@ function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
               {f.pay_mode === "gross" ? (
                 <label className="block max-w-xs">Salaire de base<input type="number" value={f.base_salary} onChange={(e) => set({ base_salary: e.target.value })} className={inp} data-testid="emp-base" /></label>
               ) : (
-                <label className="block max-w-xs">Salaire net négocié (avant soutien patriotique)
+                <label className="block max-w-xs">Salaire net négocié (avant FSP)
                   <input type="number" value={f.net_target || ""} onChange={(e) => set({ net_target: e.target.value })} className={inp} data-testid="emp-net-target" /></label>
               )}
             </div>
@@ -100,6 +103,10 @@ function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
                   </div>
                 ))}
               </div>
+              {/* Lot 26 : avantage en nature (non versé en argent) */}
+              <label className="mt-2 block max-w-xs" title="Imposable à l'IUTS, hors base CNSS, retiré du salaire net">
+                {params?.in_kind?.label || "Avantage en nature"} (valeur mensuelle)
+                <input type="number" min="0" value={f.in_kind || ""} onChange={(e) => set({ in_kind: e.target.value })} className={inp} data-testid="emp-in-kind" /></label>
               {/* Indemnités qui ne sont plus dans le modèle : visibles et supprimables */}
               {Object.keys(f.allowances || {}).filter((k) => !(params?.allowances || []).some((a) => a.key === k)).map((k) => (
                 <div key={k} className="mt-2 flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-amber-800">
@@ -118,7 +125,7 @@ function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
               <table className="w-full"><tbody>
                 {[["Salaire de base", calc.base_salary], [`Ancienneté (${calc.years_of_service} an(s), ${calc.seniority_rate} %)`, calc.seniority],
                   ["Salaire brut", calc.gross, true], ["CNSS", calc.cnss], ["IUTS net", calc.iuts], ["Salaire net", calc.net, true],
-                  ["Soutien patriotique", calc.patriotic_support], ["Net à payer", calc.net_to_pay, true], ["Coût employeur", calc.employer_cost]].map(([l, v, b]) => (
+                  ["FSP (effort de paix)", calc.patriotic_support], ["Net à payer", calc.net_to_pay, true], ["Masse salariale", calc.employer_cost]].map(([l, v, b]) => (
                   <tr key={l} className={b ? "font-semibold" : ""}><td className="py-0.5 text-slate-600">{l}</td><td className="text-right tabular-nums">{fcfa(v)}</td></tr>
                 ))}
               </tbody></table>
