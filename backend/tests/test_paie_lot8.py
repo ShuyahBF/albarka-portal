@@ -5,6 +5,9 @@
   famille 1 989,65, IUTS net 22 880,95) et, avec les arrondis par défaut
   (franc, base IUTS à la centaine inférieure, net à la centaine), net 300 000
   et net à payer 297 000 comme sur le bulletin ;
+  LOT 26 : le net est désormais arrondi au FRANC SUPÉRIEUR (classeur d'ALBARKA,
+  « Taux 20% (3) ») au lieu de la centaine : 300 001 et 297 001 (voir les
+  commentaires « Lot 26 » ci-dessous) ;
 - ancienneté à partir de 3 ans, charges de famille et abattement par catégorie
   paramétrables, mode « net négocié → brut » ;
 - modèles de configuration (Appliquer, Restaurer les valeurs par défaut),
@@ -60,7 +63,13 @@ def test_reproduces_excel_exactly():
 def test_default_rounding_gives_payslip_values():
     r = moteur.compute_payslip(SANDRINE, None, "2024-07")
     assert (r["cnss"], r["iuts_base"], r["iuts_gross"], r["family_abatement"], r["iuts"]) == (18792, 182900, 24869, 1990, 22879)
-    assert r["net"] == 300000 and r["patriotic_support"] == 3000 and r["net_to_pay"] == 297000
+    # Lot 26 : net = ARRONDI SUPÉRIEUR au franc de (brut − CNSS − IUTS) = 341 672
+    # − 18 792 − 22 879 = 300 001 (l'ancien défaut « centaine la plus proche »
+    # donnait 300 000) ; FSP 1 % = 3 000 ; net à payer 297 001.
+    assert r["net"] == 300001 and r["patriotic_support"] == 3000 and r["net_to_pay"] == 297001
+    # L'ancien arrondi reste disponible dans un modèle : on retrouve 300 000 / 297 000
+    old = moteur.compute_payslip(SANDRINE, {"rounding": {"net": {"step": 100, "mode": "nearest"}}}, "2024-07")
+    assert old["net"] == 300000 and old["net_to_pay"] == 297000
     # Charges patronales : CNSS 16 % du brut plafonné + TPA 3 % du brut
     # 7 % -> 23 917, 3,5 % -> 11 959, 5,5 % -> 18 792, TPA 3 % -> 10 250
     assert [x["amount"] for x in r["employer_charges"]] == [23917, 11959, 18792, 10250] and r["employer_total"] == 64918
@@ -161,7 +170,9 @@ def test_templates_and_employer_config(env):
     bad = dict(params, iuts_brackets=[{"up_to": 5, "rate": 10}, {"up_to": 1, "rate": 10}])
     assert c.put(f"/api/hr/paie/modeles/{t['id']}", headers=H, json={"name": "X", "params": bad}).status_code == 400
     t3 = c.post(f"/api/hr/paie/modeles/{t['id']}/restore-defaults", headers=H).json()
-    assert t3["params"]["patriotic_support"]["rate"] == 1 and t3["params"]["flat_abatement"]["mode"] == "single"
+    # Lot 26 : l'abattement forfaitaire par défaut dépend de la catégorie
+    # (cadre 20 %, non cadre 25 %, classeur d'ALBARKA) ; avant : taux unique.
+    assert t3["params"]["patriotic_support"]["rate"] == 1 and t3["params"]["flat_abatement"]["mode"] == "by_category"
     # Employeurs : cabinet + client ; le client utilise le modèle et le personnalise
     emps = c.get("/api/hr/paie/employeurs", headers=H).json()["items"]
     assert [e["employer_id"] for e in emps] == ["cabinet", "c1"] and emps[1]["template_id"] == std["id"]
@@ -194,13 +205,14 @@ def test_bulletins_ledger_pdf_and_verify(env):
     assert p["created"] == 2
     lst = c.get("/api/hr/paie/bulletins?employer_id=c1&period_month=2024-07", headers=H).json()
     sandrine = next(b for b in lst["items"] if b["employee_id"] == e["id"])
-    assert sandrine["result"]["net"] == 300000 and sandrine["result"]["net_to_pay"] == 297000
+    # Lot 26 : net arrondi au franc supérieur (300 001 / 297 001, voir plus haut)
+    assert sandrine["result"]["net"] == 300001 and sandrine["result"]["net_to_pay"] == 297001
     nego = next(b for b in lst["items"] if b["employee_id"] != e["id"])
     assert nego["result"]["net"] == 300000 and 231600 < nego["result"]["base_salary"] < 231700
     # Éléments du mois : acompte -> net à payer diminué
     b = c.put(f"/api/hr/paie/bulletins/{sandrine['id']}", headers=H, json={"deductions": [{"label": "Acompte", "amount": 50000}],
                                                                            "extras": [], "notes": "Acompte du 15"}).json()
-    assert b["result"]["net_to_pay"] == 247000
+    assert b["result"]["net_to_pay"] == 247001          # lot 26 : 297 001 − 50 000
     # Validation : figé (la re-préparation ne le recalcule pas)
     c.post(f"/api/hr/paie/bulletins/{sandrine['id']}/validate", headers=H)
     assert c.put(f"/api/hr/paie/bulletins/{sandrine['id']}", headers=H, json={}).status_code == 409
@@ -209,12 +221,13 @@ def test_bulletins_ledger_pdf_and_verify(env):
     pdf = c.get(f"/api/hr/paie/bulletins/{sandrine['id']}/pdf", headers=H)
     with fitz.open("pdf", pdf.content) as d:
         text = " ".join(" ".join(pg.get_text() for pg in d).split())
-    assert "BULLETIN DE PAIE" in text and "CARD-IPRO SARL" in text and "YAOLILE" in text and "247 000" in text
-    assert "Soutien patriotique" in text and "sans limitation de durée" in text
+    assert "BULLETIN DE PAIE" in text and "CARD-IPRO SARL" in text and "YAOLILE" in text and "247 001" in text
+    # Lot 26 : « Soutien patriotique » renommé « Prélèvement pour effort de paix (FSP) »
+    assert "Prélèvement pour effort de paix" in text and "sans limitation de durée" in text
     # Vérification par QR code
     tok = env_db_token(env, sandrine["id"])
     v = c.get(f"/api/public/verify/{tok}").json()
-    assert v["valid"] and v["kind"] == "Bulletin de paie" and v["client"] == "CARD-IPRO SARL" and v["amount"] == 247000
+    assert v["valid"] and v["kind"] == "Bulletin de paie" and v["client"] == "CARD-IPRO SARL" and v["amount"] == 247001
     # Livre de paie : charges patronales
     lv = c.get("/api/hr/paie/livre?employer_id=c1&period_month=2024-07", headers=H).json()
     assert lv["totals"]["count"] == 2 and lv["totals"]["employer_total"] > 0

@@ -18,7 +18,15 @@ celle de SES CLIENTS (employeur = compte client).
   - LIVRE DE PAIE du mois : tous les salariés, retenues, net à payer et
     CHARGES PATRONALES (CNSS employeur, TPA) ; PDF et Excel (CSV).
 
-Collections : paie_modeles, paie_employeurs, paie_bulletins (+ employees).
+Lot 26 — formules du classeur d'ALBARKA (feuille « Taux 20% (3) ») : prime
+exceptionnelle hors CNSS, avantage en nature, plafond CNSS 800 000, FSP,
+net arrondi au franc supérieur ; bulletin PDF modernisé (structure du
+bulletin d'ALBARKA, cumul du mois et de l'année) ; mise à jour unique, au
+démarrage, des modèles enregistrés qui gardaient les anciennes valeurs par
+défaut (voir _migrate_lot26).
+
+Collections : paie_modeles, paie_employeurs, paie_bulletins (+ employees),
+paie_migrations (mises à jour déjà faites).
 """
 from __future__ import annotations
 
@@ -36,7 +44,7 @@ from pymongo.errors import DuplicateKeyError
 
 from albarka_auth import require_roles
 from albarka_docgen import MONTHS_FR, fcfa, new_verify_token, now_iso, qr_png, verify_url
-from albarka_paie_moteur import DEFAULT_PARAMS, base_for_net, compute_payslip, normalize_params
+from albarka_paie_moteur import DEFAULT_PARAMS, base_for_net, compute_payslip, normalize_params, upgrade_params_lot26
 from db import db
 
 router = APIRouter(prefix="/hr/paie", tags=["RH & Paie — bulletins"])
@@ -97,11 +105,48 @@ async def ensure_paie_setup() -> None:
         # deux démarrages arrivent en même temps
         await db.paie_modeles.update_one({"id": "bf-standard"}, {"$setOnInsert": {
             "id": "bf-standard", "name": SYSTEM_TEMPLATE_NAME,
-            "description": "Barème IUTS, CNSS 5,5 % plafonnée, exonérations logement/transport/fonction, "
-                           "abattement 25 %, soutien patriotique 1 % (valeurs du fichier du cabinet).",
+            "description": "Barème IUTS, CNSS 5,5 % plafonnée à 800 000, exonérations logement/transport/fonction, "
+                           "abattement cadre 20 % / non cadre 25 %, FSP 1 % (classeur d'ALBARKA, août 2024).",
             "params": normalize_params(None), "is_default": True, "created_at": now_iso(), "updated_at": now_iso()}},
             upsert=True)
+    await _migrate_lot26()
     _SETUP_DONE_FOR = db
+
+
+async def _migrate_lot26() -> None:
+    """Lot 26 — mise à jour UNIQUE des paramètres déjà enregistrés.
+
+    Les modèles et personnalisations créés avant le lot 26 contiennent les
+    anciennes valeurs (plafond CNSS 600 000, net à la centaine, « Soutien
+    patriotique », 8 charges → 22 %…) : sans cette mise à jour, ils
+    continueraient à les appliquer. Seules les valeurs restées identiques aux
+    anciens défauts sont remplacées (upgrade_params_lot26) ; un réglage
+    modifié par le cabinet est conservé. Les bulletins VALIDÉS ne sont jamais
+    recalculés ; les brouillons le seront au prochain « Préparer / recalculer ».
+    Un marqueur dans paie_migrations empêche de la refaire."""
+    if await db.paie_migrations.find_one({"id": "lot26"}, {"_id": 0, "id": 1}):
+        return
+    report = {"templates": 0, "employers": 0}
+    async for t in db.paie_modeles.find({}, {"_id": 0, "id": 1, "params": 1}):
+        try:
+            params, changes = upgrade_params_lot26(t.get("params"))
+        except (ValueError, TypeError, AttributeError):
+            continue                                # modèle illisible : laissé tel quel
+        if changes:
+            await db.paie_modeles.update_one({"id": t["id"]}, {"$set": {
+                "params": params, "upgraded_lot26": changes, "updated_at": now_iso()}})
+            report["templates"] += 1
+    async for e in db.paie_employeurs.find({"custom_params": {"$ne": None}}, {"_id": 0, "employer_id": 1, "custom_params": 1}):
+        try:
+            params, changes = upgrade_params_lot26(e.get("custom_params"))
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if changes:
+            await db.paie_employeurs.update_one({"employer_id": e["employer_id"]}, {"$set": {
+                "custom_params": params, "upgraded_lot26": changes, "updated_at": now_iso()}})
+            report["employers"] += 1
+    await db.paie_migrations.update_one({"id": "lot26"}, {"$setOnInsert": {"id": "lot26", "done_at": now_iso(), **report}},
+                                        upsert=True)
 
 
 async def _template(tid: str) -> dict:
@@ -328,6 +373,7 @@ class EmployeePaieIn(BaseModel):
     net_target: Optional[float] = Field(None, ge=0)
     allowances: Dict[str, float] = Field(default_factory=dict)
     non_exempt: List[str] = Field(default_factory=list)
+    in_kind: float = Field(0, ge=0)               # lot 26 : avantage en nature mensuel (logement, véhicule…)
     email: Optional[str] = None
     phone: Optional[str] = None
 
@@ -435,11 +481,13 @@ class PrepareIn(BaseModel):
 
 def _snapshot(emp: dict) -> dict:
     keys = ("full_name", "role", "matricule", "cnss_number", "category", "dependents", "hire_date", "pay_mode",
-            "base_salary", "net_target", "allowances", "non_exempt")
+            "base_salary", "net_target", "allowances", "non_exempt", "in_kind")
     return {k: emp.get(k) for k in keys}
 
 
 def _clean_items(items: List[dict], default_label: str) -> List[dict]:
+    """Lignes « libellé / montant » du mois ; une prime peut être cochée
+    « exceptionnelle » (lot 26 : hors base CNSS)."""
     out = []
     for it in items or []:
         try:
@@ -449,7 +497,10 @@ def _clean_items(items: List[dict], default_label: str) -> List[dict]:
         if amt < 0:
             raise HTTPException(status_code=400, detail="Montant négatif interdit")
         if amt:
-            out.append({"label": str(it.get("label") or default_label).strip()[:80], "amount": amt})
+            row = {"label": str(it.get("label") or default_label).strip()[:80], "amount": amt}
+            if it.get("exceptional"):
+                row["exceptional"] = True
+            out.append(row)
     return out
 
 
@@ -556,7 +607,7 @@ async def delete_bulletin(bid: str, user: dict = Depends(require_roles(HR_ROLES)
 # Livre de paie
 # ==========================================================================
 LEDGER_COLUMNS = [
-    ("gross", "Brut"), ("cnss", "CNSS sal."), ("iuts", "IUTS net"), ("patriotic_support", "Soutien patr."),
+    ("gross", "Brut"), ("cnss", "CNSS sal."), ("iuts", "IUTS net"), ("patriotic_support", "FSP"),
     ("deductions_total", "Retenues"), ("net_to_pay", "Net à payer"), ("employer_total", "Charges patr."),
     ("employer_cost", "Coût total"),
 ]
@@ -617,90 +668,309 @@ def _money(v) -> str:
     return fcfa(v) if v not in (None, "") and float(v or 0) != 0 else ""
 
 
-def build_bulletin_pdf(b: dict) -> bytes:
-    """Bulletin au format du fichier du cabinet : en-tête employeur / salarié,
-    rubriques (base, taux, gains, retenues), bases fiscales, net à payer, QR code."""
+def _rate(v) -> str:
+    """Taux affiché « 5,5 % » (vide si absent ou nul)."""
+    if v in (None, "") or not float(v or 0):
+        return ""
+    return f"{float(v):g} %".replace(".", ",")
+
+
+def _employer_split(r: dict) -> tuple:
+    """(cotisations CNSS patronales, taxes patronales) d'un résultat de calcul.
+    Les bulletins calculés avant le lot 26 n'ont pas ce détail : les lignes
+    dont le libellé commence par « Taxe » (ou contient « TPA ») sont des taxes."""
+    if "employer_cnss" in r:
+        return float(r.get("employer_cnss") or 0), float(r.get("employer_tax") or 0)
+    tax = sum(float(x.get("amount") or 0) for x in r.get("employer_charges") or []
+              if str(x.get("label") or "").startswith("Taxe") or "TPA" in str(x.get("label") or ""))
+    return float(r.get("employer_total") or 0) - tax, tax
+
+
+def _cumul_of(results: List[dict]) -> dict:
+    """Totaux « salaire brut, cotisation patronale, taxe patronale, masse salariale »."""
+    out = {"gross": 0.0, "employer_cnss": 0.0, "employer_tax": 0.0, "employer_cost": 0.0}
+    for r in results:
+        cnss, tax = _employer_split(r)
+        out["gross"] += float(r.get("gross") or 0)
+        out["employer_cnss"] += cnss
+        out["employer_tax"] += tax
+        out["employer_cost"] += float(r.get("employer_cost") or 0)
+    return out
+
+
+async def _bulletin_pdf_context(b: dict) -> dict:
+    """Données complémentaires du PDF (lues en base, avant la mise en page) :
+    cumul de l'année (bulletins du même employeur et du même salarié, de
+    janvier au mois du bulletin), logo et IFU du cabinet (pour SON personnel
+    seulement : le bulletin d'un client ne porte pas le logo du cabinet)."""
+    year = b["period_month"][:4]
+    past = await db.paie_bulletins.find(
+        {"employer_id": b["employer_id"], "employee_id": b["employee_id"],
+         "period_month": {"$gte": f"{year}-01", "$lte": b["period_month"]}},
+        {"_id": 0, "result": 1, "id": 1}).to_list(24)
+    results = [x.get("result") or {} for x in past if x.get("id") != b.get("id")] + [b.get("result") or {}]
+    ctx = {"cumul_year": _cumul_of(results), "logo": None, "ifu": ""}
+    if b.get("employer_id") == CABINET_ID:
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "branding": 1, "doc_settings": 1}) or {}
+        ctx["ifu"] = (s.get("doc_settings") or {}).get("cabinet_ifu") or ""
+        br = s.get("branding") or {}
+        if (br.get("logo") or {}).get("path") and br.get("apply_logo", True):
+            try:
+                from albarka_storage import get_object
+                ctx["logo"], _ = await get_object(br["logo"]["path"])
+            except Exception:                            # logo absent du stockage : bulletin sans logo
+                ctx["logo"] = None
+    return ctx
+
+
+# Couleurs du bulletin (lot 26) : bleu nuit + filet orange, lisible en noir et blanc
+PDF_NAVY = "#0F2A4A"
+PDF_ORANGE = "#F6A35B"
+PDF_ZEBRA = "#F3F6FA"
+PDF_GRID = "#D5DDE8"
+PDF_GREY = "#5B6B80"
+
+
+def build_bulletin_pdf(b: dict, ctx: Optional[dict] = None) -> bytes:
+    """Bulletin de paie (lot 26) — structure du bulletin d'ALBARKA, mise en page modernisée.
+
+    Haut : bandeau bleu nuit + filet orange ; employeur (logo, nom, adresse,
+    téléphone, IFU, n° CNSS) à gauche ; « BULLETIN DE PAIE », état et période
+    à droite. Puis identité du salarié, tableau Libellé / Base / Taux sal. /
+    Montant sal. / Taux pat. / Montant pat. (gains, total brut, CNSS, IUTS,
+    total des retenues, FSP, autres retenues), encadré « Net à payer »,
+    petits tableaux (impôt sur le salaire, cumul mois / année, jours et
+    heures), mention de conservation, QR code et pied de page « Édité le … ».
+    `ctx` : données lues en base par _bulletin_pdf_context (cumul annuel,
+    logo, IFU) ; absent = cumul du mois seul, sans logo."""
+    from datetime import datetime, timezone
+
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
     from reportlab.platypus import Image as RLImage, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-    green = colors.HexColor("#0F6B4A")
-    st = {"h": ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=15, alignment=1, textColor=green),
-          "b": ParagraphStyle("b", fontName="Helvetica", fontSize=8.8, leading=11.5),
-          "bb": ParagraphStyle("bb", fontName="Helvetica-Bold", fontSize=8.8, leading=11.5),
-          "s": ParagraphStyle("s", fontName="Helvetica-Oblique", fontSize=7.5, textColor=colors.HexColor("#64748B"), alignment=1)}
+    ctx = ctx or {}
+    navy, orange = colors.HexColor(PDF_NAVY), colors.HexColor(PDF_ORANGE)
+    zebra, grid, grey = colors.HexColor(PDF_ZEBRA), colors.HexColor(PDF_GRID), colors.HexColor(PDF_GREY)
+    F, FB = "Helvetica", "Helvetica-Bold"
+    st = {
+        "title": ParagraphStyle("title", fontName=FB, fontSize=17, leading=20, textColor=navy, alignment=2),
+        "r": ParagraphStyle("r", fontName=F, fontSize=8.6, leading=11, alignment=2),
+        "rb": ParagraphStyle("rb", fontName=FB, fontSize=8.6, leading=11, alignment=2),
+        "emp": ParagraphStyle("emp", fontName=FB, fontSize=11.5, leading=14, textColor=navy),
+        "b": ParagraphStyle("b", fontName=F, fontSize=8.6, leading=11),
+        "bb": ParagraphStyle("bb", fontName=FB, fontSize=8.6, leading=11),
+        "lab": ParagraphStyle("lab", fontName=F, fontSize=7.2, leading=9, textColor=grey),
+        "val": ParagraphStyle("val", fontName=FB, fontSize=8.8, leading=11),
+        "cell": ParagraphStyle("cell", fontName=F, fontSize=8.4, leading=10.2),
+        "cellb": ParagraphStyle("cellb", fontName=FB, fontSize=8.4, leading=10.2),
+        "sub": ParagraphStyle("sub", fontName=F, fontSize=7.4, leading=9, textColor=grey, leftIndent=8),
+        "mini_h": ParagraphStyle("mini_h", fontName=FB, fontSize=7.8, leading=9.5, textColor=colors.white),
+        "note": ParagraphStyle("note", fontName="Helvetica-Oblique", fontSize=7.8, leading=10, textColor=grey, alignment=1),
+    }
+    P = lambda t, s="b": Paragraph(escape(str(t if t is not None else "")), st[s])  # noqa: E731
     e, r, emp = b.get("employer") or {}, b.get("result") or {}, b.get("employee") or {}
+    params = b.get("params") or {}
     d1, d2 = period_bounds(b["period_month"])
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=14 * mm, bottomMargin=14 * mm,
-                            title=f"Bulletin de paie {emp.get('full_name')} {b['period_month']}")
-    P = lambda t, s="b": Paragraph(escape(str(t or "")), st[s])  # noqa: E731
-    head = Table([
-        [P("Employeur", "bb"), P(f"{period_label(b['period_month'])}", "bb"), P("Salarié", "bb")],
-        [P(e.get("name"), "bb"), P(f"du {d1}"), P(emp.get("full_name"), "bb")],
-        [P(e.get("address")), P(f"au {d2}"), P(emp.get("role") or "")],
-        [P(f"Tél : {e.get('phone')}" if e.get("phone") else ""), P(""),
-         P(" · ".join(x for x in [f"Matricule {emp['matricule']}" if emp.get("matricule") else "",
-                                  f"N° CNSS {emp['cnss_number']}" if emp.get("cnss_number") else ""] if x))],
-        [P(f"N° CNSS employeur : {e.get('cnss_number')}" if e.get("cnss_number") else ""), P(""),
-         P(f"Charges familiales : {r.get('family_charges', 0)} · Ancienneté : {r.get('years_of_service', 0)} an(s)"
-           + (f" · Catégorie : {emp['category']}" if emp.get("category") else ""))],
-    ], colWidths=[70 * mm, 40 * mm, 70 * mm])
-    head.setStyle(TableStyle([("BOX", (0, 0), (0, -1), 0.5, colors.grey), ("BOX", (2, 0), (2, -1), 0.5, colors.grey),
-                              ("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (1, 0), (1, -1), "CENTER")]))
-    rows = [["Rubrique", "Base", "Taux", "Gains", "Retenues"]]
+    edited = datetime.now(timezone.utc).strftime("%d/%m/%Y à %H:%M")      # Burkina Faso : UTC
+    W = 182 * mm                                                            # largeur utile (A4 − marges)
 
-    def row_of(ln):
-        gain = ln["amount"] if ln["kind"] == "gain" else None
-        ret = ln["amount"] if ln["kind"] == "deduction" else None
-        rate = f"{ln['rate']:g} %".replace(".", ",") if ln.get("rate") not in (None, "") else ""
-        return [P(ln["label"]), _money(ln.get("base")), rate, _money(gain),
-                ("− " + fcfa(-ret)) if ret is not None and ret < 0 else _money(ret)]
-    # Ordre du modèle : gains, salaire brut, CNSS et IUTS, IUTS net, salaire net,
-    # puis soutien patriotique et retenues du mois, enfin le net à payer.
-    after_net = []
-    for ln in r.get("lines") or []:
-        if ln["code"] == "cnss":
-            rows.append([P("Salaire brut", "bb"), "", "", fcfa(r.get("gross")), ""])
-        if ln["code"] == "patriotic" or ln["code"].startswith("ded_"):
-            after_net.append(ln)
-            continue
-        rows.append(row_of(ln))
-    rows.append([P("IUTS net", "bb"), "", "", "", fcfa(r.get("iuts"))])
-    if r.get("rounding_diff"):
-        rows.append([P("Arrondi du net"), "", "", _money(r["rounding_diff"]) if r["rounding_diff"] > 0 else "",
-                     _money(-r["rounding_diff"]) if r["rounding_diff"] < 0 else ""])
-    rows.append([P("Salaire net", "bb"), "", "", fcfa(r.get("net")), ""])
-    rows.extend(row_of(ln) for ln in after_net)
-    t = Table(rows, colWidths=[72 * mm, 28 * mm, 16 * mm, 32 * mm, 32 * mm], repeatRows=1)
-    t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), green), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                           ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 8.8), ("FONT", (1, 1), (-1, -1), "Helvetica", 8.8),
-                           ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")), ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
-                           ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
-    fisc = Table([
-        ["Contrôle CNSS (fiscal)", fcfa(r.get("cnss_fiscal")), "Salaire imposable IUTS", fcfa(r.get("taxable"))],
-        ["Total exonérations", fcfa(r.get("exemptions_total")), f"Abattement forfaitaire ({r.get('flat_abatement_rate', 0):g} %)", fcfa(r.get("flat_abatement"))],
-        ["Base IUTS", fcfa(r.get("iuts_base")), f"Abattement famille ({r.get('family_rate', 0):g} %)", fcfa(r.get("family_abatement"))],
-    ], colWidths=[45 * mm, 45 * mm, 45 * mm, 45 * mm])
-    fisc.setStyle(TableStyle([("FONT", (0, 0), (-1, -1), "Helvetica", 7.8), ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#475569")),
-                              ("ALIGN", (1, 0), (1, -1), "RIGHT"), ("ALIGN", (3, 0), (3, -1), "RIGHT"),
-                              ("BOX", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1"))]))
-    pay = Table([[P("NET À PAYER", "bb"), fcfa(r.get("net_to_pay"))]], colWidths=[140 * mm, 40 * mm])
-    pay.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#E5A24B")), ("FONT", (1, 0), (1, 0), "Helvetica-Bold", 11),
-                             ("ALIGN", (1, 0), (1, 0), "RIGHT"), ("BOX", (0, 0), (-1, -1), 0.6, colors.grey)]))
-    el = [Paragraph("BULLETIN DE PAIE", st["h"]), Spacer(1, 6), head, Spacer(1, 8), t, Spacer(1, 4), pay, Spacer(1, 6), fisc]
-    notes = (b.get("variables") or {}).get("notes")
+    # ---- Bandeau du haut et pied de page (dessinés sur chaque page) ----
+    def decorate(canvas, doc):
+        pw, ph = A4
+        canvas.saveState()
+        canvas.setFillColor(navy)
+        canvas.rect(0, ph - 7 * mm, pw, 7 * mm, stroke=0, fill=1)          # bandeau bleu nuit
+        canvas.setFillColor(orange)
+        canvas.rect(0, ph - 8.2 * mm, pw, 1.2 * mm, stroke=0, fill=1)      # filet orange
+        canvas.setFillColor(colors.white)
+        canvas.setFont(FB, 8)
+        canvas.drawString(14 * mm, ph - 4.6 * mm, (e.get("name") or "").upper()[:80])
+        canvas.drawRightString(pw - 14 * mm, ph - 4.6 * mm, f"BULLETIN DE PAIE · {period_label(b['period_month'])}")
+        canvas.setStrokeColor(grid)
+        canvas.setLineWidth(0.5)
+        canvas.line(14 * mm, 12 * mm, pw - 14 * mm, 12 * mm)
+        canvas.setFillColor(grey)
+        canvas.setFont(F, 7.2)
+        canvas.drawString(14 * mm, 8 * mm, f"Édité le {edited}")
+        canvas.drawRightString(pw - 14 * mm, 8 * mm, f"{emp.get('full_name') or ''} · {d1} – {d2} · page {doc.page}")
+        canvas.restoreState()
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm, topMargin=13 * mm, bottomMargin=16 * mm,
+                            title=f"Bulletin de paie {emp.get('full_name')} {b['period_month']}", author=e.get("name") or "")
+
+    # ---- En-tête : employeur à gauche, titre et période à droite ----
+    left = []
+    if ctx.get("logo"):
+        try:
+            left.append(RLImage(io.BytesIO(ctx["logo"]), width=30 * mm, height=14 * mm, kind="proportional", hAlign="LEFT"))
+        except Exception:                                # image illisible : sans logo
+            pass
+    left.append(P(e.get("name"), "emp"))
+    for txt in (e.get("address"), f"Tél. : {e['phone']}" if e.get("phone") else "",
+                f"IFU : {ctx['ifu']}" if ctx.get("ifu") else "",
+                f"N° CNSS employeur : {e['cnss_number']}" if e.get("cnss_number") else ""):
+        if txt:                                          # pas de ligne vide quand une donnée manque
+            left.append(P(txt))
+    status = "Validé" if b.get("status") == "validated" else "Brouillon (non validé)"
+    right = [P("BULLETIN DE PAIE", "title"), Spacer(1, 3),
+             P(f"Statut : {status}", "rb"), P(f"Période du {d1} au {d2}", "r")]
+    if b.get("validated_at"):
+        right.append(P(f"Validé le {str(b['validated_at'])[8:10]}/{str(b['validated_at'])[5:7]}/{str(b['validated_at'])[:4]}", "r"))
+    head = Table([[left, right]], colWidths=[W * 0.56, W * 0.44])
+    head.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                              ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+
+    # ---- Identité du salarié (cases « libellé / valeur », sans case vide) ----
+    cat_label = ""
+    if emp.get("category"):
+        cats = (params.get("flat_abatement") or {}).get("categories") or []
+        cat_label = next((c.get("label") for c in cats if c.get("key") == emp["category"]), emp["category"])
+    years = r.get("years_of_service")
+    since = ""
+    if emp.get("hire_date"):
+        h = str(emp["hire_date"])[:10]
+        since = f" (depuis le {h[8:10]}/{h[5:7]}/{h[:4]})"
+    fields = [("Salarié", emp.get("full_name")), ("Matricule", emp.get("matricule")),
+              ("N° sécurité sociale", emp.get("cnss_number")), ("Poste", emp.get("role")),
+              ("Statut", cat_label),
+              ("Ancienneté", f"{years or 0} an{'s' if (years or 0) > 1 else ''}{since}"),
+              ("Charges de famille", str(r.get("family_charges", emp.get("dependents") or 0)))]
+    fields = [(k, v) for k, v in fields if v not in (None, "")]
+    cells = [[P(k, "lab"), P(v, "val")] for k, v in fields]
+    per_row = 4
+    id_rows = []
+    for i in range(0, len(cells), per_row):
+        chunk = cells[i:i + per_row] + [[P(""), P("")]] * (per_row - len(cells[i:i + per_row]))
+        id_rows.append([c for c in chunk])
+    ident = Table(id_rows, colWidths=[W / per_row] * per_row)
+    ident.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.6, grid), ("BACKGROUND", (0, 0), (-1, -1), zebra),
+                               ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 4),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 4), ("LEFTPADDING", (0, 0), (-1, -1), 6)]))
+
+    # ---- Tableau principal ----
+    rows = [["Libellé", "Base", "Taux sal.", "Montant sal.", "Taux pat.", "Montant pat."]]
+    styles: List[tuple] = []       # styles propres à certaines lignes (totaux, sous-lignes)
+    lines = r.get("lines") or []
+    for ln in lines:                                             # 1) gains
+        if ln.get("kind") == "gain":
+            rows.append([P(ln["label"], "cell"), _money(ln.get("base")), _rate(ln.get("rate")), fcfa(ln["amount"]), "", ""])
+    rows.append([P("Total brut", "cellb"), "", "", fcfa(r.get("gross")), "", ""])
+    styles.append(("total", len(rows) - 1))
+    # 2) CNSS : part salariale et part patronale sur la même ligne
+    emp_cnss, emp_tax = _employer_split(r)
+    pat_rate = r.get("employer_cnss_rate")
+    if pat_rate is None and r.get("employer_charges"):
+        pat_rate = sum(float(x.get("rate") or 0) for x in r["employer_charges"]
+                       if not (str(x.get("label") or "").startswith("Taxe") or "TPA" in str(x.get("label") or "")))
+    rows.append([P("Cotisations sociales (CNSS)", "cell"), _money(r.get("cnss_base")),
+                 _rate(r.get("cnss_rate") if r.get("cnss_rate") is not None else (params.get("cnss") or {}).get("employee_rate")),
+                 fcfa(r.get("cnss")), _rate(pat_rate), fcfa(emp_cnss)])
+    # 3) IUTS (net de l'abattement pour charges de famille) avec son détail
+    rows.append([P("Impôt retenu à la source (IUTS)", "cell"), _money(r.get("iuts_base")), "", fcfa(r.get("iuts")), "", ""])
+    if r.get("family_abatement"):
+        rows.append([P(f"IUTS barème {fcfa(r.get('iuts_gross'))} − charges de famille "
+                       f"{_rate(r.get('family_rate'))} ({fcfa(r.get('family_abatement'))})", "sub"), "", "", "", "", ""])
+        styles.append(("sub", len(rows) - 1))
+    rows.append([P("Total retenues sociales et fiscales", "cellb"), "", "",
+                 fcfa(r.get("withholdings_total", float(r.get("cnss") or 0) + float(r.get("iuts") or 0))), "", fcfa(emp_cnss)])
+    styles.append(("total", len(rows) - 1))
+    # 4) Avantage en nature retiré du net, FSP puis retenues du mois
+    for ln in lines:
+        if ln.get("code") == "in_kind_net":
+            rows.append([P(ln["label"], "cell"), "", "", fcfa(ln["amount"]), "", ""])
+    for ln in lines:
+        if ln.get("code") == "patriotic":
+            label = ln["label"] if "effort de paix" in ln["label"].lower() else f"Prélèvement pour effort de paix — {ln['label']}"
+            rows.append([P(label, "cell"), _money(ln.get("base")), _rate(ln.get("rate")), fcfa(ln["amount"]), "", ""])
+    for ln in lines:
+        if str(ln.get("code") or "").startswith("ded_"):
+            rows.append([P(ln["label"], "cell"), "", "", fcfa(ln["amount"]), "", ""])
+    t = Table(rows, colWidths=[62 * mm, 25 * mm, 18 * mm, 27 * mm, 18 * mm, 32 * mm], repeatRows=1)
+    ts = [("BACKGROUND", (0, 0), (-1, 0), navy), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+          ("FONT", (0, 0), (-1, 0), FB, 8), ("FONT", (1, 1), (-1, -1), F, 8.4),
+          ("ALIGN", (1, 0), (-1, -1), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+          ("LINEBELOW", (0, 1), (-1, -1), 0.3, grid), ("BOX", (0, 0), (-1, -1), 0.6, navy),
+          ("TOPPADDING", (0, 0), (-1, -1), 3.2), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.2)]
+    sub_rows = {i for kind, i in styles if kind == "sub"}
+    shade = False
+    for i in range(1, len(rows)):                               # lignes alternées très légères
+        if i not in sub_rows:                                   # une sous-ligne garde le fond de sa ligne
+            shade = not shade
+        if not shade:
+            ts.append(("BACKGROUND", (0, i), (-1, i), zebra))
+    for kind, i in styles:
+        if kind == "total":                                     # totaux : gras, filet bleu nuit au-dessus
+            ts += [("FONT", (1, i), (-1, i), FB, 8.4), ("LINEABOVE", (0, i), (-1, i), 0.8, navy),
+                   ("BACKGROUND", (0, i), (-1, i), colors.HexColor("#E8EEF5"))]
+        else:                                                   # sous-ligne de détail : sur toute la largeur, serrée
+            ts += [("SPAN", (0, i), (-1, i)), ("TOPPADDING", (0, i), (-1, i), 0)]
+    t.setStyle(TableStyle(ts))
+
+    # ---- Net à payer : encadré arrondi ----
+    pay = Table([[Paragraph("NET À PAYER", ParagraphStyle("np", fontName=FB, fontSize=12, leading=14, textColor=navy)),
+                  Paragraph(f"{escape(fcfa(r.get('net_to_pay')))} <font size=9>F CFA</font>",
+                            ParagraphStyle("npv", fontName=FB, fontSize=15, leading=18, textColor=navy, alignment=2))]],
+                colWidths=[W * 0.55, W * 0.45])
+    pay.setStyle(TableStyle([("ROUNDEDCORNERS", [6, 6, 6, 6]), ("BOX", (0, 0), (-1, -1), 1.4, navy),
+                             ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FFF4EA")),
+                             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("TOPPADDING", (0, 0), (-1, -1), 7),
+                             ("BOTTOMPADDING", (0, 0), (-1, -1), 7), ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                             ("RIGHTPADDING", (0, 0), (-1, -1), 10)]))
+
+    # ---- Petits tableaux : impôt, cumul, jours et heures ----
+    def mini(title, data, widths):
+        head_row = [Paragraph(escape(x), st["mini_h"]) for x in title]
+        tb = Table([head_row] + data, colWidths=widths)
+        tst = [("BACKGROUND", (0, 0), (-1, 0), navy), ("FONT", (0, 1), (-1, -1), F, 7.8),
+               ("ALIGN", (1, 0), (-1, -1), "RIGHT"), ("BOX", (0, 0), (-1, -1), 0.6, navy),
+               ("LINEBELOW", (0, 1), (-1, -1), 0.3, grid), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+               ("TOPPADDING", (0, 0), (-1, -1), 2.6), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.6)]
+        for i in range(2, len(data) + 1, 2):
+            tst.append(("BACKGROUND", (0, i), (-1, i), zebra))
+        tb.setStyle(TableStyle(tst))
+        return tb
+
+    month_c = _cumul_of([r])
+    year_c = ctx.get("cumul_year") or month_c
+    impot = mini(["Impôt sur le salaire", "Montant"],
+                 [["Net imposable", fcfa(r.get("iuts_base"))], ["IUTS retenu", fcfa(r.get("iuts"))]], [30 * mm, 20 * mm])
+    cumul = mini(["Cumul", "Mois", "Année"],
+                 [["Salaire brut", fcfa(month_c["gross"]), fcfa(year_c["gross"])],
+                  ["Cotisation sociale patronale", fcfa(month_c["employer_cnss"]), fcfa(year_c["employer_cnss"])],
+                  ["Taxe patronale", fcfa(month_c["employer_tax"]), fcfa(year_c["employer_tax"])],
+                  ["Masse salariale", fcfa(month_c["employer_cost"]), fcfa(year_c["employer_cost"])]],
+                 [38 * mm, 19 * mm, 21 * mm])
+    v = b.get("variables") or {}
+    # Jours et heures : mois complet (30 jours, 173,33 h = 40 h × 52 / 12) tant
+    # que la fiche ne porte pas d'absences ni d'heures supplémentaires saisies.
+    days = v.get("days_worked") if v.get("days_worked") not in (None, "") else 30
+    hours = v.get("hours") if v.get("hours") not in (None, "") else 173.33
+    overtime = v.get("overtime_hours") if v.get("overtime_hours") not in (None, "") else 0
+    temps = mini(["Temps", ""], [["Jours considérés", f"{days:g}"], ["Volume horaire", f"{hours:g}".replace(".", ",")],
+                                 ["Heures sup.", f"{overtime:g}".replace(".", ",")]], [26 * mm, 14 * mm])
+    gap = (W - 50 * mm - 78 * mm - 40 * mm) / 2
+    minis = Table([[impot, "", cumul, "", temps]], colWidths=[50 * mm, gap, 78 * mm, gap, 40 * mm])
+    minis.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                               ("RIGHTPADDING", (0, 0), (-1, -1), 0)]))
+
+    el = [head, Spacer(1, 7), ident, Spacer(1, 8), t, Spacer(1, 7), pay, Spacer(1, 9), minis]
+    notes = v.get("notes")
     if notes:
-        el += [Spacer(1, 4), P(f"Observations : {notes}")]
+        el += [Spacer(1, 6), P(f"Observations : {notes}")]
     if b.get("verify_token"):
-        qr = RLImage(io.BytesIO(qr_png(verify_url(b["verify_token"]), box=4)), width=22 * mm, height=22 * mm)
-        el += [Spacer(1, 6), Table([[qr, P("Scannez ce code pour vérifier l'authenticité du bulletin. "
-                                            + ("Bulletin validé." if b.get("status") == "validated" else "Brouillon (non validé)."))]],
-                                   colWidths=[26 * mm, 154 * mm])]
-    el += [Spacer(1, 8), Paragraph("Ce bulletin de salaire doit être conservé sans limitation de durée", st["s"])]
-    doc.build(el)
+        qr = RLImage(io.BytesIO(qr_png(verify_url(b["verify_token"]), box=4)), width=20 * mm, height=20 * mm)
+        qt = Table([[qr, P("Scannez ce code pour vérifier l'authenticité du bulletin. "
+                           + ("Bulletin validé." if b.get("status") == "validated" else "Brouillon (non validé)."), "lab")]],
+                   colWidths=[24 * mm, W - 24 * mm])
+        qt.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 0)]))
+        el += [Spacer(1, 8), qt]
+    el += [Spacer(1, 6), Paragraph("Pour vous aider à faire valoir vos droits, conservez ce bulletin de paie sans limitation de durée.",
+                                   st["note"])]
+    doc.build(el, onFirstPage=decorate, onLaterPages=decorate)
     return buf.getvalue()
 
 
@@ -747,7 +1017,8 @@ def build_ledger_pdf(data: dict) -> bytes:
 async def bulletin_pdf(bid: str, user: dict = Depends(require_roles(HR_ROLES))):
     import asyncio
     b = await _bulletin(bid)
-    pdf = await asyncio.to_thread(build_bulletin_pdf, b)
+    ctx = await _bulletin_pdf_context(b)              # cumul de l'année, logo, IFU
+    pdf = await asyncio.to_thread(build_bulletin_pdf, b, ctx)
     name = re.sub(r"[^A-Za-z0-9_-]+", "_", f"bulletin_{b['period_month']}_{(b.get('employee') or {}).get('full_name') or 'salarie'}")[:90]
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="{name}.pdf"'})
 
@@ -762,11 +1033,12 @@ async def bulletins_pdf(employer_id: str, period_month: str, user: dict = Depend
     if not items:
         raise HTTPException(status_code=404, detail="Aucun bulletin pour ce mois")
     items.sort(key=lambda b: (b.get("employee") or {}).get("full_name") or "")
+    ctxs = [await _bulletin_pdf_context(b) for b in items]     # cumul de l'année de chaque salarié
 
     def merge():
         out = fitz.open()
-        for b in items:
-            with fitz.open(stream=build_bulletin_pdf(b), filetype="pdf") as one:
+        for b, ctx in zip(items, ctxs):
+            with fitz.open(stream=build_bulletin_pdf(b, ctx), filetype="pdf") as one:
                 out.insert_pdf(one)
         return out.tobytes()
     pdf = await asyncio.to_thread(merge)
