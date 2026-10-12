@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "26"
-LOT_LIBELLE = "Paie : formules du classeur ALBARKA (CNSS 44 000, prime exceptionnelle, FSP, net au franc) et bulletin modernisé"
+LOT = "26.1"
+LOT_LIBELLE = "Paie : « Restaurer les valeurs par défaut » réservé au super-administrateur (grisé pour les autres)"

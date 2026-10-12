@@ -13,6 +13,11 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient, extractError } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";   // lot 26.1 : qui est connecté (super-admin ?)
+
+// Lot 26.1 — même compte que ADMIN_ACCOUNT_EMAIL côté serveur (albarka_models.py) : seul ce compte peut
+// « Restaurer les valeurs par défaut » ; pour tous les autres, le bouton est grisé (le serveur refuse aussi).
+const ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com";
 import { Plus, Copy, Trash2, Star, RotateCcw, Check, Settings2, Building2 } from "lucide-react";
 import PaieParamsEditor from "@/components/paie/PaieParamsEditor";
 import { EmployerSelect, useEmployers, GREEN } from "@/components/paie/paieCommon";
@@ -22,6 +27,9 @@ const primary = `${btn} text-white hover:opacity-90`;
 const outline = `${btn} border border-slate-300 bg-white hover:bg-slate-50`;
 
 function Templates({ onChanged }) {
+  // Lot 26.1 — seul le super-administrateur peut « Restaurer les valeurs par défaut »
+  const { user } = useAuth();
+  const estSuperAdmin = (user?.email || "").toLowerCase() === ADMIN_ACCOUNT_EMAIL;
   const [items, setItems] = useState([]);
   const [sel, setSel] = useState(null);         // modèle en cours d'édition
   const [dirty, setDirty] = useState(false);
@@ -49,6 +57,7 @@ function Templates({ onChanged }) {
     } catch (e) { toast.error(extractError(e)); } finally { setBusy(false); }
   };
   const restore = async () => {
+    if (!estSuperAdmin) return;   // lot 26.1 : bouton grisé pour les autres comptes
     if (!window.confirm(`Remettre les valeurs par défaut dans « ${sel.name} » ?`)) return;
     try { await apiClient.post(`/hr/paie/modeles/${sel.id}/restore-defaults`); toast.success("Valeurs par défaut restaurées"); await load(sel.id); onChanged?.(); }
     catch (e) { toast.error(extractError(e)); }
@@ -95,7 +104,9 @@ function Templates({ onChanged }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={apply} disabled={busy} className={primary} style={{ background: GREEN }} data-testid="tpl-apply"><Check className="h-4 w-4" /> Appliquer</button>
-            <button type="button" onClick={restore} className={outline} data-testid="tpl-restore"><RotateCcw className="h-4 w-4" /> Restaurer les valeurs par défaut</button>
+            <button type="button" onClick={restore} disabled={!estSuperAdmin}
+              title={estSuperAdmin ? "Remettre toutes les valeurs par défaut (Burkina Faso)" : "Réservé au super-administrateur"}
+              className={`${outline} disabled:cursor-not-allowed disabled:opacity-40`} data-testid="tpl-restore"><RotateCcw className="h-4 w-4" /> Restaurer les valeurs par défaut</button>
             <button type="button" onClick={() => duplicate(sel)} className={outline}><Copy className="h-4 w-4" /> Dupliquer</button>
             {!sel.is_default && <button type="button" onClick={() => makeDefault(sel)} className={outline}><Star className="h-4 w-4" /> Modèle par défaut</button>}
             {!sel.is_default && <button type="button" onClick={() => remove(sel)} className={`${outline} text-rose-600`}><Trash2 className="h-4 w-4" /> Supprimer</button>}
