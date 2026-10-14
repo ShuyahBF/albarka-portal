@@ -25666,6 +25666,10 @@ async def admin_clear_suggestion_override(
     return {"ok": True, "deleted": res.deleted_count or 0}
 
 
+# Contacts des clients lus (signés HMAC) par SAWALI : GET /api/sawali/contacts (groupe « Plateforme ALBARKA »)
+from routes.sawali_contacts import setup_sawali_contacts_routes as _setup_sawali_contacts  # noqa: E402
+_setup_sawali_contacts(db=db, api=api)
+
 app.include_router(api)
 
 
