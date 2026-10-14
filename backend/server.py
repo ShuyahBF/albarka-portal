@@ -138,6 +138,7 @@ _PUBLIC_BASE_URL_DB: str = ""
 #   - APP_GIT_SHA    : short git SHA of /app (best-effort, "unknown" if not a repo)
 #   - APP_BUILT_AT   : ISO timestamp of the latest commit (best-effort) or process start
 #   - APP_STARTED_AT : ISO timestamp the FastAPI process booted (always set)
+import lot as _lot  # noqa: E402  — numéro de lot (règle 1)
 APP_VERSION = os.environ.get("APP_VERSION", "1.0")
 APP_STARTED_AT = datetime.now(timezone.utc).isoformat()
 try:
@@ -1015,6 +1016,9 @@ async def version():
         "built_at": APP_BUILT_AT,
         "started_at": snap.get("deployed_at") or APP_STARTED_AT,
         "deploy_seq": seq,
+        # Règle 1 : numéro de lot et libellé (source unique : backend/lot.py)
+        "lot": _lot.LOT,
+        "lot_libelle": _lot.LOT_LIBELLE,
     }
 
 
@@ -25669,6 +25673,10 @@ async def admin_clear_suggestion_override(
 # Contacts des clients lus (signés HMAC) par SAWALI : GET /api/sawali/contacts (groupe « Plateforme ALBARKA »)
 from routes.sawali_contacts import setup_sawali_contacts_routes as _setup_sawali_contacts  # noqa: E402
 _setup_sawali_contacts(db=db, api=api)
+
+# Lot 27 — jauge du cluster MongoDB Atlas (administrateur seulement)
+from routes.jauge_cluster import setup_jauge_cluster_routes as _setup_jauge_cluster  # noqa: E402
+_setup_jauge_cluster(db=db, api=api, get_current_admin=get_current_admin)
 
 app.include_router(api)
 

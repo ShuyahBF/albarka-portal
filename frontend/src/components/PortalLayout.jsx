@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import IncidentBanner from "@/components/IncidentBanner";
 import DemoBanner from "@/components/DemoBanner";
 import VersionStamp from "@/components/VersionStamp";
+import JaugeCluster from "@/components/JaugeCluster";
 import InternalChatPanel from "@/components/InternalChatPanel";
 import TicketsBubble from "@/components/TicketsBubble";
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
@@ -662,6 +663,8 @@ export default function PortalLayout({ admin = false }) {
             </button>
           )}
         </div>
+        {/* Lot 27 — jauge du cluster de production MongoDB Atlas (administrateur seulement) */}
+        <div className="mt-2"><JaugeCluster actif={user?.role === "admin"} /></div>
         <button
           onClick={() => { logout(); navigate("/"); }}
           className="sidebar-link w-full text-left mt-2"
