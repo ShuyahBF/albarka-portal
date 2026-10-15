@@ -32,6 +32,7 @@ export default function AdminSettings() {
   const [saving, setSaving] = useState(false);
   const [testPhone, setTestPhone] = useState("");
   const [wa_new_token, setWaNewToken] = useState("");
+  const [wa_new_verify, setWaNewVerify] = useState("");   // jeton de vérification du webhook Meta (saisi ou généré, jamais relu)
   const [recaptchaNewSecret, setRecaptchaNewSecret] = useState("");
   const [pawapaySandboxNewToken, setPawapaySandboxNewToken] = useState("");
   const [pawapayProductionNewToken, setPawapayProductionNewToken] = useState("");
@@ -68,6 +69,7 @@ export default function AdminSettings() {
       const { data } = await apiClient.put("/admin/settings", payload);
       setSettings(data);
       setWaNewToken("");
+      setWaNewVerify("");
       setRecaptchaNewSecret("");
       setPawapaySandboxNewToken("");
       setPawapayProductionNewToken("");
@@ -459,6 +461,45 @@ export default function AdminSettings() {
                 data-testid="wa-token-input"
               />
             </div>
+            {/* Webhook Meta (réception des messages WhatsApp) : adresse de rappel + jeton de vérification */}
+            <div className="rounded-lg border p-4 space-y-3 bg-slate-50" data-testid="wa-webhook-bloc">
+              <div className="text-sm font-semibold">Webhook Meta (réception des messages)</div>
+              <div>
+                <Label>URL de rappel (à copier dans Meta)</Label>
+                <div className="flex gap-2">
+                  <Input readOnly value={`${apiClient.defaults.baseURL}/whatsapp/webhook`} className="font-mono text-xs" data-testid="wa-callback-url" />
+                  <Button type="button" variant="outline"
+                    onClick={() => { navigator.clipboard?.writeText(`${apiClient.defaults.baseURL}/whatsapp/webhook`); toast.success("URL copiée"); }}>
+                    Copier
+                  </Button>
+                </div>
+              </div>
+              <div>
+                <Label>Jeton de vérification du webhook</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={wa_new_verify}
+                    onChange={(e) => setWaNewVerify(e.target.value)}
+                    placeholder={settings.wa_webhook_verify_token === "********" ? "•••••••• (déjà configuré, laisser vide pour ne pas changer)" : "Saisissez un jeton ou cliquez sur Générer"}
+                    data-testid="wa-verify-token-input"
+                  />
+                  <Button type="button" variant="outline"
+                    onClick={() => {
+                      // Jeton aléatoire de 32 octets (lettres et chiffres), généré dans le navigateur
+                      const octets = new Uint8Array(32);
+                      crypto.getRandomValues(octets);
+                      setWaNewVerify(Array.from(octets, (o) => "abcdefghijkmnpqrstuvwxyz23456789"[o % 32]).join(""));
+                    }}
+                    data-testid="wa-verify-token-generate">
+                    Générer
+                  </Button>
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Collez le MÊME jeton dans Meta (champ « Vérifier le token »). Après « Enregistrer », il est masqué : copiez-le avant.
+                </div>
+              </div>
+            </div>
             <div>
               <Label>Graph API version</Label>
               <Input value={settings.wa_graph_version || "v22.0"} onChange={(e) => setSettings({ ...settings, wa_graph_version: e.target.value })} data-testid="wa-graph-version-input" />
@@ -471,6 +512,7 @@ export default function AdminSettings() {
                   wa_business_account_id: settings.wa_business_account_id,
                   wa_graph_version: settings.wa_graph_version,
                   ...(wa_new_token ? { wa_access_token: wa_new_token } : {}),
+                  ...(wa_new_verify ? { wa_webhook_verify_token: wa_new_verify.trim() } : {}),
                 })}
                 disabled={saving}
                 className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"

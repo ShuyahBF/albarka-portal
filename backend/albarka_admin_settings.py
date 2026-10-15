@@ -28,7 +28,7 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 _ADMIN_ROLES = SETTINGS_ROLES
 
 # Champs sensibles : masqués sur lecture (******** = présent).
-SENSITIVE_FIELDS = {"wa_access_token", "recaptcha_secret_key", "pawapay_api_token_sandbox", "pawapay_api_token_production"}
+SENSITIVE_FIELDS = {"wa_access_token", "wa_webhook_verify_token", "recaptcha_secret_key", "pawapay_api_token_sandbox", "pawapay_api_token_production"}
 
 # Valeurs par défaut.
 DEFAULT_SETTINGS: Dict[str, Any] = {
