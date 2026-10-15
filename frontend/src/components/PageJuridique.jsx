@@ -19,11 +19,13 @@ export default function PageJuridique({ kicker, titre, titreAccent, dateMaj, sec
           <p className="text-sm text-muted-foreground mb-3">
             ALBARKA Consulting BF · albarka-bf.com · Dernière mise à jour : {dateMaj}
           </p>
-          {/* Lien croisé entre les deux pages juridiques */}
+          {/* Liens croisés entre les pages juridiques */}
           <p className="text-sm mb-10">
             <Link to="/confidentialite" className="text-[#0F6B4A] underline underline-offset-2">Politique de confidentialité</Link>
             {" · "}
             <Link to="/conditions" className="text-[#0F6B4A] underline underline-offset-2">Conditions de service</Link>
+            {" · "}
+            <Link to="/suppression-donnees" className="text-[#0F6B4A] underline underline-offset-2">Suppression des données</Link>
           </p>
 
           <div className="space-y-8">

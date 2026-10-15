@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "27.4"
-LOT_LIBELLE = "Conditions de service publiques (/conditions) et contact des pages juridiques"
+LOT = "27.5"
+LOT_LIBELLE = "Page publique « Suppression des données » (/suppression-donnees) demandée par Meta"
