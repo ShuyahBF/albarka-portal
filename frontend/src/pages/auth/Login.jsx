@@ -10,6 +10,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { apiClient, extractError } from "@/lib/api";
 import { saveAccessCode, getAccessCode } from "@/lib/device";
 import MentionVersion from "@/components/MentionVersion";
+import LiensJuridiques from "@/components/LiensJuridiques";
 import EtatServeur from "@/components/EtatServeur";
 
 // Champ secret (mot de passe ou code PIN) avec pictogramme « œil » pour
@@ -396,6 +397,10 @@ export default function Login() {
           <div className="mt-8 flex flex-col items-center gap-1 text-xs text-muted-foreground">
             <EtatServeur />
             <MentionVersion testId="login-version" />
+          </div>
+          {/* Liens juridiques visibles dès la page de connexion */}
+          <div className="mt-4">
+            <LiensJuridiques testId="login-liens-juridiques" />
           </div>
         </div>
       </div>
