@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="fond" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12805A"/>
+      <stop offset="1" stop-color="#0A4E36"/>
+    </linearGradient>
+  </defs>
+  <!-- Fond plein carré (Meta n'accepte pas la transparence ; les coins sont arrondis par la plateforme) -->
+  <rect width="1024" height="1024" fill="url(#fond)"/>
+  <!-- Lettre « A » d'ALBARKA -->
+  <path d="M276 780 L512 236 L748 780" fill="none" stroke="#F4E9D3" stroke-width="78" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Barre du A -->
+  <line x1="372" y1="588" x2="652" y2="588" stroke="#E5A24B" stroke-width="78" stroke-linecap="round"/>
+  <!-- Point « baraka » (bénédiction) -->
+  <circle cx="512" cy="132" r="46" fill="#E5A24B"/>
+</svg>

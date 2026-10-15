@@ -11,6 +11,7 @@ import PortalLayout from "@/components/PortalLayout";
 // Public
 import Home from "@/pages/public/Home";
 import Missions from "@/pages/public/Missions";
+import Confidentialite from "@/pages/public/Confidentialite";
 import Contact from "@/pages/public/Contact";
 // Remplissage d'un formulaire par lien (sans connexion)
 import FillForm from "@/pages/public/FillForm";
@@ -85,6 +86,9 @@ function App() {
           <Route path="/missions" element={<Missions />} />
           <Route path="/services" element={<Missions />} />
           <Route path="/contact" element={<Contact />} />
+          {/* Politique de confidentialité : page publique (adresse demandée par Meta pour l'application WhatsApp) */}
+          <Route path="/confidentialite" element={<Confidentialite />} />
+          <Route path="/politique-de-confidentialite" element={<Confidentialite />} />
           <Route path="/login" element={<Login />} />
           {/* Formulaire à remplir via un lien reçu ou partagé — public, sans connexion */}
           <Route path="/f/:token" element={<FillForm />} />

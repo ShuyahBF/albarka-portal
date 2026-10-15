@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "27.2"
-LOT_LIBELLE = "Bouton « Tester l'envoi WhatsApp » (modèle ou texte) avec diagnostic des refus de Meta"
+LOT = "27.3"
+LOT_LIBELLE = "Page publique « Politique de confidentialité » (/confidentialite) et icône de l'application 1024 x 1024"
