@@ -9,8 +9,9 @@ Clé absente → 503 (route désactivée) ; signature absente, périmée ou faus
 
 Contenu : les COMPTES CLIENTS actifs (rôle « client », compte principal) avec nom, société et numéro WhatsApp ou téléphone.
 Jamais les contacts de l'annuaire des clients (leurs propres clients), ni les utilisateurs suivis, ni e-mail, contrat, paiement
-ou mot de passe. Aucun consentement transmis pour le moment : SAWALI ne diffuse un carrousel qu'aux personnes qui ont donné
-leur accord elles-mêmes.
+ou mot de passe. Lot 28 : le consentement WhatsApp (accord ou retrait, avec sa date) est transmis SEULEMENT si la personne l'a
+donné elle-même (case cochée à l'inscription) ; les OFFICINES inscrites ne sont transmises que si elles ont coché la case.
+SAWALI ne diffuse un carrousel qu'aux personnes qui ont donné leur accord elles-mêmes.
 """
 from __future__ import annotations
 
@@ -54,13 +55,27 @@ async def tous_les_contacts(db) -> List[Dict[str, Any]]:
     contacts, vus = [], set()
     filtre = {"role": "client", "account_status": {"$in": ["active", None]},
               "$or": [{"parent_client_id": {"$exists": False}}, {"parent_client_id": {"$in": [None, ""]}}]}
-    async for u in db.users.find(filtre, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "whatsapp_number": 1, "phone": 1}):
+    async for u in db.users.find(filtre, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "whatsapp_number": 1, "phone": 1,
+                                       "accepte_whatsapp": 1, "accepte_whatsapp_le": 1}):
         tel = re.sub(r"\D", "", u.get("whatsapp_number") or u.get("phone") or "")
         if len(tel) < 8 or tel in vus:
             continue
         vus.add(tel)
-        contacts.append({"id": u["id"], "nom": u.get("full_name") or u.get("company") or "", "telephone": tel, "role": "client",
-                         "societe": f"ALBARKA · {u['company']}" if u.get("company") else "ALBARKA"})
+        contact = {"id": u["id"], "nom": u.get("full_name") or u.get("company") or "", "telephone": tel, "role": "client",
+                   "societe": f"ALBARKA · {u['company']}" if u.get("company") else "ALBARKA"}
+        if isinstance(u.get("accepte_whatsapp"), bool):      # lot 28 : accord (ou retrait) donné par la personne elle-même
+            contact.update({"accepte_whatsapp": u["accepte_whatsapp"], "accepte_le": u.get("accepte_whatsapp_le")})
+        contacts.append(contact)
+    # Lot 28 : officines inscrites (portail des officines) — seulement celles qui ont coché la case WhatsApp, non suspendues
+    async for o in db.officines.find({"accepte_whatsapp": True, "status": {"$ne": "suspended"}},
+                                     {"_id": 0, "id": 1, "name": 1, "phone": 1, "accepte_whatsapp_le": 1}):
+        tel = re.sub(r"\D", "", o.get("phone") or "")
+        if len(tel) < 8 or tel in vus:
+            continue
+        vus.add(tel)
+        contacts.append({"id": o["id"], "nom": o.get("name") or "", "telephone": tel, "role": "officine",
+                         "societe": f"ALBARKA · {o['name']}" if o.get("name") else "ALBARKA",
+                         "accepte_whatsapp": True, "accepte_le": o.get("accepte_whatsapp_le")})
     return sorted(contacts, key=lambda c: c["id"])
 
 

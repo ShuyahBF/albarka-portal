@@ -113,6 +113,8 @@ class OfficineRegisterIn(BaseModel):
     country: Optional[str] = None
     contact_name: Optional[str] = None
     linked_client_email: Optional[EmailStr] = None  # optionnel : lien CRM
+    # Lot 28 : case FACULTATIVE « J'accepte de recevoir les nouveautés et offres d'ALBARKA sur WhatsApp » (jamais cochée d'office)
+    accepte_whatsapp: bool = False
 
 
 class OtpRequestIn(BaseModel):
@@ -196,7 +198,8 @@ def _hash_code(code: str) -> str:
 def _strip_officine(doc: Dict[str, Any]) -> Dict[str, Any]:
     if not doc:
         return {}
-    out = {k: v for k, v in doc.items() if k != "_id"}
+    # Lot 28 : l'adresse IP gardée comme preuve du consentement WhatsApp reste côté serveur
+    out = {k: v for k, v in doc.items() if k not in ("_id", "accepte_whatsapp_ip")}
     return out
 
 
@@ -265,7 +268,7 @@ def attach_officines_portal_routes(
     # 1) Inscription publique (status=pending)
     # =========================================================== #
     @api.post("/officines-portal/register", tags=["Officines Portal"])
-    async def register(payload: OfficineRegisterIn = Body(...)):
+    async def register(request: Request, payload: OfficineRegisterIn = Body(...)):
         email = payload.email.lower().strip()
         phone_digits = _digits(payload.phone)
         if len(phone_digits) < 6:
@@ -300,6 +303,13 @@ def attach_officines_portal_routes(
             "validated_by": None,
             "last_login_at": None,
         }
+        # Lot 28 : consentement WhatsApp donné par la personne elle-même (case facultative) : date, moyen et adresse IP
+        # gardés comme preuve. Case non cochée : aucune trace (« pas de réponse » ≠ « refus »).
+        if payload.accepte_whatsapp:
+            forward = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+            doc.update({"accepte_whatsapp": True, "accepte_whatsapp_le": _now().isoformat(),
+                        "accepte_whatsapp_moyen": "inscription",
+                        "accepte_whatsapp_ip": forward or (request.client.host if request.client else "")})
         await db.officines.insert_one(doc.copy())
         await db.officine_audit_log.insert_one({
             "id": str(uuid.uuid4()),
