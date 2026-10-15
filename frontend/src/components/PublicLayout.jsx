@@ -119,6 +119,8 @@ export default function PublicLayout({ children }) {
               <li><Link to="/missions" className="hover:text-[#E5A24B]">Nos missions</Link></li>
               <li><Link to="/services" className="hover:text-[#E5A24B]">Services</Link></li>
               <li><Link to="/login" className="hover:text-[#E5A24B]">Espace client</Link></li>
+              <li><Link to="/confidentialite" className="hover:text-[#E5A24B]">Politique de confidentialité</Link></li>
+              <li><Link to="/conditions" className="hover:text-[#E5A24B]">Conditions de service</Link></li>
             </ul>
           </div>
         </div>
