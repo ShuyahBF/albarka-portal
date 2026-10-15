@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "27.7"
-LOT_LIBELLE = "Paie : sursalaire, prime exceptionnelle, primes d'officine ; fonction, catégorie et échelon sur le bulletin ; adresse complète de l'employeur"
+LOT = "28"
+LOT_LIBELLE = "Formulaires : modèle « Vérification de la paie » prêt à l'emploi, à partager par lien public"
