@@ -11,6 +11,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import LiensJuridiques from "@/components/LiensJuridiques";
 
 const SPECIALITES = [
   {
@@ -198,6 +199,11 @@ export default function Home() {
           </Link>
         </div>
       </section>
+
+      {/* Liens juridiques visibles sur la page publique d'accueil */}
+      <div className="py-6 bg-[#0B1912] border-t border-white/10">
+        <LiensJuridiques sombre testId="home-liens-juridiques" />
+      </div>
     </div>
   );
 }
