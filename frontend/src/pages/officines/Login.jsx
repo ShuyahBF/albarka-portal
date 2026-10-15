@@ -255,6 +255,7 @@ function RegisterForm({ onDone }) {
   const [form, setForm] = React.useState({
     name: "", email: "", phone: "", city: "", country: "", address: "",
     contact_name: "", linked_client_email: "",
+    accepte_whatsapp: false, // lot 28 : consentement WhatsApp FACULTATIF, jamais coché d'office
   });
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState(false);
@@ -325,6 +326,13 @@ function RegisterForm({ onDone }) {
       <Field label="Email d'un client CRM associé (optionnel)" testid="register-linked">
         <input type="email" value={form.linked_client_email} onChange={set("linked_client_email")} placeholder="client@example.com" className="w-full border rounded px-3 py-2 text-sm" />
       </Field>
+      {/* Lot 28 : consentement WhatsApp facultatif (décoché par défaut) */}
+      <label className="flex items-start gap-2 text-xs text-slate-700" data-testid="register-accepte-whatsapp">
+        <input type="checkbox" className="mt-0.5 h-4 w-4" checked={form.accepte_whatsapp}
+               onChange={(e) => setForm({ ...form, accepte_whatsapp: e.target.checked })} />
+        <span>J&apos;accepte de recevoir les nouveautés et offres d&apos;ALBARKA sur WhatsApp{" "}
+          <span className="text-slate-500">(facultatif — vous pourrez arrêter à tout moment en écrivant STOP)</span>.</span>
+      </label>
       <button
         type="submit"
         disabled={busy}
