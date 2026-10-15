@@ -68,6 +68,13 @@ DEFAULT_PARAMS: Dict[str, Any] = {
         {"key": "risk", "label": "Indemnité de risque", "exemption": None},
         {"key": "guard", "label": "Indemnité de garde", "exemption": None},
         {"key": "other", "label": "Autre indemnité", "exemption": None},
+        # Lot 27.7 : sursalaire (imposable, soumis à la CNSS) ; prime exceptionnelle (dans le brut et l'IUTS, hors
+        # base CNSS selon le réglage « prime exceptionnelle » ci-dessous) ; primes propres aux OFFICINES
+        # (pharmacies) : proposées seulement pour un employeur coché « officine ».
+        {"key": "surpay", "label": "Sursalaire", "exemption": None},
+        {"key": "exceptional", "label": "Prime exceptionnelle", "exemption": None, "exceptional": True},
+        {"key": "winter", "label": "Prime hivernale", "exemption": None, "sector": "officine"},
+        {"key": "para", "label": "Prime para", "exemption": None, "sector": "officine"},
     ],
     "exemptions": [
         {"key": "housing", "label": "Logement", "rate": 20.0, "cap": 75000},
@@ -160,7 +167,7 @@ OLD_DEFAULTS_LOT8 = {
     "net_rounding": {"step": 100, "mode": "nearest"},
     "patriotic_label": "Soutien patriotique",
 }
-PARAMS_VERSION = 26                     # version des paramètres (lot 26)
+PARAMS_VERSION = 27                     # version des paramètres (lot 27.7 : sursalaire, prime exceptionnelle, primes d'officine)
 
 ROUND_MODES = {"nearest", "down", "up"}
 
@@ -247,7 +254,12 @@ def normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         ex = a.get("exemption") or None
         if ex and ex not in ex_keys:
             raise ValueError(f"Indemnité « {a.get('label') or key} » : exonération inconnue « {ex} »")
-        allowances.append({"key": key, "label": str(a.get("label") or key).strip()[:80], "exemption": ex})
+        row = {"key": key, "label": str(a.get("label") or key).strip()[:80], "exemption": ex}
+        if a.get("exceptional"):                     # lot 27.7 : traitée comme une prime exceptionnelle (hors base CNSS)
+            row["exceptional"] = True
+        if a.get("sector"):                          # lot 27.7 : rubrique propre à un secteur (ex. « officine »)
+            row["sector"] = str(a["sector"]).strip()[:40]
+        allowances.append(row)
     # CNSS
     c = p["cnss"]
     cnss = {"employee_rate": pct(c.get("employee_rate"), "CNSS salariale"),
@@ -389,6 +401,25 @@ def upgrade_params_lot26(params: Optional[Dict[str, Any]]) -> tuple:
     return normalize_params(p), changes
 
 
+LOT27_RUBRIQUES = ("surpay", "exceptional", "winter", "para")
+
+
+def upgrade_params_lot27(params: Optional[Dict[str, Any]]) -> tuple:
+    """Mise à jour d'un jeu de paramètres ENREGISTRÉ avant le lot 27.7 : ajoute, À LA FIN de la liste des indemnités,
+    les rubriques manquantes (sursalaire, prime exceptionnelle, prime hivernale et prime para des officines).
+    Rien d'autre n'est modifié ; une rubrique déjà présente est laissée telle quelle.
+    Rend (paramètres normalisés, liste des changements en clair)."""
+    p = normalize_params(params)
+    changes: List[str] = []
+    keys = {a["key"] for a in p["allowances"]}
+    for extra in LOT27_RUBRIQUES:
+        if extra not in keys:
+            d = next(x for x in DEFAULT_PARAMS["allowances"] if x["key"] == extra)
+            p["allowances"].append(dict(d))
+            changes.append(f"Rubrique ajoutée : {d['label']}")
+    return normalize_params(p), changes
+
+
 def years_of_service(hire_date: Optional[str], period_month: Optional[str]) -> int:
     """Années complètes de service à la fin du mois de paie."""
     if not hire_date or not period_month:
@@ -496,18 +527,23 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
     # 2. Indemnités (dans l'ordre du modèle), primes du mois, avantage en nature,
     #    prime(s) exceptionnelle(s)
     allowances = []
+    extras_total = exceptional_total = 0.0
+    exceptional_lines = []
     for a in p["allowances"]:
         amt = _num(allow_in.get(a["key"]))
-        if amt:
-            allowances.append({**a, "amount": amt})
-            line(f"allow_{a['key']}", a["label"], amt, "gain")
+        if not amt:
+            continue
+        if a.get("exceptional"):                        # lot 27.7 : prime exceptionnelle saisie comme indemnité
+            exceptional_total += amt
+            exceptional_lines.append((f"allow_{a['key']}", a["label"], amt))
+            continue
+        allowances.append({**a, "amount": amt})
+        line(f"allow_{a['key']}", a["label"], amt, "gain")
     known = {a["key"] for a in p["allowances"]}
     for k, v in allow_in.items():                       # rubrique retirée du modèle : gardée
         if k not in known and _num(v):
             allowances.append({"key": k, "label": k, "exemption": None, "amount": _num(v)})
             line(f"allow_{k}", k, _num(v), "gain")
-    extras_total = exceptional_total = 0.0
-    exceptional_lines = []
     for i, x in enumerate(employee.get("extras") or []):
         amt = _num(x.get("amount"))
         if not amt:

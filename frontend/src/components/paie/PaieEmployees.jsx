@@ -18,11 +18,11 @@ import { apiClient, extractError } from "@/lib/api";
 import { Plus, Pencil, Trash2, X } from "lucide-react";
 import { EmployerSelect, useEmployers, fcfa, GREEN } from "@/components/paie/paieCommon";
 
-const empty = { full_name: "", role: "", matricule: "", cnss_number: "", category: "", dependents: 0, hire_date: "",
+const empty = { full_name: "", role: "", matricule: "", cnss_number: "", category: "", grade: "", echelon: "", dependents: 0, hire_date: "",
   pay_mode: "gross", base_salary: "", net_target: "", allowances: {}, non_exempt: [], in_kind: "", email: "", phone: "" };
 const inp = "mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm";
 
-function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
+function EmployeeDialog({ employerId, params, officine, initial, onClose, onSaved }) {
   const [f, setF] = useState({ ...empty, ...initial, hire_date: initial?.hire_date || "", allowances: initial?.allowances || {} });
   const [calc, setCalc] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -67,8 +67,11 @@ function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
               <label>N° CNSS<input value={f.cnss_number || ""} onChange={(e) => set({ cnss_number: e.target.value })} className={inp} /></label>
               <label>Date d'embauche<input type="date" value={f.hire_date || ""} onChange={(e) => set({ hire_date: e.target.value })} className={inp} data-testid="emp-hire" /></label>
               <label>Charges de famille<input type="number" min="0" value={f.dependents} onChange={(e) => set({ dependents: e.target.value })} className={inp} data-testid="emp-dependents" /></label>
+              {/* Lot 27.7 : classement professionnel affiché sur le bulletin */}
+              <label>Catégorie professionnelle<input value={f.grade || ""} placeholder="ex. 5 ou C3" onChange={(e) => set({ grade: e.target.value })} className={inp} data-testid="emp-grade" /></label>
+              <label>Échelon<input value={f.echelon || ""} placeholder="ex. B ou 2" onChange={(e) => set({ echelon: e.target.value })} className={inp} data-testid="emp-echelon" /></label>
               {cats.length > 0 && (
-                <label>Catégorie<select value={f.category || ""} onChange={(e) => set({ category: e.target.value })} className={inp} data-testid="emp-category">
+                <label>Statut (cadre / non cadre)<select value={f.category || ""} onChange={(e) => set({ category: e.target.value })} className={inp} data-testid="emp-category">
                   <option value="">—</option>{cats.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.rate} %)</option>)}</select></label>
               )}
             </div>
@@ -89,7 +92,7 @@ function EmployeeDialog({ employerId, params, initial, onClose, onSaved }) {
             <div>
               <p className="font-semibold text-slate-700 mb-1">Indemnités mensuelles</p>
               <div className="grid sm:grid-cols-2 gap-2">
-                {(params?.allowances || []).map((a) => (
+                {(params?.allowances || []).filter((a) => a.sector !== "officine" || officine || Number(f.allowances[a.key]) > 0).map((a) => (
                   <div key={a.key} className="flex items-end gap-2">
                     <label className="flex-1">{a.label}
                       <input type="number" value={f.allowances[a.key] || ""} data-testid={`emp-allow-${a.key}`}
@@ -147,12 +150,13 @@ export default function PaieEmployees() {
   const [eid, setEid] = useState("");
   const [list, setList] = useState([]);
   const [params, setParams] = useState(null);
+  const [officine, setOfficine] = useState(false);   // lot 27.7 : employeur officine → primes hivernale et para
   const [dialog, setDialog] = useState(null);     // null | {} (nouveau) | salarié
 
   const load = async () => {
     if (!eid) { setList([]); return; }
     const [{ data: e }, { data: c }] = await Promise.all([apiClient.get("/hr/paie/employees", { params: { employer_id: eid } }), apiClient.get(`/hr/paie/employeurs/${eid}`)]);
-    setList(e.items || []); setParams(c.params);
+    setList(e.items || []); setParams(c.params); setOfficine(!!c.officine);
   };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load().catch((err) => toast.error(extractError(err))); }, [eid]);
@@ -173,7 +177,7 @@ export default function PaieEmployees() {
         <div className="rounded-xl border border-slate-200 bg-white overflow-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
-              <tr><th className="px-3 py-2 text-left">Nom</th><th className="text-left">Fonction</th><th className="text-right">Charges</th>
+              <tr><th className="px-3 py-2 text-left">Nom</th><th className="text-left">Fonction</th><th className="text-left">Catégorie / échelon</th><th className="text-right">Charges</th>
                 <th className="text-left">Embauche</th><th className="text-right">Salaire de base / net négocié</th><th className="px-3" /></tr>
             </thead>
             <tbody>
@@ -181,6 +185,7 @@ export default function PaieEmployees() {
                 <tr key={e.id} className="border-t border-slate-100">
                   <td className="px-3 py-2 font-medium">{e.full_name}</td>
                   <td className="text-slate-600">{e.role || "—"}</td>
+                  <td className="text-slate-600">{[e.grade, e.echelon].filter(Boolean).join(" / ") || "—"}</td>
                   <td className="text-right">{e.dependents || 0}</td>
                   <td className="text-slate-600">{e.hire_date ? new Date(e.hire_date).toLocaleDateString("fr-FR") : "—"}</td>
                   <td className="text-right tabular-nums">{e.pay_mode === "net" ? <>net {fcfa(e.net_target)}</> : fcfa(e.base_salary)}</td>
@@ -190,12 +195,12 @@ export default function PaieEmployees() {
                   </td>
                 </tr>
               ))}
-              {!list.length && <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-500">Aucun salarié pour cet employeur.</td></tr>}
+              {!list.length && <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-500">Aucun salarié pour cet employeur.</td></tr>}
             </tbody>
           </table>
         </div>
       )}
-      {dialog && <EmployeeDialog employerId={eid} params={params} initial={dialog.id ? dialog : null}
+      {dialog && <EmployeeDialog employerId={eid} params={params} officine={officine} initial={dialog.id ? dialog : null}
         onClose={() => setDialog(null)} onSaved={() => { setDialog(null); load(); setReload((k) => k + 1); }} />}
     </div>
   );

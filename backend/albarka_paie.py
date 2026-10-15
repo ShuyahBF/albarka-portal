@@ -45,7 +45,8 @@ from pymongo.errors import DuplicateKeyError
 from albarka_auth import require_roles
 from albarka_models import is_admin_account   # lot 26.1 : « Restaurer les valeurs par défaut » réservé au super-admin
 from albarka_docgen import MONTHS_FR, fcfa, new_verify_token, now_iso, qr_png, verify_url
-from albarka_paie_moteur import DEFAULT_PARAMS, base_for_net, compute_payslip, normalize_params, upgrade_params_lot26
+from albarka_paie_moteur import (DEFAULT_PARAMS, base_for_net, compute_payslip, normalize_params, upgrade_params_lot26,
+                                 upgrade_params_lot27)
 from db import db
 
 router = APIRouter(prefix="/hr/paie", tags=["RH & Paie — bulletins"])
@@ -111,6 +112,7 @@ async def ensure_paie_setup() -> None:
             "params": normalize_params(None), "is_default": True, "created_at": now_iso(), "updated_at": now_iso()}},
             upsert=True)
     await _migrate_lot26()
+    await _migrate_lot27()
     _SETUP_DONE_FOR = db
 
 
@@ -147,6 +149,34 @@ async def _migrate_lot26() -> None:
                 "custom_params": params, "upgraded_lot26": changes, "updated_at": now_iso()}})
             report["employers"] += 1
     await db.paie_migrations.update_one({"id": "lot26"}, {"$setOnInsert": {"id": "lot26", "done_at": now_iso(), **report}},
+                                        upsert=True)
+
+
+async def _migrate_lot27() -> None:
+    """Lot 27.7 — ajoute aux modèles et aux personnalisations DÉJÀ enregistrés les rubriques d'indemnités nouvelles
+    (sursalaire, prime exceptionnelle, prime hivernale et prime para des officines). Mise à jour UNIQUE : le marqueur
+    « lot27_7 » de paie_migrations (collection existante) empêche de la refaire. Les bulletins validés ne bougent pas."""
+    if await db.paie_migrations.find_one({"id": "lot27_7"}, {"_id": 0, "id": 1}):
+        return
+    report = {"templates": 0, "employers": 0}
+    async for t in db.paie_modeles.find({}, {"_id": 0, "id": 1, "params": 1}):
+        try:
+            params, changes = upgrade_params_lot27(t.get("params"))
+        except (ValueError, TypeError, AttributeError):
+            continue                                # modèle illisible : laissé tel quel
+        if changes:
+            await db.paie_modeles.update_one({"id": t["id"]}, {"$set": {"params": params, "updated_at": now_iso()}})
+            report["templates"] += 1
+    async for e in db.paie_employeurs.find({"custom_params": {"$ne": None}}, {"_id": 0, "employer_id": 1, "custom_params": 1}):
+        try:
+            params, changes = upgrade_params_lot27(e.get("custom_params"))
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if changes:
+            await db.paie_employeurs.update_one({"employer_id": e["employer_id"]}, {"$set": {
+                "custom_params": params, "updated_at": now_iso()}})
+            report["employers"] += 1
+    await db.paie_migrations.update_one({"id": "lot27_7"}, {"$setOnInsert": {"id": "lot27_7", "done_at": now_iso(), **report}},
                                         upsert=True)
 
 
@@ -262,21 +292,29 @@ class EmployerConfigIn(BaseModel):
     display_name: str = Field("", max_length=200)
     address: str = Field("", max_length=300)
     phone: str = Field("", max_length=60)
-    cnss_number: str = Field("", max_length=60)
+    cnss_number: str = Field("", max_length=60)      # N° employeur (CNSS)
+    # Lot 27.7 : adresse complète de l'employeur sur le bulletin
+    bp: str = Field("", max_length=60)               # boîte postale
+    email: str = Field("", max_length=200)
+    ifu: str = Field("", max_length=60)              # N° IFU
+    officine: bool = False                           # pharmacie : propose la prime hivernale et la prime para
 
 
 async def _employer_identity(eid: str) -> Dict[str, str]:
     """Nom, adresse et téléphone par défaut d'un employeur."""
     if eid == CABINET_ID:
-        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "cabinet_name": 1, "doc_settings": 1}) or {}
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "cabinet_name": 1, "doc_settings": 1, "cabinet_email": 1}) or {}
         return {"name": s.get("cabinet_name") or "Cabinet ALBARKA", "address": (s.get("doc_settings") or {}).get("city", ""),
-                "phone": "", "kind": "cabinet"}
-    u = await db.users.find_one({"id": eid}, {"_id": 0, "company": 1, "full_name": 1, "phone": 1, "roles": 1})
+                "phone": "", "kind": "cabinet", "bp": "", "email": s.get("cabinet_email") or "",
+                "ifu": (s.get("doc_settings") or {}).get("cabinet_ifu") or "", "cnss_number": ""}
+    u = await db.users.find_one({"id": eid}, {"_id": 0, "company": 1, "full_name": 1, "phone": 1, "roles": 1, "email": 1})
     if not u or "client" not in (u.get("roles") or []):
         raise HTTPException(status_code=404, detail="Employeur introuvable")
-    kyc = await db.client_kyc.find_one({"tenant_id": eid}, {"_id": 0, "business_name": 1, "address": 1}) or {}
+    kyc = await db.client_kyc.find_one({"tenant_id": eid}, {"_id": 0, "business_name": 1, "address": 1, "ifu": 1, "bp": 1,
+                                                                "employer_number": 1}) or {}
     return {"name": kyc.get("business_name") or u.get("company") or u.get("full_name") or "", "address": kyc.get("address") or "",
-            "phone": u.get("phone") or "", "kind": "client"}
+            "phone": u.get("phone") or "", "kind": "client", "bp": kyc.get("bp") or "", "email": u.get("email") or "",
+            "ifu": kyc.get("ifu") or "", "cnss_number": kyc.get("employer_number") or ""}
 
 
 async def employer_config(eid: str, strict: bool = True) -> Dict[str, Any]:
@@ -292,7 +330,8 @@ async def employer_config(eid: str, strict: bool = True) -> Dict[str, Any]:
                                                 sort=[("period_month", -1)]) or {}
         snap = last.get("employer") or {}
         ident = {"name": snap.get("name") or eid, "address": snap.get("address") or "",
-                 "phone": snap.get("phone") or "", "kind": "client"}
+                 "phone": snap.get("phone") or "", "kind": "client", "bp": snap.get("bp") or "",
+                 "email": snap.get("email") or "", "ifu": snap.get("ifu") or "", "cnss_number": snap.get("cnss_number") or ""}
     cfg = await db.paie_employeurs.find_one({"employer_id": eid}, {"_id": 0}) or {}
     tpl = None
     if cfg.get("template_id"):
@@ -303,7 +342,10 @@ async def employer_config(eid: str, strict: bool = True) -> Dict[str, Any]:
         "employer_id": eid, "kind": ident["kind"],
         "name": cfg.get("display_name") or ident["name"], "default_name": ident["name"],
         "display_name": cfg.get("display_name") or "", "address": cfg.get("address") or ident["address"],
-        "phone": cfg.get("phone") or ident["phone"], "cnss_number": cfg.get("cnss_number") or "",
+        "phone": cfg.get("phone") or ident["phone"], "cnss_number": cfg.get("cnss_number") or ident.get("cnss_number") or "",
+        # Lot 27.7 : BP, e-mail, IFU (valeurs saisies, à défaut celles de la fiche du client) et secteur « officine »
+        "bp": cfg.get("bp") or ident.get("bp") or "", "email": cfg.get("email") or ident.get("email") or "",
+        "ifu": cfg.get("ifu") or ident.get("ifu") or "", "officine": bool(cfg.get("officine")),
         "template_id": tpl["id"], "template_name": tpl["name"],
         "chosen_template_id": cfg.get("template_id") or None,     # None = suit le modèle par défaut
         "customized": custom is not None,
@@ -349,7 +391,9 @@ async def put_employer(eid: str, payload: EmployerConfigIn, user: dict = Depends
     await db.paie_employeurs.update_one({"employer_id": eid}, {"$set": {
         "employer_id": eid, "template_id": payload.template_id, "custom_params": custom,
         "display_name": payload.display_name.strip(), "address": payload.address.strip(), "phone": payload.phone.strip(),
-        "cnss_number": payload.cnss_number.strip(), "updated_at": now_iso(), "updated_by": user.get("email")}}, upsert=True)
+        "cnss_number": payload.cnss_number.strip(), "bp": payload.bp.strip(), "email": payload.email.strip(),
+        "ifu": payload.ifu.strip(), "officine": bool(payload.officine),
+        "updated_at": now_iso(), "updated_by": user.get("email")}}, upsert=True)
     return await employer_config(eid)
 
 
@@ -371,7 +415,10 @@ class EmployeePaieIn(BaseModel):
     role: Optional[str] = Field(None, max_length=120)
     matricule: Optional[str] = Field(None, max_length=40)
     cnss_number: Optional[str] = Field(None, max_length=40)
-    category: Optional[str] = Field(None, max_length=40)
+    category: Optional[str] = Field(None, max_length=40)     # statut cadre / non cadre (abattement forfaitaire)
+    # Lot 27.7 : classement professionnel affiché sur le bulletin (sans effet sur le calcul)
+    grade: Optional[str] = Field(None, max_length=40)        # catégorie professionnelle (ex. « 5 », « C3 »)
+    echelon: Optional[str] = Field(None, max_length=40)      # échelon (ex. « B », « 2 »)
     dependents: int = Field(0, ge=0, le=30)
     hire_date: Optional[str] = None
     pay_mode: str = "gross"                       # gross (brut → net) | net (net négocié → brut)
@@ -486,7 +533,7 @@ class PrepareIn(BaseModel):
 
 
 def _snapshot(emp: dict) -> dict:
-    keys = ("full_name", "role", "matricule", "cnss_number", "category", "dependents", "hire_date", "pay_mode",
+    keys = ("full_name", "role", "matricule", "cnss_number", "category", "grade", "echelon", "dependents", "hire_date", "pay_mode",
             "base_salary", "net_target", "allowances", "non_exempt", "in_kind")
     return {k: emp.get(k) for k in keys}
 
@@ -520,7 +567,8 @@ async def _compute_bulletin(b: dict, cfg: dict) -> dict:
     res = _calc(inp, cfg["params"], b["period_month"])
     return {"employee": snap, "result": res, "params": cfg["params"], "template_name": cfg["template_name"],
             "customized": cfg["customized"],
-            "employer": {k: cfg[k] for k in ("name", "address", "phone", "cnss_number")}, "updated_at": now_iso()}
+            "employer": {k: cfg.get(k) or "" for k in ("name", "address", "bp", "phone", "email", "ifu", "cnss_number")},
+            "updated_at": now_iso()}
 
 
 @router.post("/bulletins/prepare")
@@ -640,7 +688,7 @@ async def ledger(employer_id: str, period_month: str, user: dict = Depends(requi
     cfg = await employer_config(employer_id, strict=False)
     items = await db.paie_bulletins.find({"employer_id": employer_id, "period_month": month}, {"_id": 0, "params": 0}).to_list(2000)
     items.sort(key=lambda b: (b.get("employee") or {}).get("full_name") or "")
-    return {"employer": {k: cfg[k] for k in ("employer_id", "name", "address", "phone", "cnss_number")},
+    return {"employer": {k: cfg.get(k) or "" for k in ("employer_id", "name", "address", "bp", "phone", "email", "ifu", "cnss_number")},
             "period_month": month, "period_label": period_label(month),
             "rows": [{"id": b["id"], "status": b.get("status"), "full_name": (b.get("employee") or {}).get("full_name"),
                       "role": (b.get("employee") or {}).get("role"), **{k: (b.get("result") or {}).get(k) for k, _ in LEDGER_COLUMNS},
@@ -816,9 +864,13 @@ def build_bulletin_pdf(b: dict, ctx: Optional[dict] = None) -> bytes:
         except Exception:                                # image illisible : sans logo
             pass
     left.append(P(e.get("name"), "emp"))
-    for txt in (e.get("address"), f"Tél. : {e['phone']}" if e.get("phone") else "",
-                f"IFU : {ctx['ifu']}" if ctx.get("ifu") else "",
-                f"N° CNSS employeur : {e['cnss_number']}" if e.get("cnss_number") else ""):
+    ifu = e.get("ifu") or ctx.get("ifu")                 # IFU de l'employeur (à défaut, celui du cabinet pour son personnel)
+    bp = (e.get("bp") or "").strip()                      # « BP 123 Ouaga 01 » tel quel ; « 123 » devient « BP : 123 »
+    bp_txt = bp if bp.upper().replace(".", "").startswith("BP") else (f"BP : {bp}" if bp else "")
+    for txt in (e.get("address"), bp_txt,
+                f"Tél. : {e['phone']}" if e.get("phone") else "", f"E-mail : {e['email']}" if e.get("email") else "",
+                f"N° IFU : {ifu}" if ifu else "",
+                f"N° employeur (CNSS) : {e['cnss_number']}" if e.get("cnss_number") else ""):
         if txt:                                          # pas de ligne vide quand une donnée manque
             left.append(P(txt))
     status = "Validé" if b.get("status") == "validated" else "Brouillon (non validé)"
@@ -840,9 +892,11 @@ def build_bulletin_pdf(b: dict, ctx: Optional[dict] = None) -> bytes:
     if emp.get("hire_date"):
         h = str(emp["hire_date"])[:10]
         since = f" (depuis le {h[8:10]}/{h[5:7]}/{h[:4]})"
+    grade, echelon = (emp.get("grade") or "").strip(), (emp.get("echelon") or "").strip()
+    classement = " · ".join(x for x in (f"Catégorie {grade}" if grade else "", f"échelon {echelon}" if echelon else "") if x)
     fields = [("Salarié", emp.get("full_name")), ("Matricule", emp.get("matricule")),
-              ("N° sécurité sociale", emp.get("cnss_number")), ("Poste", emp.get("role")),
-              ("Statut", cat_label),
+              ("N° sécurité sociale", emp.get("cnss_number")), ("Fonction", emp.get("role")),
+              ("Statut", cat_label), ("Catégorie / échelon", classement),
               ("Ancienneté", f"{years or 0} an{'s' if (years or 0) > 1 else ''}{since}"),
               ("Charges de famille", str(r.get("family_charges", emp.get("dependents") or 0)))]
     fields = [(k, v) for k, v in fields if v not in (None, "")]
@@ -1013,7 +1067,9 @@ def build_ledger_pdf(data: dict) -> bytes:
                             ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1"))]))
     e = data["employer"]
     el = [Paragraph(escape(f"Livre de paie — {data['period_label']}"), h),
-          Paragraph(escape(" · ".join(x for x in [e.get("name"), e.get("address"), f"N° CNSS {e['cnss_number']}" if e.get("cnss_number") else ""] if x)), s),
+          Paragraph(escape(" · ".join(x for x in [e.get("name"), e.get("address"), f"BP {e['bp']}" if e.get("bp") else "",
+                                              f"IFU {e['ifu']}" if e.get("ifu") else "",
+                                              f"N° employeur {e['cnss_number']}" if e.get("cnss_number") else ""] if x)), s),
           Spacer(1, 6), t, Spacer(1, 10), dt]
     doc.build(el)
     return buf.getvalue()
