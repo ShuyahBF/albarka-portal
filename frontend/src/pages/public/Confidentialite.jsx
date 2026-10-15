@@ -1,5 +1,5 @@
 import React from "react";
-import PublicLayout from "@/components/PublicLayout";
+import PageJuridique, { CONTACT_JURIDIQUE } from "@/components/PageJuridique";
 
 // Politique de confidentialité d'ALBARKA : page PUBLIQUE (sans connexion), adresse à donner à Meta et aux utilisateurs.
 // Chaque section décrit une réalité du portail (comptes, pièces, WhatsApp, e-mails) — à relire par le cabinet si le service évolue.
@@ -90,7 +90,7 @@ const SECTIONS = [
     avant: [
       "Conformément à la réglementation applicable au Burkina Faso en matière de protection des données personnelles, vous avez le droit d'accéder à vos données, " +
         "de les faire rectifier, de vous opposer à leur traitement ou d'en demander la suppression, dans la limite de nos obligations légales de conservation.",
-      "Pour exercer ces droits, ou pour demander la suppression de vos données, écrivez-nous à contact@albarka-bf.com ou utilisez la page Contact du portail. " +
+      "Pour exercer ces droits, ou pour demander la suppression de vos données, écrivez-nous à " + CONTACT_JURIDIQUE + " ou utilisez la page Contact du portail. " +
         "Nous vous répondons dans un délai raisonnable. Si vous estimez que vos droits ne sont pas respectés, vous pouvez saisir l'autorité burkinabè de protection des données personnelles.",
     ],
   },
@@ -104,37 +104,13 @@ const SECTIONS = [
 
 export default function Confidentialite() {
   return (
-    <PublicLayout>
-      <section className="py-16 bg-[var(--albarka-paper)]">
-        <div className="max-w-3xl mx-auto px-6" data-testid="page-confidentialite">
-          <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-3">Confidentialité</div>
-          <h1 className="font-display text-4xl md:text-5xl text-foreground mb-3">
-            Politique de <span className="albarka-underline">confidentialité</span>
-          </h1>
-          <p className="text-sm text-muted-foreground mb-10">
-            ALBARKA Consulting BF · albarka-bf.com · Dernière mise à jour : {DATE_MAJ}
-          </p>
-
-          <div className="space-y-8">
-            {SECTIONS.map((s) => (
-              <div key={s.titre} className="albarka-card p-6 space-y-3">
-                <h2 className="text-lg font-semibold text-[#0F6B4A]">{s.titre}</h2>
-                {(s.avant || []).map((p) => (
-                  <p key={p} className="text-sm leading-relaxed text-foreground/90">{p}</p>
-                ))}
-                {s.puces && (
-                  <ul className="list-disc pl-5 space-y-1.5 text-sm leading-relaxed text-foreground/90">
-                    {s.puces.map((p) => <li key={p}>{p}</li>)}
-                  </ul>
-                )}
-                {(s.apres || []).map((p) => (
-                  <p key={p} className="text-sm leading-relaxed text-foreground/90">{p}</p>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-    </PublicLayout>
+    <PageJuridique
+      kicker="Confidentialité"
+      titre="Politique de"
+      titreAccent="confidentialité"
+      dateMaj={DATE_MAJ}
+      sections={SECTIONS}
+      testId="page-confidentialite"
+    />
   );
 }
