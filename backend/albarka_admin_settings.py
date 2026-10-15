@@ -294,25 +294,72 @@ async def update_settings(payload: SettingsUpdate, user: dict = Depends(require_
     return _mask(await _load_settings())
 
 
+# Explications en français des refus les plus fréquents de Meta (code d'erreur → conseil)
+_CONSEILS_META = {
+    190: "Le jeton d'accès est invalide ou expiré : générez un jeton permanent (utilisateur système) et enregistrez-le.",
+    100: "Phone Number ID incorrect (ou non rattaché à ce jeton) : vérifiez-le dans Meta → API WhatsApp.",
+    10: "Autorisation manquante : le jeton doit avoir whatsapp_business_messaging et whatsapp_business_management.",
+    131030: "Numéro destinataire non autorisé : tant que l'app Meta est en mode développement, ajoutez-le dans la liste des destinataires de test (API WhatsApp, étape 1).",
+    131047: "Fenêtre de 24 h fermée : le destinataire doit vous écrire d'abord, ou utilisez le test « Modèle ».",
+    131026: "Message non délivrable : ce numéro n'a pas WhatsApp, ou n'a pas accepté les conditions.",
+    132001: "Modèle introuvable ou non approuvé pour cette langue.",
+    133010: "Numéro d'envoi non enregistré : terminez l'enregistrement du numéro dans Meta.",
+    131056: "Trop de messages vers ce numéro en peu de temps : réessayez plus tard.",
+}
+
+
+def _lire_erreur_meta(brut: Optional[str]) -> Dict[str, Any]:
+    """Extrait (code, message, conseil) du texte d'erreur renvoyé par Meta (JSON) ; jamais d'exception."""
+    import json
+    try:
+        err = (json.loads(brut or "{}") or {}).get("error") or {}
+    except Exception:  # noqa: BLE001 — texte non JSON : renvoyé tel quel
+        return {"code": None, "message": (brut or "")[:300], "conseil": None}
+    code = err.get("code")
+    return {"code": code, "message": (err.get("message") or "")[:300], "conseil": _CONSEILS_META.get(code)}
+
+
 @router.post("/settings/wa/test")
 async def wa_test_send(
-    payload: Dict[str, str],  # {"to": "+226..."} or {"to": "+226...", "message": "..."}
+    payload: Dict[str, str],  # {"to": "+226…", "mode": "modele"|"texte", "message": "…" (texte libre, facultatif)}
     user: dict = Depends(require_roles(_ADMIN_ROLES)),
 ):
-    """Envoie un message WhatsApp de test aux paramètres courants."""
-    from albarka_notifications import send_whatsapp
+    """Envoi de TEST par le compte WhatsApp Business d'ALBARKA lui-même (jamais par le repli SAWALI : on teste
+    la configuration Meta saisie ici). Modes : « modele » (modèle Meta `hello_world`, part même hors fenêtre de 24 h)
+    ou « texte » (texte libre, accepté seulement si le destinataire a écrit depuis moins de 24 h).
+    Renvoie toujours un diagnostic lisible : résultat, destinataire réel, code d'erreur Meta et conseil."""
+    from albarka_envoi_test import numero_effectif
+    from albarka_notifications import _get_wa_config, _send_template_waba, _send_whatsapp_waba
     to = (payload.get("to") or "").strip()
-    msg = payload.get("message") or "Test — Cabinet ALBARKA. Configuration WhatsApp opérationnelle."
+    mode = (payload.get("mode") or "modele").strip()
     if not to.startswith("+"):
         raise HTTPException(status_code=400, detail="Numéro attendu au format international (+226…)")
+    if mode not in ("modele", "texte"):
+        raise HTTPException(status_code=400, detail="Mode attendu : « modele » ou « texte »")
     settings = await _load_settings()
     if not settings.get("wa_enabled"):
-        return {"ok": False, "message_id": None, "diagnostic": "WhatsApp désactivé dans les paramètres (wa_enabled=false)"}
-    if not settings.get("wa_access_token") or not settings.get("wa_phone_number_id"):
-        return {"ok": False, "message_id": None, "diagnostic": "wa_access_token ou wa_phone_number_id manquant"}
-    result = await send_whatsapp(to_phone=to, message=msg)
-    if result.get("ok"):
-        return {"ok": True, "message_id": result.get("message_id"),
-                "kind": result.get("kind"), "diagnostic": "Message envoyé avec succès"}
-    return {"ok": False, "message_id": None, "kind": result.get("kind"),
-            "diagnostic": result.get("error") or "Meta a rejeté l'envoi — consulter les logs serveur"}
+        return {"ok": False, "message_id": None, "diagnostic": "WhatsApp désactivé : activez l'interrupteur de la carte WhatsApp Business Cloud API, puis Enregistrer."}
+    cfg = await _get_wa_config()
+    if not cfg:
+        return {"ok": False, "message_id": None, "diagnostic": "Jeton d'accès ou Phone Number ID manquant : renseignez-les puis Enregistrer."}
+    # Destinataire réel : le compte super-admin est redirigé vers son numéro de test (règle du lot 20)
+    reel, refus = await numero_effectif(to)
+    if refus:
+        return {"ok": False, "message_id": None, "diagnostic": refus}
+    if mode == "texte":
+        msg = payload.get("message") or "Test — Cabinet ALBARKA. Configuration WhatsApp opérationnelle."
+        resultat = await _send_whatsapp_waba(cfg, to, msg)
+    else:
+        corps = {"messaging_product": "whatsapp", "recipient_type": "individual", "to": (reel or to).lstrip("+"),
+                 "type": "template", "template": {"name": "hello_world", "language": {"code": "en_US"}}}
+        resultat = await _send_template_waba(cfg, corps, "hello_world", to)
+    sortie = {"ok": bool(resultat.get("ok")), "message_id": resultat.get("message_id"), "kind": resultat.get("kind"),
+              "mode": mode, "destinataire": f"{(reel or to)[:4]}…{(reel or to)[-3:]}",
+              "redirige": bool(reel and reel != to)}
+    if resultat.get("ok"):
+        sortie["diagnostic"] = "Message accepté par Meta. S'il n'arrive pas, regardez l'état du webhook (statuts de livraison)."
+        return sortie
+    erreur = _lire_erreur_meta(resultat.get("error"))
+    sortie["meta"] = erreur
+    sortie["diagnostic"] = erreur["conseil"] or erreur["message"] or resultat.get("error") or "Meta a rejeté l'envoi — consulter les logs serveur"
+    return sortie

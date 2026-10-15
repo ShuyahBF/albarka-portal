@@ -31,6 +31,9 @@ export default function AdminSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testPhone, setTestPhone] = useState("");
+  const [testMode, setTestMode] = useState("modele");     // "modele" = modèle Meta hello_world ; "texte" = texte libre
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState(null);         // diagnostic renvoyé par le serveur
   const [wa_new_token, setWaNewToken] = useState("");
   const [wa_new_verify, setWaNewVerify] = useState("");   // jeton de vérification du webhook Meta (saisi ou généré, jamais relu)
   const [recaptchaNewSecret, setRecaptchaNewSecret] = useState("");
@@ -79,17 +82,24 @@ export default function AdminSettings() {
     } finally { setSaving(false); }
   };
 
+  // Test d'envoi WhatsApp par le compte d'ALBARKA : affiche le résultat ET la raison d'un refus de Meta
   const testWA = async () => {
-    if (!testPhone.startsWith("+")) {
+    if (!testPhone.trim().startsWith("+")) {
       toast.error("Numéro attendu au format international +226…");
       return;
     }
+    setTestBusy(true);
+    setTestResult(null);
     try {
-      const { data } = await apiClient.post("/admin/settings/wa/test", { to: testPhone });
-      if (data.ok) toast.success(`WA envoyé (id: ${data.message_id})`);
-      else toast.error("Échec envoi WhatsApp — vérifier la config");
+      const { data } = await apiClient.post("/admin/settings/wa/test", { to: testPhone.trim(), mode: testMode });
+      setTestResult(data);
+      if (data.ok) toast.success("Message accepté par Meta");
+      else toast.error("Envoi refusé — voir le diagnostic sous le bouton");
     } catch (err) {
+      setTestResult({ ok: false, diagnostic: extractError(err) });
       toast.error(extractError(err));
+    } finally {
+      setTestBusy(false);
     }
   };
 
@@ -523,6 +533,40 @@ export default function AdminSettings() {
               </Button>
             </div>
 
+            {/* Test d'envoi : juste sous les identifiants pour valider la configuration tout de suite */}
+            <div className="rounded-lg border p-4 space-y-3 bg-emerald-50/40" data-testid="wa-test-bloc">
+              <div className="text-sm font-semibold">Tester l'envoi d'un message WhatsApp</div>
+              <div className="text-xs text-muted-foreground">
+                Envoi réel par le compte WhatsApp d'ALBARKA (sans repli sur SAWALI). Enregistrez d'abord les identifiants ci-dessus.
+                Le compte super-admin envoie toujours vers son numéro de test.
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                <Input placeholder="+226 70 00 00 00" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} data-testid="wa-test-phone-input" />
+                <select value={testMode} onChange={(e) => setTestMode(e.target.value)}
+                  className="border rounded-md px-3 py-2 text-sm bg-white" data-testid="wa-test-mode">
+                  <option value="modele">Modèle Meta « hello_world » (toujours possible)</option>
+                  <option value="texte">Texte libre (si le destinataire a écrit il y a moins de 24 h)</option>
+                </select>
+              </div>
+              <Button onClick={testWA} disabled={testBusy} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="wa-test-btn">
+                <Send className="w-4 h-4 mr-2" />
+                {testBusy ? "Envoi en cours…" : "Envoyer le message de test"}
+              </Button>
+              {testResult && (
+                <div className={`rounded-md p-3 text-sm ${testResult.ok ? "bg-emerald-100 text-emerald-900" : "bg-rose-100 text-rose-900"}`} data-testid="wa-test-result">
+                  <div className="font-semibold">{testResult.ok ? "✓ Envoi accepté par Meta" : "✗ Envoi refusé"}</div>
+                  <div>{testResult.diagnostic}</div>
+                  {testResult.destinataire && (
+                    <div className="text-xs mt-1">
+                      Destinataire : {testResult.destinataire}{testResult.redirige ? " (redirigé vers votre numéro de test)" : ""}
+                    </div>
+                  )}
+                  {testResult.meta?.code && <div className="text-xs mt-1">Code Meta {testResult.meta.code} : {testResult.meta.message}</div>}
+                  {testResult.message_id && <div className="text-xs mt-1 font-mono break-all">id : {testResult.message_id}</div>}
+                </div>
+              )}
+            </div>
+
             <div className="border-t pt-4 mt-4 space-y-4">
               <div className="text-sm font-semibold">Filigrane &amp; QR code sur les documents envoyés</div>
               <div className="text-xs text-muted-foreground -mt-2">
@@ -584,16 +628,6 @@ export default function AdminSettings() {
               </Button>
             </div>
 
-            <div className="border-t pt-4 mt-4">
-              <div className="text-sm font-medium mb-2">Envoyer un message de test</div>
-              <div className="flex gap-2">
-                <Input placeholder="+226…" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} data-testid="wa-test-phone-input" />
-                <Button variant="outline" onClick={testWA} data-testid="wa-test-btn">
-                  <Send className="w-4 h-4 mr-2" />
-                  Tester
-                </Button>
-              </div>
-            </div>
           </div>
         </TabsContent>
 
