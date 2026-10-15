@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "27"
-LOT_LIBELLE = "Ctrl + Espace / double-clic : reprendre le texte par défaut d'un champ pour le modifier"
+LOT = "27.1"
+LOT_LIBELLE = "Webhook WhatsApp : jeton de vérification et URL de rappel dans Paramètres → WhatsApp"
