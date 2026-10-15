@@ -90,7 +90,7 @@ const SECTIONS = [
     avant: [
       "Conformément à la réglementation applicable au Burkina Faso en matière de protection des données personnelles, vous avez le droit d'accéder à vos données, " +
         "de les faire rectifier, de vous opposer à leur traitement ou d'en demander la suppression, dans la limite de nos obligations légales de conservation.",
-      "Pour exercer ces droits, ou pour demander la suppression de vos données, écrivez-nous à " + CONTACT_JURIDIQUE + " ou utilisez la page Contact du portail. " +
+      "Pour exercer ces droits, ou pour demander la suppression de vos données, écrivez-nous à " + CONTACT_JURIDIQUE + " ou utilisez la page Contact du portail (la marche à suivre est détaillée sur albarka-bf.com/suppression-donnees). " +
         "Nous vous répondons dans un délai raisonnable. Si vous estimez que vos droits ne sont pas respectés, vous pouvez saisir l'autorité burkinabè de protection des données personnelles.",
     ],
   },
