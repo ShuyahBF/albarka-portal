@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "27.6"
-LOT_LIBELLE = "Liens vers confidentialité, conditions et suppression des données sur l'accueil public et la page de connexion"
+LOT = "27.7"
+LOT_LIBELLE = "Paie : sursalaire, prime exceptionnelle, primes d'officine ; fonction, catégorie et échelon sur le bulletin ; adresse complète de l'employeur"

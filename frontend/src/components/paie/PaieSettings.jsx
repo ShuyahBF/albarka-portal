@@ -140,7 +140,9 @@ function Employers({ reloadKey }) {
       const { data } = await apiClient.put(`/hr/paie/employeurs/${eid}`, {
         // null = suit le « modèle par défaut » (s'il change, l'employeur suit)
         template_id: cfg.chosen_template_id || null, custom_params: customParams, display_name: cfg.display_name || "",
-        address: cfg.address || "", phone: cfg.phone || "", cnss_number: cfg.cnss_number || "" });
+        address: cfg.address || "", phone: cfg.phone || "", cnss_number: cfg.cnss_number || "",
+        // Lot 27.7 : adresse complète sur le bulletin + secteur officine
+        bp: cfg.bp || "", email: cfg.email || "", ifu: cfg.ifu || "", officine: !!cfg.officine });
       setCfg(data); setCustom(data.customized ? data.custom_params : null);
       toast.success("Configuration de l'employeur appliquée");
     } catch (e) { toast.error(extractError(e)); } finally { setBusy(false); }
@@ -169,7 +171,16 @@ function Employers({ reloadKey }) {
               <input value={cfg.display_name || ""} placeholder={cfg.default_name} onChange={(e) => setCfg({ ...cfg, display_name: e.target.value })} className="mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm" /></label>
             <label>Adresse<input value={cfg.address || ""} onChange={(e) => setCfg({ ...cfg, address: e.target.value })} className="mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm" /></label>
             <label>Téléphone<input value={cfg.phone || ""} onChange={(e) => setCfg({ ...cfg, phone: e.target.value })} className="mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm" /></label>
-            <label>N° CNSS employeur<input value={cfg.cnss_number || ""} onChange={(e) => setCfg({ ...cfg, cnss_number: e.target.value })} className="mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm" data-testid="employer-cnss" /></label>
+            <label>N° employeur (CNSS)<input value={cfg.cnss_number || ""} onChange={(e) => setCfg({ ...cfg, cnss_number: e.target.value })} className="mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm" data-testid="employer-cnss" /></label>
+          </div>
+          {/* Lot 27.7 : adresse complète de l'employeur (reprise en en-tête du bulletin) */}
+          <div className="grid md:grid-cols-4 gap-3 text-xs text-slate-600" data-testid="employer-adresse-complete">
+            <label>BP (boîte postale)<input value={cfg.bp || ""} onChange={(e) => setCfg({ ...cfg, bp: e.target.value })} className="mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm" data-testid="employer-bp" /></label>
+            <label>E-mail<input type="email" value={cfg.email || ""} onChange={(e) => setCfg({ ...cfg, email: e.target.value })} className="mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm" data-testid="employer-email" /></label>
+            <label>N° IFU<input value={cfg.ifu || ""} onChange={(e) => setCfg({ ...cfg, ifu: e.target.value })} className="mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm" data-testid="employer-ifu" /></label>
+            <label className="flex items-end gap-2 pb-2 text-sm text-slate-700" title="Propose la prime hivernale et la prime para sur la fiche des salariés">
+              <input type="checkbox" checked={!!cfg.officine} onChange={(e) => setCfg({ ...cfg, officine: e.target.checked })} data-testid="employer-officine" />
+              Officine (pharmacie)</label>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => save()} disabled={busy} className={primary} style={{ background: GREEN }} data-testid="employer-apply"><Check className="h-4 w-4" /> Appliquer</button>

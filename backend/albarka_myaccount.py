@@ -104,6 +104,8 @@ class KycUpdate(BaseModel):
     ifu: Optional[str] = Field(None, max_length=50)
     rccm: Optional[str] = Field(None, max_length=50)
     address: Optional[str] = Field(None, max_length=300)
+    bp: Optional[str] = Field(None, max_length=60)               # lot 27.7 : boîte postale
+    employer_number: Optional[str] = Field(None, max_length=60)  # lot 27.7 : N° employeur (CNSS), repris sur les bulletins de paie
     bank_details: Optional[str] = Field(None, max_length=500)
 
 
@@ -115,7 +117,7 @@ def _require_client(user: dict) -> None:
 def _empty_kyc(tenant_id: str) -> dict:
     return {
         "tenant_id": tenant_id, "business_name": "", "ifu": "", "rccm": "",
-        "address": "", "bank_details": "",
+        "address": "", "bp": "", "employer_number": "", "bank_details": "",
         "id_photo_path": None, "id_card_path": None, "letterhead_path": None,
         "ai_prefilled_fields": [], "updated_at": None,
     }

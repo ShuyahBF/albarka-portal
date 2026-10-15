@@ -158,7 +158,7 @@ function KycSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingKey, setUploadingKey] = useState(null);
-  const [form, setForm] = useState({ business_name: "", ifu: "", rccm: "", address: "", bank_details: "" });
+  const [form, setForm] = useState({ business_name: "", ifu: "", rccm: "", address: "", bp: "", employer_number: "", bank_details: "" });
   const [urls, setUrls] = useState({ id_photo_url: null, id_card_url: null, letterhead_url: null });
   const [aiPrefilled, setAiPrefilled] = useState([]);
   const fileRefs = useRef({});
@@ -169,7 +169,7 @@ function KycSection() {
       const { data } = await apiClient.get("/me/kyc");
       setForm({
         business_name: data.business_name || "", ifu: data.ifu || "", rccm: data.rccm || "",
-        address: data.address || "", bank_details: data.bank_details || "",
+        address: data.address || "", bp: data.bp || "", employer_number: data.employer_number || "", bank_details: data.bank_details || "",
       });
       setUrls({
         id_photo_url: data.id_photo_url || null, id_card_url: data.id_card_url || null,
@@ -259,6 +259,15 @@ function KycSection() {
                 )}
               </Label>
               <Input value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} data-testid="kyc-address" />
+            </div>
+            {/* Lot 27.7 : adresse complète et N° employeur, repris en en-tête des bulletins de paie */}
+            <div>
+              <Label>BP (boîte postale)</Label>
+              <Input value={form.bp} onChange={(e) => setForm({ ...form, bp: e.target.value })} data-testid="kyc-bp" />
+            </div>
+            <div>
+              <Label>N° employeur (CNSS)</Label>
+              <Input value={form.employer_number} onChange={(e) => setForm({ ...form, employer_number: e.target.value })} data-testid="kyc-employer-number" />
             </div>
             <div className="sm:col-span-2">
               <Label>Coordonnées bancaires</Label>
