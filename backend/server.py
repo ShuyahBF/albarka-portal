@@ -66,6 +66,7 @@ from albarka_forms import (  # noqa: E402
     public_router as forms_public_router,
     staff_router as forms_staff_router,
 )
+from albarka_forms_modeles import router as forms_modeles_router  # noqa: E402  (modèles de formulaires prêts à l'emploi)
 from albarka_report_templates import router as report_templates_router  # noqa: E402
 from albarka_reports_mgmt import router as reports_mgmt_router  # noqa: E402
 from albarka_wa_inbox import router as wa_inbox_router  # noqa: E402
@@ -174,6 +175,7 @@ api_router.include_router(client_space_router)
 api_router.include_router(client_space_me_router)
 # Formulaires : gestion (rôle formulaires), remplissage public par lien, espace client
 api_router.include_router(forms_staff_router)
+api_router.include_router(forms_modeles_router)   # modèles de formulaires (vérification de la paie…)
 api_router.include_router(forms_public_router)
 api_router.include_router(forms_portal_router)
 # Lot 7 : papiers à en-tête + vérification QR, documents à partir de modèles, tableau de paie
