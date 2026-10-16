@@ -217,3 +217,12 @@ def test_links_are_always_https(env):
     r = env.c.post(f"/api/forms/{f['id']}/invitations", headers={**_h("form"), "Origin": "http://127.0.0.1:3000"},
                    json={"recipient_ids": ["c1"], "channels": ["email"]})
     assert r.json()["sent"] == 1 and "https://albarka-bf.com/f/" in env.sent["email"][0]["html"]
+
+
+def test_lot28_1_lien_copie_avec_caractere_invisible(env):
+    """Lot 28.1 — un lien reçu avec un espace de largeur nulle (U+200B) dans le jeton s'ouvre quand même."""
+    f = _create(env)
+    token = env.c.post(f"/api/forms/{f['id']}/public-link", headers=_h("form"), json={"enabled": True}).json()["token"]
+    abime = token[:3] + "\u200b" + token[3:] + "\u200b "
+    assert env.c.get(f"/api/public/forms/{abime}").status_code == 200
+    assert env.c.get(f"/api/public/forms/{token}x").status_code == 404          # un vrai mauvais jeton reste refusé

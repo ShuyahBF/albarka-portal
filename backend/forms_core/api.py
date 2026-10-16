@@ -21,6 +21,7 @@ import io
 import logging
 import re
 import secrets
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
@@ -41,6 +42,13 @@ UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def nettoyer_jeton(token: str) -> str:
+    """Jeton débarrassé des caractères INVISIBLES (espace de largeur nulle, marque de sens d'écriture, espaces…).
+    Constat du 16/10/2026 : un lien copié depuis une messagerie avait reçu un espace de largeur nulle (U+200B)
+    juste après « Zg_ » : le lien semblait identique mais le jeton n'était plus reconnu (« Lien invalide »)."""
+    return "".join(c for c in (token or "") if unicodedata.category(c) not in ("Cf", "Zs", "Zl", "Zp", "Cc")).strip()
 
 
 def new_token() -> str:
@@ -546,6 +554,7 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
     # ------------------------------------------------------------------ public (sans connexion)
     async def _resolve(token: str) -> Dict[str, Any]:
         """Jeton → {form, invitation|None, source}. 404 si inconnu ou désactivé."""
+        token = nettoyer_jeton(token)          # lien copié avec un caractère invisible : on l'ignore
         if not token or len(token) > 100:
             raise HTTPException(status_code=404, detail="Lien invalide.")
         inv = await invs.find_one({"token": token}, {"_id": 0})
