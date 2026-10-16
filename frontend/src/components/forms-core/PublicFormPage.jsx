@@ -10,6 +10,11 @@
     - fichiers et signature envoyés au fil de l'eau ; erreurs du serveur
       affichées sous chaque question ; champ piège anti-robots invisible.
 
+  Brouillon automatique (lot 28.4, 16/10/2026, demandé par le propriétaire : coupures de courant) : les réponses
+  saisies sont gardées sur l'appareil (localStorage, 30 jours) et restaurées à la réouverture du lien ;
+  effacées après l'envoi. Rien n'est transmis au serveur avant « Envoyer mes réponses ».
+  Modification volontaire d'un module commun : à reporter dans la copie d'origine si elle existe.
+
   Props : publicApiBase ("/public/forms"), token, brand { name, logoUrl }
 */
 import React, { useEffect, useState } from "react";
@@ -18,6 +23,10 @@ import { apiClient } from "@/lib/api";
 import FormRenderer from "./FormRenderer";
 import { errorText } from "./fieldTypes";
 import { ui, cx } from "./ui";
+
+// Durée de conservation du brouillon sur l'appareil : 30 jours
+const DUREE_BROUILLON_MS = 30 * 24 * 3600 * 1000;
+const heureCourte = (t) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
 
 export default function PublicFormPage({ publicApiBase = "/public/forms", token, brand = {} }) {
   const [ctx, setCtx] = useState(null);
@@ -29,12 +38,47 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(null);
   const [globalError, setGlobalError] = useState(null);
+  const [restaure, setRestaure] = useState(null);   // heure du brouillon restauré à l'ouverture
+  const [sauve, setSauve] = useState(null);         // heure du dernier enregistrement du brouillon
+
+  // Clé du brouillon : un brouillon par formulaire (jeton) et par navigateur. Les accès au stockage sont protégés
+  // (navigation privée, stockage plein ou bloqué) : sans stockage, la page fonctionne comme avant.
+  const cleBrouillon = `forms-brouillon:${publicApiBase}:${token}`;
+  const lireBrouillon = () => {
+    try {
+      const b = JSON.parse(window.localStorage.getItem(cleBrouillon) || "null");
+      if (b && b.at && Date.now() - b.at < DUREE_BROUILLON_MS) return b;
+    } catch { /* stockage indisponible ou brouillon abîmé : ignoré */ }
+    return null;
+  };
+  const effacerBrouillon = () => { try { window.localStorage.removeItem(cleBrouillon); } catch { /* ignoré */ } };
 
   useEffect(() => {
     apiClient.get(`${publicApiBase}/${token}`)
-      .then((r) => { setCtx(r.data); if (r.data.previous_data) setData(r.data.previous_data); })
+      .then((r) => {
+        setCtx(r.data);
+        if (r.data.previous_data) { setData(r.data.previous_data); return; }   // modification d'une réponse déjà envoyée
+        // Brouillon enregistré sur cet appareil (coupure de courant, page fermée…) : on le remet
+        const b = lireBrouillon();
+        if (b) { setData(b.data || {}); setRespondent(b.respondent || { name: "", email: "" }); setRestaure(b.at); }
+      })
       .catch((e) => setFailure(errorText(e, "Ce lien n'est pas valide.")));
   }, [publicApiBase, token]);
+
+  // Enregistrement automatique du brouillon (0,6 s après la dernière saisie), seulement s'il y a quelque chose
+  useEffect(() => {
+    if (!ctx || done) return undefined;
+    const vide = Object.keys(data).length === 0 && !respondent.name && !respondent.email;
+    if (vide) return undefined;
+    const t = setTimeout(() => {
+      try {
+        const at = Date.now();
+        window.localStorage.setItem(cleBrouillon, JSON.stringify({ at, data, respondent }));
+        setSauve(at);
+      } catch { /* stockage plein ou bloqué : le brouillon n'est simplement pas gardé */ }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [data, respondent, ctx, done]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const upload = async (fieldId, file, name) => {
     const fd = new FormData();
@@ -54,6 +98,8 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
     setSubmitting(true); setGlobalError(null);
     try {
       const r = await apiClient.post(`${publicApiBase}/${token}/submit`, { data, respondent_name: respondent.name, respondent_email: respondent.email, website: hp });
+      effacerBrouillon();                      // réponse bien reçue : le brouillon n'a plus lieu d'être
+      setSauve(null);
       setDone(r.data.message || "Merci, votre réponse a bien été enregistrée.");
       window.scrollTo?.({ top: 0 });
     } catch (e) {
@@ -119,6 +165,20 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
       <p className={ui.eyebrow}>Formulaire</p>
       <h1 className="text-2xl font-display font-bold text-slate-900">{form.title}</h1>
       {form.description && <p className="text-sm text-slate-600 mt-1 mb-4 whitespace-pre-line">{form.description}</p>}
+      {/* Brouillon automatique : rassure et rappelle que l'envoi final reste à faire */}
+      <div className="rounded-xl bg-amber-50 ring-1 ring-amber-200 text-amber-900 text-xs px-4 py-2.5 mb-3" data-testid="public-form-brouillon">
+        {restaure && !done && <p className="font-semibold mb-1">Votre brouillon enregistré à {heureCourte(restaure)} a été restauré.</p>}
+        <p>
+          Vos réponses sont enregistrées automatiquement <b>sur cet appareil</b>{sauve ? ` (dernier enregistrement à ${heureCourte(sauve)})` : ""} : vous pouvez fermer la page et revenir avec le même lien.
+          {" "}<b>Elles ne sont envoyées qu'au clic sur « {ctx.already_answered ? "Mettre à jour ma réponse" : "Envoyer mes réponses"} » en bas de la page.</b>
+        </p>
+        {(restaure || sauve) && (
+          <button type="button" className="underline mt-1" data-testid="public-form-brouillon-effacer"
+            onClick={() => { effacerBrouillon(); setData(ctx.previous_data || {}); setRespondent({ name: "", email: "" }); setRestaure(null); setSauve(null); }}>
+            Effacer le brouillon et recommencer
+          </button>
+        )}
+      </div>
       {globalError && <p className="rounded-xl bg-rose-50 ring-1 ring-rose-200 text-rose-800 text-sm px-4 py-2.5 mb-3" data-testid="public-form-error">{globalError}</p>}
       <div className="mt-4">
         <FormRenderer form={form} value={data} onChange={setData} errors={errors} uploadFile={upload} onSubmit={submit} submitting={submitting}
