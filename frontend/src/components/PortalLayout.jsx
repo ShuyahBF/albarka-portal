@@ -372,7 +372,6 @@ export default function PortalLayout({ admin = false }) {
             <div
               className="text-[10px] text-white/50 mb-2 leading-tight"
               data-testid="sidebar-last-login"
-              title={`Date de la dernière ouverture de session de votre compte (${user.last_login}). Ce n'est pas la date de mise à jour du site : celle-ci est dans la version, en haut.`}
             >
               {/* Libellé clarifié (16/10/2026) : il s'agit de la connexion de CE compte, pas d'un déploiement du site */}
               Votre dernière connexion (compte) :{" "}
