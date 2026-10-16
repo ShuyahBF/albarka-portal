@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "28"
-LOT_LIBELLE = "Formulaires : modèle « Vérification de la paie » prêt à l'emploi, à partager par lien public"
+LOT = "28.1"
+LOT_LIBELLE = "Formulaires : un lien copié avec un caractère invisible (espace de largeur nulle) s'ouvre quand même"
