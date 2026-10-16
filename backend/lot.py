@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "28.1"
-LOT_LIBELLE = "Formulaires : un lien copié avec un caractère invisible (espace de largeur nulle) s'ouvre quand même"
+LOT = "28.2"
+LOT_LIBELLE = "Barre latérale : libellé « Votre dernière connexion (compte) » clarifié (ne pas confondre avec la version déployée)"
