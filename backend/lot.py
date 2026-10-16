@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "28.2"
-LOT_LIBELLE = "Barre latérale : libellé « Votre dernière connexion (compte) » clarifié (ne pas confondre avec la version déployée)"
+LOT = "28.3"
+LOT_LIBELLE = "Barre latérale : info-bulle de la dernière connexion retirée (trop de détails)"
