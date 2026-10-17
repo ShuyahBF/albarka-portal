@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "28.4"
-LOT_LIBELLE = "Formulaires publics : brouillon automatique sur l'appareil (coupures de courant), restauré à la réouverture du lien"
+LOT = "29"
+LOT_LIBELLE = "Clients : recherche par nom de société, numéro de téléphone ou nom du responsable"
