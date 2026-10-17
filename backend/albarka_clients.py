@@ -75,11 +75,30 @@ class StaffCreate(BaseModel):
         return v
 
 
+# Lot 30 — identité fiscale et sociale de la société, modifiable par le cabinet dans la fiche client. Enregistrée dans la fiche KYC
+# du client (collection client_kyc, la même que « Mon compte » côté client) et reprise sur les bulletins de paie.
+# Nom dans la requête → nom dans client_kyc (le N° employeur CNSS s'appelle « employer_number » depuis le lot 27.7).
+CHAMPS_IDENTITE = {"ifu": "ifu", "rccm": "rccm", "cnss_number": "employer_number"}
+
+
+async def _identites(ids: List[str]) -> dict:
+    """IFU, RCCM et N° CNSS de plusieurs clients en UNE lecture : {id_client: {ifu, rccm, cnss_number}}."""
+    if not ids:
+        return {}
+    out = {}
+    async for k in db.client_kyc.find({"tenant_id": {"$in": ids}}, {"_id": 0, "tenant_id": 1, "ifu": 1, "rccm": 1, "employer_number": 1}):
+        out[k["tenant_id"]] = {"ifu": k.get("ifu") or "", "rccm": k.get("rccm") or "", "cnss_number": k.get("employer_number") or ""}
+    return out
+
+
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     company: Optional[str] = None
     phone: Optional[str] = None
     whatsapp_number: Optional[str] = None
+    ifu: Optional[str] = Field(None, max_length=60)             # lot 30 : N° IFU de la société
+    rccm: Optional[str] = Field(None, max_length=60)            # lot 30 : N° RCCM
+    cnss_number: Optional[str] = Field(None, max_length=60)     # lot 30 : N° employeur CNSS
     is_active: Optional[bool] = None
     can_receive_notifications: Optional[bool] = None
     roles: Optional[List[str]] = None
@@ -148,9 +167,11 @@ async def list_clients(user: dict = Depends(require_staff())):
         {"roles": "client", **hide_test_accounts_filter(user)}, {"_id": 0, "password_hash": 0}
     ).sort("created_at", -1).to_list(1000)
     # Lot 19 : adresse technique des clients sans e-mail masquée (champ vide + « sans_email »)
+    identites = await _identites([d["id"] for d in docs if d.get("id")])      # lot 30 : IFU, RCCM, CNSS (une seule lecture)
     for d in docs:
         if est_email_technique(d.get("email")):
             d["email"], d["sans_email"] = "", True
+        d.update(identites.get(d.get("id"), {"ifu": "", "rccm": "", "cnss_number": ""}))
     return serialize_many(await _apply_rgpd_masking(docs, user))
 
 
@@ -352,6 +373,7 @@ async def get_client(user_id: str, user: dict = Depends(require_staff())):
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
     if is_client(doc):
         (await _apply_rgpd_masking([doc], user))
+        doc.update((await _identites([doc["id"]])).get(doc["id"], {"ifu": "", "rccm": "", "cnss_number": ""}))   # lot 30
     # Lots 18-19 : adresse technique d'un compte sans e-mail jamais affichée
     if est_email_technique(doc.get("email")):
         doc["email"], doc["sans_email"] = "", True
@@ -361,7 +383,9 @@ async def get_client(user_id: str, user: dict = Depends(require_staff())):
 @router.patch("/{user_id}")
 async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(require_staff())):
     update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
-    if not update:
+    # Lot 30 : IFU / RCCM / CNSS ne vont pas dans le compte mais dans la fiche KYC du client (espaces autour retirés ; vide = effacé)
+    identite = {CHAMPS_IDENTITE[k]: str(update.pop(k)).strip() for k in list(CHAMPS_IDENTITE) if k in update}
+    if not update and not identite:
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
     target = await db.users.find_one({"id": user_id}, {"_id": 0, "roles": 1, "email": 1, "is_test_account": 1})
     if not target or (is_test_account(target) and hide_test_accounts_filter(user)):
@@ -395,12 +419,29 @@ async def update_client(user_id: str, payload: UserUpdate, user: dict = Depends(
                 status_code=403,
                 detail="Seul un Administrateur ou le Superviseur peut attribuer ou retirer le rôle Administrateur",
             )
+    if identite and not is_client(target):
+        raise HTTPException(status_code=400, detail="IFU, RCCM et CNSS ne concernent que les sociétés clientes")
     update.update(modification_stamp(user))  # dernière modification : quand et par qui
     res = await db.users.update_one({"id": user_id}, {"$set": update})
     if not res.matched_count:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    if identite:
+        await _enregistrer_identite(user_id, identite)
     doc = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    if identite or is_client(doc):
+        doc.update((await _identites([user_id])).get(user_id, {"ifu": "", "rccm": "", "cnss_number": ""}))
     return serialize(doc)
+
+
+async def _enregistrer_identite(client_id: str, identite: dict) -> None:
+    """Écrit IFU / RCCM / N° CNSS dans la fiche KYC du client et met à jour l'en-tête des bulletins de paie BROUILLONS de cette société
+    (un bulletin déjà VALIDÉ garde l'identité qu'il portait à sa validation : il ne change plus)."""
+    await db.client_kyc.update_one({"tenant_id": client_id}, {"$set": {**identite, "tenant_id": client_id,
+                                   "updated_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+    from albarka_paie import employer_config   # import local : évite un cycle
+    cfg = await employer_config(client_id, strict=False)      # valeurs effectives (une saisie propre à la paie reste prioritaire)
+    await db.paie_bulletins.update_many({"employer_id": client_id, "status": "draft"}, {"$set": {
+        "employer.ifu": cfg.get("ifu") or "", "employer.rccm": cfg.get("rccm") or "", "employer.cnss_number": cfg.get("cnss_number") or ""}})
 
 
 class VerifyPhonePayload(BaseModel):

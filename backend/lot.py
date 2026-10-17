@@ -8,4 +8,4 @@
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
 LOT = "28.4"
-LOT_LIBELLE = "Formulaires publics : brouillon automatique sur l'appareil (coupures de courant), restauré à la réouverture du lien"
+LOT_LIBELLE = "Fiche client : IFU, RCCM et N° CNSS de chaque société, modifiables par le cabinet et repris sur les bulletins de paie"
