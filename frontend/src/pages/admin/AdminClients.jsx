@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Copy, Pencil, ShieldCheck, KeyRound } from "lucide-react";
+import { Plus, Copy, Pencil, ShieldCheck, KeyRound, Search } from "lucide-react";
 import PinWhatsAppDialog from "@/components/PinWhatsAppDialog";   // lot 19 : connexion des clients par WhatsApp
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import AccountActions, { AccountDates } from "@/components/AccountActions";
 import { ui } from "@/components/forms-core/ui";
 import { usePresence, PresenceLabel } from "@/components/Presence";
+import { filtrerClients } from "@/lib/rechercheClients";   // lot 29 : recherche par société, téléphone ou responsable
 
 // Doivent rester identiques aux listes équivalentes côté backend (albarka_models.py).
 const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
@@ -39,6 +40,7 @@ export default function AdminClients() {
   const canVerifyPhone = myRoles.some((r) => VERIFY_PHONE_ROLES.includes(r));
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [recherche, setRecherche] = useState("");   // lot 29 : texte tapé dans la zone « Rechercher »
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null); // null = create mode
   const [form, setForm] = useState(emptyForm());
@@ -149,6 +151,9 @@ export default function AdminClients() {
     }
   };
 
+  // Lot 29 : liste filtrée par la recherche (la liste complète reste en mémoire : effacer la recherche la réaffiche aussitôt)
+  const affiches = filtrerClients(items, recherche);
+
   return (
     <div className="space-y-6" data-testid="admin-clients-page">
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
@@ -223,6 +228,26 @@ export default function AdminClients() {
         )}
       </div>
 
+      {/* Lot 29 — recherche par nom de société, numéro de téléphone (ou WhatsApp) ou nom du responsable */}
+      <div className="albarka-card p-4 flex flex-wrap items-center gap-3">
+        <div className="relative w-full max-w-md">
+          <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Rechercher : société, téléphone ou responsable…"
+            value={recherche}
+            onChange={(e) => setRecherche(e.target.value)}
+            className="pl-9"
+            data-testid="clients-search-input"
+          />
+        </div>
+        {recherche.trim() && !loading && (
+          <span className="text-sm text-muted-foreground" data-testid="clients-search-count">
+            {affiches.length} client(s) sur {items.length}
+          </span>
+        )}
+      </div>
+
       <div className="albarka-card overflow-hidden">
         <Table>
           <TableHeader>
@@ -241,7 +266,8 @@ export default function AdminClients() {
           <TableBody>
             {loading && <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
             {!loading && items.length === 0 && <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
-            {items.map((c) => (
+            {!loading && items.length > 0 && affiches.length === 0 && <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground" data-testid="clients-search-vide">Aucun client ne correspond à « {recherche.trim()} ».</TableCell></TableRow>}
+            {affiches.map((c) => (
               <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">{c.full_name}</TableCell>
                 <TableCell className="text-sm">
