@@ -627,6 +627,18 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
                                           "invitation_id": (ctx["invitation"] or {}).get("id")})
         return {"file_id": stored["file_id"], "filename": name, "size": len(data), "content_type": ctype}
 
+    @public.post("/{token}/rapport-erreur")
+    async def public_rapport_erreur(token: str, request: Request, payload: Dict[str, Any] = Body(...)):
+        """Lot 32 : la page de remplissage signale un incident d'affichage (écran blanc évité). Simple ligne dans le journal du serveur,
+        pour comprendre et corriger ; limitée par adresse, jamais bloquante, aucune donnée de réponse n'est envoyée."""
+        ctx = await _resolve(token)
+        if await _rate_limited(request, ctx["form"]["id"], "rapport"):
+            return {"ok": True}
+        logger.error("[forms] incident d'affichage sur le formulaire %s : %s | navigateur : %s | pile : %s | composants : %s",
+                     ctx["form"].get("number") or ctx["form"]["id"], str(payload.get("message") or "")[:300], str(payload.get("navigateur") or "")[:200],
+                     str(payload.get("pile") or "")[:1200], str(payload.get("composants") or "")[:600])
+        return {"ok": True}
+
     @public.post("/{token}/submit")
     async def public_submit(token: str, request: Request, payload: Dict[str, Any] = Body(...)):
         ctx = await _resolve(token)
@@ -637,6 +649,9 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
         settings = form.get("settings") or {}
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
         if payload.get("website"):  # champ piège invisible : un robot le remplit, un humain non
+            # Lot 32 : tracé dans le journal (un remplissage automatique du navigateur pouvait faire perdre une vraie réponse sans bruit)
+            logger.warning("[forms] champ piège rempli sur le formulaire %s : réponse écartée (navigateur : %s)",
+                           form.get("number") or form["id"], (request.headers.get("user-agent") or "")[:160])
             return {"ok": True, "message": settings.get("confirmation_message")}
         if await _rate_limited(request, form["id"], "submit"):
             raise HTTPException(status_code=429, detail="Trop de réponses depuis cette connexion. Réessayez plus tard.")

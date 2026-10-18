@@ -21,12 +21,35 @@ import React, { useEffect, useState } from "react";
 import { CheckCircle2, Loader2, Lock } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import FormRenderer from "./FormRenderer";
-import { errorText } from "./fieldTypes";
+import { errorText, texteErreur } from "./fieldTypes";
 import { ui, cx } from "./ui";
 
 // Durée de conservation du brouillon sur l'appareil : 30 jours
 const DUREE_BROUILLON_MS = 30 * 24 * 3600 * 1000;
 const heureCourte = (t) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+// Lot 32 (18/10/2026) — filet de sécurité : si l'affichage plante, plus d'écran blanc. Un message en français rappelle que les réponses
+// sont gardées sur l'appareil (brouillon), propose de recharger, et l'erreur est signalée au serveur (journal) pour être corrigée.
+export class BoiteErreur extends React.Component {
+  constructor(props) { super(props); this.state = { erreur: null }; }
+  static getDerivedStateFromError(erreur) { return { erreur }; }
+  componentDidCatch(erreur, info) {
+    try {
+      this.props.signaler({ message: String(erreur?.message || erreur).slice(0, 300), pile: String(erreur?.stack || "").slice(0, 1200),
+        composants: String(info?.componentStack || "").slice(0, 600), navigateur: String(navigator.userAgent || "").slice(0, 200) });
+    } catch { /* un signalement raté ne doit rien casser */ }
+  }
+  render() {
+    if (!this.state.erreur) return this.props.children;
+    return (
+      <div className="text-center py-8 space-y-3" role="alert" data-testid="public-form-plantage">
+        <p className="text-lg font-display font-bold text-slate-900">Un incident d'affichage est survenu</p>
+        <p className="text-sm text-slate-600">Vos réponses sont <b>gardées sur cet appareil</b> : rechargez la page, elles seront restaurées. L'incident a été signalé.</p>
+        <button type="button" className={ui.btnPrimary} onClick={() => window.location.reload()}>Recharger la page</button>
+      </div>
+    );
+  }
+}
 
 export default function PublicFormPage({ publicApiBase = "/public/forms", token, brand = {} }) {
   const [ctx, setCtx] = useState(null);
@@ -100,15 +123,17 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
       const r = await apiClient.post(`${publicApiBase}/${token}/submit`, { data, respondent_name: respondent.name, respondent_email: respondent.email, website: hp });
       effacerBrouillon();                      // réponse bien reçue : le brouillon n'a plus lieu d'être
       setSauve(null);
-      setDone(r.data.message || "Merci, votre réponse a bien été enregistrée.");
+      setDone(texteErreur(r.data?.message) || "Merci, votre réponse a bien été enregistrée.");
       window.scrollTo?.({ top: 0 });
     } catch (e) {
       const d = e?.response?.data?.detail;
-      if (d && typeof d === "object" && d.errors) { setErrors(d.errors); setGlobalError(d.message); }
+      if (d && typeof d === "object" && d.errors) { setErrors(d.errors); setGlobalError(texteErreur(d.message) || "Certaines réponses sont à corriger."); }
       else setGlobalError(errorText(e));
     } finally { setSubmitting(false); }
   };
 
+  // Signalement d'un incident d'affichage (journal du serveur) : silencieux, jamais bloquant
+  const signalerPlantage = (d) => { apiClient.post(`${publicApiBase}/${token}/rapport-erreur`, d).catch(() => {}); };
   const shell = (children) => (
     <div className="min-h-screen bg-slate-50 py-8 px-4" data-testid="public-form-page">
       <div className="max-w-2xl mx-auto">
@@ -118,7 +143,7 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
             {brand.name && <span className="font-display font-bold text-slate-800">{brand.name}</span>}
           </div>
         )}
-        <div className="rounded-2xl bg-white shadow-xl shadow-slate-200/60 ring-1 ring-slate-200 p-6 md:p-8">{children}</div>
+        <div className="rounded-2xl bg-white shadow-xl shadow-slate-200/60 ring-1 ring-slate-200 p-6 md:p-8"><BoiteErreur signaler={signalerPlantage}>{children}</BoiteErreur></div>
         <p className="text-center text-[11px] text-slate-400 mt-4 inline-flex items-center gap-1 w-full justify-center"><Lock className="h-3 w-3" /> Vos réponses sont transmises de façon sécurisée{brand.name ? ` à ${brand.name}` : ""}.</p>
       </div>
     </div>
@@ -131,7 +156,7 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
     <div className="text-center py-8" data-testid="public-form-done">
       <CheckCircle2 className="h-12 w-12 text-emerald-600 mx-auto mb-3" />
       <h1 className="text-xl font-display font-bold mb-2">{form.title}</h1>
-      <p className="text-slate-700 whitespace-pre-line">{done}</p>
+      <p className="text-slate-700 whitespace-pre-line">{texteErreur(done)}</p>
     </div>
   );
   if (ctx.closed_reason) return shell(<div className="text-center py-8"><h1 className="text-xl font-display font-bold mb-2">{form.title}</h1><p className="text-slate-600">{ctx.closed_reason}</p></div>);
@@ -149,14 +174,14 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 rounded-xl bg-slate-50 ring-1 ring-slate-200 p-4">
           <label className="block"><span className={ui.label}>Votre nom{required && <span className="text-rose-600"> *</span>}</span>
             <input value={respondent.name} onChange={(e) => setRespondent({ ...respondent, name: e.target.value })} className={ui.input} data-testid="respondent-name" />
-            {errors._respondent_name && <span className={ui.error}>{errors._respondent_name}</span>}</label>
+            {errors._respondent_name && <span className={ui.error}>{texteErreur(errors._respondent_name)}</span>}</label>
           <label className="block"><span className={ui.label}>Votre e-mail{required && <span className="text-rose-600"> *</span>}</span>
             <input type="email" value={respondent.email} onChange={(e) => setRespondent({ ...respondent, email: e.target.value })} className={ui.input} data-testid="respondent-email" />
-            {errors._respondent_email && <span className={ui.error}>{errors._respondent_email}</span>}</label>
+            {errors._respondent_email && <span className={ui.error}>{texteErreur(errors._respondent_email)}</span>}</label>
         </div>
       )}
       {/* Champ piège : invisible pour un humain, rempli par les robots */}
-      <input type="text" name="website" value={hp} onChange={(e) => setHp(e.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true" className="absolute left-[-9999px] h-0 w-0 opacity-0" />
+      <input type="text" name="champ_piege_ne_pas_remplir" value={hp} onChange={(e) => setHp(e.target.value)} tabIndex={-1} autoComplete="off" aria-hidden="true" data-lpignore="true" className="absolute left-[-9999px] h-0 w-0 opacity-0" />
     </>
   );
 
@@ -179,9 +204,9 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
           </button>
         )}
       </div>
-      {globalError && <p className="rounded-xl bg-rose-50 ring-1 ring-rose-200 text-rose-800 text-sm px-4 py-2.5 mb-3" data-testid="public-form-error">{globalError}</p>}
+      {globalError && <p className="rounded-xl bg-rose-50 ring-1 ring-rose-200 text-rose-800 text-sm px-4 py-2.5 mb-3" data-testid="public-form-error">{texteErreur(globalError)}</p>}
       <div className="mt-4">
-        <FormRenderer form={form} value={data} onChange={setData} errors={errors} uploadFile={upload} onSubmit={submit} submitting={submitting}
+        <FormRenderer form={form} value={data} onChange={setData} errors={errors} uploadFile={upload} onSubmit={submit} submitting={submitting} bannerError={globalError}
           submitLabel={ctx.already_answered ? "Mettre à jour ma réponse" : "Envoyer mes réponses"} header={header} />
       </div>
     </>

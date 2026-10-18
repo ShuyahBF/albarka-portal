@@ -16,8 +16,14 @@
 */
 import React, { useEffect, useRef, useState } from "react";
 import { Star, Paperclip, X, Loader2, ChevronLeft, ChevronRight, Eraser, Plus, Trash2 } from "lucide-react";
-import { isVisible, isEmpty } from "./fieldTypes";
+import { isVisible, isEmpty, texteErreur } from "./fieldTypes";
 import { ui, cx } from "./ui";
+
+// Lot 32 (18/10/2026) — durcissement après un « écran tout blanc » signalé à la dernière étape du formulaire de paie :
+//   - un message d'erreur n'est JAMAIS affiché tel quel s'il n'est pas du texte (liste, objet) : un objet dans l'écran fait planter toute la page ;
+//   - l'envoi d'un fichier qui échoue n'interrompt plus l'écran (l'erreur s'affiche sous la question) ;
+//   - une page sans liste de questions ne plante plus ; une erreur sur le nom ou l'e-mail ramène à la page où ils se saisissent ;
+//   - bannerError : message d'envoi affiché juste au-dessus des boutons (avant, seulement en haut de page, hors de vue).
 
 // Champ de saisie du répondant (design SAWALI, couleur du site)
 const inputCls = ui.input;
@@ -85,7 +91,9 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
     if (!file) { onChange(null); return; }
     if (!uploadFile) return;
     setUploading(true);
-    try { onChange(await uploadFile(field.id, file, name || file.name)); } finally { setUploading(false); }
+    try { onChange(await uploadFile(field.id, file, name || file.name)); }
+    catch { /* l'erreur est déjà affichée sous la question par la page */ }
+    finally { setUploading(false); }
   };
   const common = { disabled, id: `ff-${field.id}` };
 
@@ -222,14 +230,15 @@ function Field({ field, value, onChange, error, uploadFile, disabled }) {
       </label>
       {field.help && <p className="text-xs text-slate-500 mb-1.5 whitespace-pre-line">{field.help}</p>}
       {control}
-      {error && <p className={ui.error} data-testid={`field-error-${field.id}`}>{error}</p>}
+      {error && <p className={ui.error} data-testid={`field-error-${field.id}`}>{texteErreur(error)}</p>}
     </div>
   );
 }
 
 export default function FormRenderer({ form, value = {}, onChange, errors = {}, uploadFile, onSubmit, submitting = false,
-  submitLabel = "Envoyer", header = null, disabled = false }) {
-  const pages = form?.pages?.length ? form.pages : [{ id: "p", title: "", fields: [] }];
+  submitLabel = "Envoyer", header = null, disabled = false, bannerError = null }) {
+  // Chaque page a toujours une liste de questions (même si la définition reçue en est dépourvue)
+  const pages = (form?.pages?.length ? form.pages : [{ id: "p", title: "", fields: [] }]).map((p) => ({ ...p, fields: Array.isArray(p?.fields) ? p.fields : [] }));
   const [pageIdx, setPageIdx] = useState(0);
   const [localErrors, setLocalErrors] = useState({});
   const page = pages[Math.min(pageIdx, pages.length - 1)];
@@ -237,8 +246,10 @@ export default function FormRenderer({ form, value = {}, onChange, errors = {}, 
 
   // Si le serveur signale une erreur, on affiche la première page qui en contient.
   useEffect(() => {
-    const ids = Object.keys(errors || {});
+    const ids = Object.keys(errors || {}).filter((k) => errors[k]);
     if (!ids.length) return;
+    // Erreur sur le nom ou l'e-mail du répondant : ces champs se saisissent sur la première page
+    if (ids.some((k) => k.startsWith("_respondent"))) { setPageIdx(0); return; }
     const idx = pages.findIndex((p) => p.fields.some((f) => ids.includes(f.id)));
     if (idx >= 0) setPageIdx(idx);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -276,6 +287,7 @@ export default function FormRenderer({ form, value = {}, onChange, errors = {}, 
         ))}
         {page.fields.length === 0 && <p className="md:col-span-2 text-sm text-slate-400 italic">Aucune question sur cette page.</p>}
       </div>
+      {bannerError && <p className="rounded-xl bg-rose-50 ring-1 ring-rose-200 text-rose-800 text-sm px-4 py-2.5" role="alert" data-testid="form-banner-error">{texteErreur(bannerError)}</p>}
       <div className="flex items-center justify-between pt-2 border-t border-slate-100">
         <button type="button" onClick={() => setPageIdx((i) => Math.max(0, i - 1))} disabled={pageIdx === 0}
           className={cx(ui.btnSecondary, "disabled:invisible")}><ChevronLeft className="h-4 w-4" /> Précédent</button>
