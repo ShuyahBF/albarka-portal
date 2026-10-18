@@ -12,6 +12,7 @@ import { saveAccessCode, getAccessCode } from "@/lib/device";
 import MentionVersion from "@/components/MentionVersion";
 import LiensJuridiques from "@/components/LiensJuridiques";
 import EtatServeur from "@/components/EtatServeur";
+import InstallerApplication from "@/components/InstallerApplication";
 
 // Champ secret (mot de passe ou code PIN) avec pictogramme « œil » pour
 // voir / masquer la saisie (règle du propriétaire sur tous les sites).
@@ -393,8 +394,12 @@ export default function Login() {
               </button>
             </form>
           )}
+          {/* Application Android : bouton d'installation (masqué si déjà installée) */}
+          <div className="mt-6 flex justify-center">
+            <InstallerApplication testId="login-installer" />
+          </div>
           {/* Règle permanente : état du serveur et version sur la page de connexion */}
-          <div className="mt-8 flex flex-col items-center gap-1 text-xs text-muted-foreground">
+          <div className="mt-4 flex flex-col items-center gap-1 text-xs text-muted-foreground">
             <EtatServeur />
             <MentionVersion testId="login-version" />
           </div>
