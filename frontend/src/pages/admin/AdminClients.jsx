@@ -26,6 +26,7 @@ const VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"];
 
 const emptyForm = () => ({
   email: "", full_name: "", company: "", phone: "", whatsapp_number: "", password: "",
+  ifu: "", rccm: "", cnss_number: "",     // lot 30 : identité de la société, reprise sur les bulletins de paie
   can_receive_notifications: true, is_active: true,
 });
 
@@ -82,6 +83,7 @@ export default function AdminClients() {
       company: c.company || "",
       phone: c.phone || "",
       whatsapp_number: c.whatsapp_number || "",
+      ifu: c.ifu || "", rccm: c.rccm || "", cnss_number: c.cnss_number || "",
       password: "",
       can_receive_notifications: c.can_receive_notifications !== false,
       is_active: c.is_active !== false,
@@ -100,6 +102,8 @@ export default function AdminClients() {
           company: form.company || null,
           phone: form.phone || null,
           whatsapp_number: form.whatsapp_number || null,
+          // Lot 30 : valeurs envoyées telles quelles (champ vidé = valeur effacée)
+          ifu: form.ifu, rccm: form.rccm, cnss_number: form.cnss_number,
           can_receive_notifications: form.can_receive_notifications,
           is_active: form.is_active,
         });
@@ -122,7 +126,11 @@ export default function AdminClients() {
       toast.error("Avec un e-mail, un mot de passe de 8 caractères au moins est requis"); return;
     }
     try {
-      await apiClient.post("/clients", { ...form, email: form.email || null, password: form.email ? form.password : null });
+      const { data: cree } = await apiClient.post("/clients", { ...form, email: form.email || null, password: form.email ? form.password : null });
+      // Lot 30 : IFU / RCCM / CNSS saisis à la création : enregistrés dans la fiche juste après
+      if ((form.ifu || form.rccm || form.cnss_number) && cree?.id) {
+        await apiClient.patch(`/clients/${cree.id}`, { ifu: form.ifu, rccm: form.rccm, cnss_number: form.cnss_number });
+      }
       toast.success("Client créé");
       setOpen(false);
       setForm(emptyForm());
@@ -193,6 +201,13 @@ export default function AdminClients() {
                 <Label>Numéro WhatsApp</Label>
                 <Input value={form.whatsapp_number} onChange={(e) => setForm({ ...form, whatsapp_number: e.target.value })} placeholder="Laisser vide si identique au téléphone" data-testid="client-whatsapp-input" />
               </div>
+              {/* Lot 30 : identité de la société, reprise dans l'en-tête des bulletins de paie */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div><Label>N° IFU</Label><Input value={form.ifu} maxLength={60} onChange={(e) => setForm({ ...form, ifu: e.target.value })} data-testid="client-ifu-input" /></div>
+                <div><Label>N° RCCM</Label><Input value={form.rccm} maxLength={60} onChange={(e) => setForm({ ...form, rccm: e.target.value })} data-testid="client-rccm-input" /></div>
+                <div><Label>N° CNSS (employeur)</Label><Input value={form.cnss_number} maxLength={60} onChange={(e) => setForm({ ...form, cnss_number: e.target.value })} data-testid="client-cnss-input" /></div>
+              </div>
+              <p className="text-[11px] text-muted-foreground -mt-1">Ces trois numéros sont repris sur les bulletins de paie de la société. Un bulletin déjà validé ne change plus.</p>
               {/* Lot 19 : sans e-mail, connexion par WhatsApp + code PIN (bouton « clé » de la liste) */}
               {!editing && !form.email && <p className="text-[11px] text-muted-foreground">Sans e-mail, le client se connecte avec son numéro WhatsApp et un code PIN : générez-le ensuite avec le bouton « clé » de la liste.</p>}
               {!editing && form.email && (

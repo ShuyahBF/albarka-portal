@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "29"
-LOT_LIBELLE = "Clients : recherche par nom de société, numéro de téléphone ou nom du responsable"
+LOT = "30"
+LOT_LIBELLE = "Fiche client : IFU, RCCM et N° CNSS de chaque société, modifiables par le cabinet et repris sur les bulletins de paie"

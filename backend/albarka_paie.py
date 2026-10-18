@@ -297,6 +297,7 @@ class EmployerConfigIn(BaseModel):
     bp: str = Field("", max_length=60)               # boîte postale
     email: str = Field("", max_length=200)
     ifu: str = Field("", max_length=60)              # N° IFU
+    rccm: str = Field("", max_length=60)             # N° RCCM (lot 30)
     officine: bool = False                           # pharmacie : propose la prime hivernale et la prime para
 
 
@@ -306,15 +307,16 @@ async def _employer_identity(eid: str) -> Dict[str, str]:
         s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "cabinet_name": 1, "doc_settings": 1, "cabinet_email": 1}) or {}
         return {"name": s.get("cabinet_name") or "Cabinet ALBARKA", "address": (s.get("doc_settings") or {}).get("city", ""),
                 "phone": "", "kind": "cabinet", "bp": "", "email": s.get("cabinet_email") or "",
-                "ifu": (s.get("doc_settings") or {}).get("cabinet_ifu") or "", "cnss_number": ""}
+                "ifu": (s.get("doc_settings") or {}).get("cabinet_ifu") or "", "cnss_number": "",
+                "rccm": (s.get("doc_settings") or {}).get("cabinet_rccm") or ""}
     u = await db.users.find_one({"id": eid}, {"_id": 0, "company": 1, "full_name": 1, "phone": 1, "roles": 1, "email": 1})
     if not u or "client" not in (u.get("roles") or []):
         raise HTTPException(status_code=404, detail="Employeur introuvable")
-    kyc = await db.client_kyc.find_one({"tenant_id": eid}, {"_id": 0, "business_name": 1, "address": 1, "ifu": 1, "bp": 1,
+    kyc = await db.client_kyc.find_one({"tenant_id": eid}, {"_id": 0, "business_name": 1, "address": 1, "ifu": 1, "rccm": 1, "bp": 1,
                                                                 "employer_number": 1}) or {}
     return {"name": kyc.get("business_name") or u.get("company") or u.get("full_name") or "", "address": kyc.get("address") or "",
             "phone": u.get("phone") or "", "kind": "client", "bp": kyc.get("bp") or "", "email": u.get("email") or "",
-            "ifu": kyc.get("ifu") or "", "cnss_number": kyc.get("employer_number") or ""}
+            "ifu": kyc.get("ifu") or "", "rccm": kyc.get("rccm") or "", "cnss_number": kyc.get("employer_number") or ""}
 
 
 async def employer_config(eid: str, strict: bool = True) -> Dict[str, Any]:
@@ -331,7 +333,7 @@ async def employer_config(eid: str, strict: bool = True) -> Dict[str, Any]:
         snap = last.get("employer") or {}
         ident = {"name": snap.get("name") or eid, "address": snap.get("address") or "",
                  "phone": snap.get("phone") or "", "kind": "client", "bp": snap.get("bp") or "",
-                 "email": snap.get("email") or "", "ifu": snap.get("ifu") or "", "cnss_number": snap.get("cnss_number") or ""}
+                 "email": snap.get("email") or "", "ifu": snap.get("ifu") or "", "rccm": snap.get("rccm") or "", "cnss_number": snap.get("cnss_number") or ""}
     cfg = await db.paie_employeurs.find_one({"employer_id": eid}, {"_id": 0}) or {}
     tpl = None
     if cfg.get("template_id"):
@@ -345,7 +347,8 @@ async def employer_config(eid: str, strict: bool = True) -> Dict[str, Any]:
         "phone": cfg.get("phone") or ident["phone"], "cnss_number": cfg.get("cnss_number") or ident.get("cnss_number") or "",
         # Lot 27.7 : BP, e-mail, IFU (valeurs saisies, à défaut celles de la fiche du client) et secteur « officine »
         "bp": cfg.get("bp") or ident.get("bp") or "", "email": cfg.get("email") or ident.get("email") or "",
-        "ifu": cfg.get("ifu") or ident.get("ifu") or "", "officine": bool(cfg.get("officine")),
+        "ifu": cfg.get("ifu") or ident.get("ifu") or "", "rccm": cfg.get("rccm") or ident.get("rccm") or "",
+        "officine": bool(cfg.get("officine")),
         "template_id": tpl["id"], "template_name": tpl["name"],
         "chosen_template_id": cfg.get("template_id") or None,     # None = suit le modèle par défaut
         "customized": custom is not None,
@@ -392,7 +395,7 @@ async def put_employer(eid: str, payload: EmployerConfigIn, user: dict = Depends
         "employer_id": eid, "template_id": payload.template_id, "custom_params": custom,
         "display_name": payload.display_name.strip(), "address": payload.address.strip(), "phone": payload.phone.strip(),
         "cnss_number": payload.cnss_number.strip(), "bp": payload.bp.strip(), "email": payload.email.strip(),
-        "ifu": payload.ifu.strip(), "officine": bool(payload.officine),
+        "ifu": payload.ifu.strip(), "rccm": payload.rccm.strip(), "officine": bool(payload.officine),
         "updated_at": now_iso(), "updated_by": user.get("email")}}, upsert=True)
     return await employer_config(eid)
 
@@ -567,7 +570,7 @@ async def _compute_bulletin(b: dict, cfg: dict) -> dict:
     res = _calc(inp, cfg["params"], b["period_month"])
     return {"employee": snap, "result": res, "params": cfg["params"], "template_name": cfg["template_name"],
             "customized": cfg["customized"],
-            "employer": {k: cfg.get(k) or "" for k in ("name", "address", "bp", "phone", "email", "ifu", "cnss_number")},
+            "employer": {k: cfg.get(k) or "" for k in ("name", "address", "bp", "phone", "email", "ifu", "rccm", "cnss_number")},
             "updated_at": now_iso()}
 
 
@@ -688,7 +691,7 @@ async def ledger(employer_id: str, period_month: str, user: dict = Depends(requi
     cfg = await employer_config(employer_id, strict=False)
     items = await db.paie_bulletins.find({"employer_id": employer_id, "period_month": month}, {"_id": 0, "params": 0}).to_list(2000)
     items.sort(key=lambda b: (b.get("employee") or {}).get("full_name") or "")
-    return {"employer": {k: cfg.get(k) or "" for k in ("employer_id", "name", "address", "bp", "phone", "email", "ifu", "cnss_number")},
+    return {"employer": {k: cfg.get(k) or "" for k in ("employer_id", "name", "address", "bp", "phone", "email", "ifu", "rccm", "cnss_number")},
             "period_month": month, "period_label": period_label(month),
             "rows": [{"id": b["id"], "status": b.get("status"), "full_name": (b.get("employee") or {}).get("full_name"),
                       "role": (b.get("employee") or {}).get("role"), **{k: (b.get("result") or {}).get(k) for k, _ in LEDGER_COLUMNS},
@@ -870,6 +873,7 @@ def build_bulletin_pdf(b: dict, ctx: Optional[dict] = None) -> bytes:
     for txt in (e.get("address"), bp_txt,
                 f"Tél. : {e['phone']}" if e.get("phone") else "", f"E-mail : {e['email']}" if e.get("email") else "",
                 f"N° IFU : {ifu}" if ifu else "",
+                f"N° RCCM : {e['rccm']}" if e.get("rccm") else "",          # lot 30 : repris de la fiche du client
                 f"N° employeur (CNSS) : {e['cnss_number']}" if e.get("cnss_number") else ""):
         if txt:                                          # pas de ligne vide quand une donnée manque
             left.append(P(txt))
@@ -1069,6 +1073,7 @@ def build_ledger_pdf(data: dict) -> bytes:
     el = [Paragraph(escape(f"Livre de paie — {data['period_label']}"), h),
           Paragraph(escape(" · ".join(x for x in [e.get("name"), e.get("address"), f"BP {e['bp']}" if e.get("bp") else "",
                                               f"IFU {e['ifu']}" if e.get("ifu") else "",
+                                              f"RCCM {e['rccm']}" if e.get("rccm") else "",
                                               f"N° employeur {e['cnss_number']}" if e.get("cnss_number") else ""] if x)), s),
           Spacer(1, 6), t, Spacer(1, 10), dt]
     doc.build(el)
