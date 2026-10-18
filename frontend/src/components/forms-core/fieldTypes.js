@@ -76,6 +76,9 @@ export function readableValue(field, value) {
   return String(value);
 }
 
+// Lot 32 : un message d'erreur n'est jamais affiché tel quel s'il n'est pas du texte (liste ou objet = plantage de la page)
+export const texteErreur = (e) => (typeof e === "string" ? e : Array.isArray(e) ? e.map(texteErreur).join(" · ") : e && typeof e === "object" ? (e.message || e.msg || "Réponse invalide.") : e ? String(e) : "");
+
 // Message d'erreur d'une réponse d'API (texte, {message, errors} ou tableau Pydantic).
 export function errorText(err, fallback = "Une erreur est survenue") {
   const d = err?.response?.data?.detail;

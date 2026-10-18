@@ -70,3 +70,20 @@ test("un brouillon de plus de 30 jours est ignoré", async () => {
   await monter();
   expect(conteneur.querySelector('[data-testid="champ"]').value).toBe("");
 });
+
+// --- Lot 32 : plus d'écran blanc si l'affichage plante
+test("un plantage d'affichage montre un message, garde les réponses et signale l'incident", async () => {
+  jest.resetModules();
+  const erreurConsole = jest.spyOn(console, "error").mockImplementation(() => {});   // React journalise le plantage attendu
+  mockGet.mockImplementation(() => Promise.resolve({ data: { form: { title: "Paie", settings: {} }, source: "public" } }));
+  mockPost.mockImplementation(() => Promise.resolve({ data: {} }));
+  const Plante = () => { throw new Error("objet affiché par erreur"); };
+  const { BoiteErreur } = require("./PublicFormPage");
+  conteneur = document.createElement("div"); document.body.appendChild(conteneur);
+  const signaler = jest.fn();
+  await act(async () => { createRoot(conteneur).render(<BoiteErreur signaler={signaler}><Plante /></BoiteErreur>); });
+  expect(conteneur.querySelector('[data-testid="public-form-plantage"]')).not.toBeNull();
+  expect(conteneur.textContent).toContain("gardées sur cet appareil");
+  expect(signaler).toHaveBeenCalledWith(expect.objectContaining({ message: "objet affiché par erreur" }));
+  erreurConsole.mockRestore();
+});
