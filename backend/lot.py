@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "30.1"
-LOT_LIBELLE = "Bulletins : IFU, RCCM et N° CNSS propres à chaque société cliente, jamais ceux du cabinet (test de non-régression)"
+LOT = "31"
+LOT_LIBELLE = "Application Android (PWABuilder / TWA) : manifeste complet, icônes, page hors connexion, bouton « Installer l'application »"

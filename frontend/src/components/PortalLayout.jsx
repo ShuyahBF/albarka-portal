@@ -44,6 +44,7 @@ import PaymentBubble from "@/components/PaymentBubble";
 import { usePresenceHeartbeat, sendOffline } from "@/components/Presence";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
 import SidebarInfoBar from "@/components/SidebarInfoBar";
+import InstallerApplication from "@/components/InstallerApplication";
 import BandeauContrat from "@/components/BandeauContrat";   // lot 21 : contrat SAWALI
 import SupportSawali from "@/components/SupportSawali";   // lot 23 : pictogramme « Assistance » (support SAWALI)
 import { ChevronDown, Layers, Landmark, Calculator, UsersRound } from "lucide-react";   // lot 18 : menu « Traitements »
@@ -384,6 +385,8 @@ export default function PortalLayout({ admin = false }) {
               })}
             </div>
           )}
+          {/* Application Android : installer le portail (masqué si déjà installé) */}
+          <InstallerApplication sombre className="w-full mb-2" testId="sidebar-installer" />
           <Button
             variant="outline"
             size="sm"

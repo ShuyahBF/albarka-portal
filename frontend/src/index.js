@@ -8,6 +8,14 @@ import { installerValeurParDefaut } from "@/lib/valeurParDefaut";
 
 installerValeurParDefaut();
 
+// Application installable (Android / PWABuilder) : le service worker est enregistré dès le démarrage du site
+// (page « Pas de connexion », notifications). Un échec (navigateur ancien, mode privé) est sans conséquence.
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+// Garde l'invitation d'installation de Chrome pour le bouton « Installer l'application » (qui peut apparaître plus tard)
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); window.__albarkaInvite = e; window.dispatchEvent(new Event("albarka-invite")); });
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
