@@ -107,3 +107,25 @@ def test_reporte_sur_les_bulletins_brouillons_pas_sur_les_valides(env):
     brouillon = asyncio.run(env.db.paie_bulletins.find_one({"id": "brouillon-2"}))
     assert valide["employer"]["rccm"] == "BF-OUA-2020-B-1234"
     assert brouillon["employer"]["rccm"] == "BF-OUA-2021-B-9999"
+
+
+def test_bulletin_d_un_client_ne_porte_jamais_les_numeros_du_cabinet(env):
+    """Les numéros du bulletin sont CEUX DE LA SOCIÉTÉ CLIENTE : sans numéro propre, rien n'est affiché (jamais l'IFU / le RCCM d'ALBARKA)."""
+    c = env.c
+    asyncio.run(env.db.settings.insert_one({"_id": "global", "cabinet_name": "Cabinet ALBARKA",
+                                            "doc_settings": {"cabinet_ifu": "IFU-CABINET-111", "cabinet_rccm": "RCCM-CABINET-222"}}))
+    c.patch("/api/clients/c1", headers=DIR, json={"ifu": "IFU-CLIENT-1", "rccm": "RCCM-CLIENT-1", "cnss_number": "CNSS-CLIENT-1"})
+    for cid, nom in (("c1", "KABORE Awa"), ("c2", "OUEDRAOGO Paul")):          # c2 : aucun numéro saisi
+        c.post("/api/hr/paie/employees", headers=DIR, json={"base_salary": 300000, "dependents": 0, "category": "non_cadre",
+                                                            "full_name": nom, "tenant_id": cid, "role": "Employé"})
+        c.post("/api/hr/paie/bulletins/prepare", headers=DIR, json={"employer_id": cid, "period_month": "2026-10"})
+    textes = {}
+    for cid in ("c1", "c2"):
+        b = c.get(f"/api/hr/paie/bulletins?employer_id={cid}&period_month=2026-10", headers=DIR).json()["items"][0]
+        pdf = c.get(f"/api/hr/paie/bulletins/{b['id']}/pdf", headers=DIR)
+        with fitz.open("pdf", pdf.content) as d:
+            textes[cid] = " ".join(" ".join(pg.get_text() for pg in d).split())
+    assert "IFU-CLIENT-1" in textes["c1"] and "RCCM-CLIENT-1" in textes["c1"] and "CNSS-CLIENT-1" in textes["c1"]
+    for cid in ("c1", "c2"):
+        assert "IFU-CABINET-111" not in textes[cid] and "RCCM-CABINET-222" not in textes[cid]
+    assert "N° IFU" not in textes["c2"] and "N° RCCM" not in textes["c2"] and "N° employeur (CNSS)" not in textes["c2"]
