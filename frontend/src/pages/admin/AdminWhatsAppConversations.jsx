@@ -686,7 +686,7 @@ export default function AdminWhatsAppConversations() {
                           {outbound && m.wa_error && (
                             <span title={m.wa_error} className="ml-1"><AlertTriangle className="w-3 h-3 text-amber-300" /></span>
                           )}
-                          {outbound && !m.wa_error && <Check className="w-3 h-3 ml-1" />}
+                          {outbound && !m.wa_error && !m.wa_status && <Check className="w-3 h-3 ml-1" />}   {/* l'état détaillé sous le message remplace cette coche */}
                           {/* Lot 35 : plus de mention « via Liluvine » — confidentialité des échanges du cabinet avec ses clients */}
                         </div>
                         {m.message_type === "location" && <div className="italic opacity-80">📍 Localisation partagée</div>}
@@ -716,8 +716,10 @@ export default function AdminWhatsAppConversations() {
                                 .map(([cle, libelle, rang]) => {
                                   const quand = (m.wa_status_times || {})[cle] || (m.wa_status === cle ? m.wa_status_at : null);
                                   return (
-                                    <span key={cle} className={cle === "read" ? "text-sky-200" : ""}>
-                                      {rang === 1 ? "✓" : "✓✓"} {libelle}{quand ? ` ${quand.slice(11, 16)}` : ""}
+                                    <span key={cle} className={`inline-flex items-center gap-1 ${cle === "read" ? "text-sky-200" : ""}`}>
+                                      {/* Coches superposées comme dans WhatsApp : une seule (transmis) ou deux qui se chevauchent (distribué, lu) */}
+                                      {rang === 1 ? <Check className="w-3.5 h-3.5" /> : <CheckCheck className="w-3.5 h-3.5" />}
+                                      {libelle}{quand ? ` ${quand.slice(11, 16)}` : ""}
                                     </span>
                                   );
                                 })
