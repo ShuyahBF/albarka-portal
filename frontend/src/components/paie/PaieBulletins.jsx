@@ -93,6 +93,12 @@ function BulletinDrawer({ id, onClose, onChanged }) {
           <div>
             <p className="text-xs uppercase tracking-wider text-slate-500">Bulletin {b.period_month} · {locked ? "validé" : "brouillon"}</p>
             <h3 className="font-display text-xl">{b.employee?.full_name}</h3>
+            {/* Catégorie et échelon du salarié (comme sur le PDF), pour contrôler le bulletin ; rien si non renseignés */}
+            {(b.employee?.grade || b.employee?.echelon) && (
+              <p className="text-sm text-slate-600" data-testid="bulletin-classement">
+                {[b.employee?.grade && `Catégorie ${b.employee.grade}`, b.employee?.echelon && `échelon ${b.employee.echelon}`].filter(Boolean).join(" · ")}
+              </p>
+            )}
             <p className="text-xs text-slate-500">{b.employer?.name} · modèle « {b.template_name} »{b.customized ? " (personnalisé)" : ""}</p>
           </div>
           <button type="button" onClick={onClose} className="p-1 rounded hover:bg-slate-100" aria-label="Fermer"><X className="h-5 w-5" /></button>
