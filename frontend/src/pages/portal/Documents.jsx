@@ -200,13 +200,20 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
     }
   };
 
-  const sendDocByWhatsapp = async (doc) => {
+  // `confirme` = true quand le cabinet a accepté l'envoi hors fenêtre de 24 h (modèle Meta facturé, lot 40)
+  const sendDocByWhatsapp = async (doc, confirme = false) => {
     const owner = doc.client_company || doc.client_name || "le client";
-    if (!window.confirm(`Envoyer "${doc.original_filename}" par WhatsApp à ${owner} ?`)) return;
+    if (!confirme && !window.confirm(`Envoyer "${doc.original_filename}" par WhatsApp à ${owner} ?`)) return;
     try {
-      await apiClient.post(`/documents/${doc.id}/send-whatsapp`, {});
+      await apiClient.post(`/documents/${doc.id}/send-whatsapp`, confirme ? { confirmer_modele: true } : {});
       toast.success("Pièce envoyée par WhatsApp");
     } catch (err) {
+      const d = err?.response?.data?.detail;
+      // 409 : hors fenêtre de 24 h → on demande l'accord du cabinet puis on renvoie avec confirmation
+      if (err?.response?.status === 409 && d?.code === "hors_fenetre_24h") {
+        if (window.confirm(`${d.message}\n\nEnvoyer quand même (message facturé) ?`)) await sendDocByWhatsapp(doc, true);
+        return;
+      }
       toast.error(extractError(err, "Échec de l'envoi par WhatsApp"));
     }
   };

@@ -289,6 +289,17 @@ async def _fenetre_24h_ouverte(phone: str) -> bool:
     return datetime.now(timezone.utc) - quand < timedelta(hours=24)
 
 
+async def refus_hors_fenetre(phone: str, confirme: bool) -> None:
+    """Lot 40 : lève HTTP 409 « hors_fenetre_24h » si le contact n'a pas écrit depuis 24 h et que le
+    cabinet n'a pas confirmé (l'envoi passerait par un modèle Meta facturé). Commun à tous les envois."""
+    if not confirme and not await _fenetre_24h_ouverte(phone):
+        raise HTTPException(status_code=409, detail={
+            "code": "hors_fenetre_24h",
+            "message": "Ce contact ne vous a pas écrit depuis plus de 24 h : le message sera envoyé avec un "
+                       "modèle Meta, facturé au cabinet.",
+        })
+
+
 @router.post("/conversations/{phone}/reply")
 async def send_reply(
     phone: str, payload: ReplyPayload,
@@ -303,14 +314,7 @@ async def send_reply(
             detail="Ce numéro ne correspond à aucun contact ni client enregistré — "
                    "ajoutez-le d'abord dans le module Contacts avant de lui écrire.",
         )
-    # Lot 39 : hors fenêtre de 24 h (aucun message reçu de ce numéro depuis 24 h), l'envoi passe par un
-    # modèle Meta payant → le cabinet doit l'accepter explicitement (HTTP 409 tant qu'il n'a pas confirmé).
-    if not payload.confirmer_modele and not await _fenetre_24h_ouverte(phone):
-        raise HTTPException(status_code=409, detail={
-            "code": "hors_fenetre_24h",
-            "message": "Ce contact ne vous a pas écrit depuis plus de 24 h : le message sera envoyé avec un "
-                       "modèle Meta, facturé au cabinet.",
-        })
+    await refus_hors_fenetre(phone, payload.confirmer_modele)   # lot 39/40 : accord du cabinet hors fenêtre de 24 h
     # Lot 38 : message cité (même conversation) → identifiant WhatsApp réel + aperçu gardé avec le message envoyé
     cite, cite_wa_id = None, None
     if payload.reply_to_id:
