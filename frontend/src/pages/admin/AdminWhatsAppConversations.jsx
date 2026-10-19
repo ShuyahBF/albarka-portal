@@ -687,10 +687,7 @@ export default function AdminWhatsAppConversations() {
                             <span title={m.wa_error} className="ml-1"><AlertTriangle className="w-3 h-3 text-amber-300" /></span>
                           )}
                           {outbound && !m.wa_error && <Check className="w-3 h-3 ml-1" />}
-                          {/* Lot 13.9 : réponse reçue par la Transmission WA Universelle (SAWALI) */}
-                          {m.via_liluvine && (
-                            <span className="ml-1 rounded px-1 bg-sky-100 text-sky-800" data-testid="wa-msg-via-liluvine">via Liluvine</span>
-                          )}
+                          {/* Lot 35 : plus de mention « via Liluvine » — confidentialité des échanges du cabinet avec ses clients */}
                           {/* Lot 13.9 : statut renvoyé par SAWALI (remis, lu, échec) */}
                           {outbound && m.wa_status && (
                             <span className="ml-1">{{ sent: "envoyé", delivered: "remis", read: "lu", failed: "échec" }[m.wa_status] || m.wa_status}</span>
