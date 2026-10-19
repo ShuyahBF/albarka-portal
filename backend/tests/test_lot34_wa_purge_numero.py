@@ -2,6 +2,7 @@
 Tests unitaires (base simulée) : aucun appel au serveur réel."""
 import os
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -90,7 +91,8 @@ def test_reponse_citee_transmet_l_identifiant_whatsapp_reel_et_garde_un_apercu(m
     c = _appli(ADMIN_ACCOUNT_EMAIL)
     c.portal.call(c.db.wa_messages.insert_many, [
         {"id": "in1", "phone": "+22670000009", "direction": "inbound", "body": "Bonjour cabinet", "contact_name": "Mr OUOBA",
-         "wa_message_id": "liluvine:reponse:x", "wa_real_id": "wamid.RECU9"},
+         "wa_message_id": "liluvine:reponse:x", "wa_real_id": "wamid.RECU9",
+         "created_at": datetime.now(timezone.utc).isoformat()},   # reçu à l'instant → fenêtre de 24 h ouverte
         {"id": "in2", "phone": "+22670000009", "direction": "inbound", "body": "Ancien message", "wa_message_id": "liluvine:reponse:y"}])
     r = c.post("/api/whatsapp/conversations/+22670000009/reply", json={"body": "Bonjour, je vous écoute", "reply_to_id": "in1"})
     assert r.status_code == 200 and envois[-1]["reply_to"] == "wamid.RECU9"                 # identifiant Meta réel transmis
@@ -101,3 +103,32 @@ def test_reponse_citee_transmet_l_identifiant_whatsapp_reel_et_garde_un_apercu(m
     # Message cité d'une autre conversation : ignoré
     r = c.post("/api/whatsapp/conversations/+22670000009/reply", json={"body": "Autre", "reply_to_id": "inconnu"})
     assert r.status_code == 200 and envois[-1]["reply_to"] is None and r.json()["message"]["reply_to"] is None
+
+
+# ---- Lot 39 : confirmation avant un envoi hors fenêtre de 24 h (modèle Meta facturé) ----
+
+def test_envoi_hors_fenetre_24h_demande_la_confirmation_du_cabinet(monkeypatch):
+    import albarka_notifications as notif
+    envois = []
+
+    async def faux_send(*, to_phone, message, reply_to=None):
+        envois.append(message)
+        return {"ok": True, "message_id": "wamid.X"}
+
+    async def faux_contact(phone):
+        return "c1", "Mr OUOBA"
+    monkeypatch.setattr(notif, "send_whatsapp", faux_send)
+    monkeypatch.setattr(inbox, "_resolve_contact", faux_contact)
+    c = _appli(ADMIN_ACCOUNT_EMAIL)
+    ancien = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+    c.portal.call(c.db.wa_messages.insert_one, {"id": "v1", "phone": "+22670000008", "direction": "inbound", "body": "vieux", "created_at": ancien})
+    url = "/api/whatsapp/conversations/+22670000008/reply"
+    # 1) sans accord : refus 409 « hors_fenetre_24h », rien n'est envoyé ni enregistré
+    r = c.post(url, json={"body": "Bonjour"})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "hors_fenetre_24h" and envois == []
+    assert c.portal.call(c.db.wa_messages.count_documents, {"direction": "outbound"}) == 0
+    # 2) avec l'accord du cabinet : l'envoi part
+    r = c.post(url, json={"body": "Bonjour", "confirmer_modele": True})
+    assert r.status_code == 200 and envois == ["Bonjour"]
+    # 3) contact jamais venu : fenêtre fermée aussi
+    assert c.post("/api/whatsapp/conversations/+22670000007/reply", json={"body": "x"}).status_code in (404, 409)
