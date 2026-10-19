@@ -43,6 +43,10 @@ beforeEach(() => {
       { id: "c1", scope: "cabinet", full_name: "Awa Cabinet", phone: "+22670000001", channels: ["whatsapp"] },
       { id: "c2", scope: "client", full_name: "Client Autre", phone: "+22670000002", channels: ["whatsapp"] }] });
     if (url === "/whatsapp/conversations") return Promise.resolve({ data: [] });
+    if (url.startsWith("/whatsapp/conversations/") && url.endsWith("/messages")) return Promise.resolve({ data: [
+      { id: "a1", direction: "inbound", phone: "+22670000001", message_type: "text", body: "Bonjour cabinet", contact_name: "Awa Cabinet", created_at: "2026-10-19T22:34:00Z" },
+      { id: "a2", direction: "outbound", phone: "+22670000001", message_type: "text", body: "Je vous écoute", sent_by_name: "Cabinet", created_at: "2026-10-19T22:35:00Z",
+        wa_status: "read", wa_status_times: { sent: "2026-10-19T22:35:01Z", delivered: "2026-10-19T22:35:05Z", read: "2026-10-19T22:36:00Z" } }] });
     return Promise.resolve({ data: [] });
   });
   mockPost.mockResolvedValue({ data: { id: "c3", full_name: "Nouveau Cab", phone: "+22670112233" } });
@@ -81,5 +85,28 @@ test("lot 34 : le super-admin voit « Vider les conversations » et doit taper S
   await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-purge-confirm"]').click(); });
   await attendre(30);
   expect(mockPost).toHaveBeenCalledWith("/whatsapp/conversations/purge", { confirmation: "SUPPRIMER" });
+  act(() => racine.unmount());
+});
+
+
+test("lot 38 : répondre en citant un message envoie reply_to_id ; l'état Lu est affiché sous le message", async () => {
+  const conteneur = document.createElement("div"); document.body.appendChild(conteneur);
+  const racine = createRoot(conteneur);
+  await act(async () => { racine.render(<AdminWhatsAppConversations />); });
+  await attendre(30);
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-contact-c1"]').click(); });
+  await attendre(80);
+  expect(conteneur.querySelector('[data-testid="wa-msg-etat-a2"]').textContent).toContain("Lu 22:36");
+  await act(async () => { conteneur.querySelector('[data-testid="wa-msg-repondre-a1"]').click(); });
+  expect(conteneur.querySelector('[data-testid="wa-inbox-citation-barre"]').textContent).toContain("Bonjour cabinet");
+  const champ = conteneur.querySelector('[data-testid="wa-inbox-reply-input"]');
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+  await act(async () => { setter.call(champ, "Merci"); champ.dispatchEvent(new Event("input", { bubbles: true })); });
+  mockPost.mockClear();
+  mockPost.mockResolvedValueOnce({ data: { ok: true, result: {} } });
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-send-btn"]').click(); });
+  await attendre(30);
+  expect(mockPost).toHaveBeenCalledWith("/whatsapp/conversations/%2B22670000001/reply", { body: "Merci", reply_to_id: "a1" });
+  expect(conteneur.querySelector('[data-testid="wa-inbox-citation-barre"]')).toBeNull();      // citation retirée après l'envoi
   act(() => racine.unmount());
 });

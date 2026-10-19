@@ -234,7 +234,7 @@ async def _enregistrer_retour(cle: str, document: Dict[str, Any]) -> bool:
 # ---------------------------------------------------------------------------
 async def envoyer_liluvine(numero: str, message: str, *, source: Optional[str] = None,
                            id_message: Optional[str] = None, media: Optional[Dict[str, Any]] = None,
-                           canal: str = "liluvine") -> Dict[str, Any]:
+                           canal: str = "liluvine", reply_to: Optional[str] = None) -> Dict[str, Any]:
     """Envoie UN message texte (4 096 caractères au plus), avec un média
     facultatif (protocole v3), par SAWALI.
 
@@ -271,6 +271,8 @@ async def envoyer_liluvine(numero: str, message: str, *, source: Optional[str] =
     }
     if media_protocole:
         corps["media"] = media_protocole
+    if reply_to:
+        corps["reply_to"] = str(reply_to)[:200]      # lot 38 : réponse citée (identifiant WhatsApp du message du destinataire)
     corps_brut = json.dumps(corps, ensure_ascii=False, separators=(",", ":"))
 
     derniere_erreur = None
@@ -347,7 +349,7 @@ async def envoyer_liluvine(numero: str, message: str, *, source: Optional[str] =
 
 
 async def envoyer_liluvine_long(numero: str, message: str, *, source: Optional[str] = None,
-                                canal: str = "liluvine") -> Dict[str, Any]:
+                                canal: str = "liluvine", reply_to: Optional[str] = None) -> Dict[str, Any]:
     """Comme envoyer_liluvine, mais découpe un message > 4 096 caractères en
     plusieurs envois successifs (même découpage que l'envoi WABA). Renvoie en
     plus "message_ids" (un identifiant par segment)."""
@@ -355,7 +357,8 @@ async def envoyer_liluvine_long(numero: str, message: str, *, source: Optional[s
     ids = []
     res: Dict[str, Any] = _resultat(False, None, erreur="Message vide")
     for segment in _wa_split_long_text(message or "", LONGUEUR_MAX):
-        res = await envoyer_liluvine(numero, segment, source=source, canal=canal)
+        # lot 38 : seul le premier segment cite le message du destinataire
+        res = await envoyer_liluvine(numero, segment, source=source, canal=canal, reply_to=reply_to if not ids else None)
         if not res.get("ok"):
             break
         ids.append(res.get("message_id"))
@@ -428,7 +431,8 @@ def _au_format_send_whatsapp(r: Dict[str, Any], *, outside: Optional[bool] = Non
 
 
 async def repli_send_whatsapp(to_phone: str, message: str, *, media: Optional[Dict[str, Any]] = None,
-                              canal: str = "liluvine", outside: Optional[bool] = None) -> Optional[Dict[str, Any]]:
+                              canal: str = "liluvine", outside: Optional[bool] = None,
+                              reply_to: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Si la transmission universelle est configurée, envoie le message (et
     le média éventuel) par SAWALI et renvoie un dictionnaire au format de
     send_whatsapp() (avec "canal"). Sinon renvoie None (l'appelant garde son
@@ -438,7 +442,7 @@ async def repli_send_whatsapp(to_phone: str, message: str, *, media: Optional[Di
     if media:
         r = await envoyer_liluvine(to_phone, message, media=media, canal=canal)
     else:
-        r = await envoyer_liluvine_long(to_phone, message, canal=canal)
+        r = await envoyer_liluvine_long(to_phone, message, canal=canal, reply_to=reply_to)
     return _au_format_send_whatsapp(r, outside=outside)
 
 
@@ -602,6 +606,7 @@ async def _poser_reponse_dans_boite(base, retour: Dict[str, Any], cle: str) -> N
         "via_liluvine": True,
         "canal": "liluvine",
         "liluvine_id_origine": retour.get("id_origine"),
+        "wa_real_id": retour.get("wa_id"),          # lot 38 : identifiant WhatsApp réel du message reçu
     }
     try:
         contact_id, contact_name = await _resolve_contact(phone)
@@ -668,6 +673,7 @@ async def traiter_retour(corps: Dict[str, Any]) -> Dict[str, Any]:
             return {"ok": False, "erreur": "Réponse sans numéro"}
         cle = f"reponse:{de}:{date}"
         retour = {"type": "reponse", "id_origine": corps.get("id_origine"), "numero": de, "statut": None,
+                  "wa_id": str(corps.get("message_id") or "")[:200] or None,      # lot 38 : wamid du message reçu (pour le citer)
                   "texte": str(corps.get("texte") or "")[:8000], "date": date,
                   "media": corps.get("media") if isinstance(corps.get("media"), dict) else None}
     elif type_retour == "desinscription":

@@ -24,7 +24,7 @@ def _appli(email):
     inbox.db = db
     app = FastAPI()
     app.include_router(inbox.router, prefix="/api")
-    app.dependency_overrides[inbox.get_current_user] = lambda: {"id": "u1", "email": email, "role": "superviseur"}
+    app.dependency_overrides[inbox.get_current_user] = lambda: {"id": "u1", "email": email, "role": "superviseur", "roles": ["superviseur"]}
     c = TestClient(app).__enter__()
     c.portal.call(db.wa_messages.insert_many, [{"phone": "+22670000001", "body": "a"}, {"phone": "+22670000002", "body": "b"}])
     c.portal.call(db.wa_conversation_labels.insert_one, {"phone": "+22670000001", "label": "todo"})
@@ -71,3 +71,33 @@ def test_etat_du_message_avance_sans_reculer_et_garde_l_heure_de_chaque_etape():
     assert m["wa_status"] == "read"                                                  # l'état global ne recule pas
     assert set(m["wa_status_times"]) == {"sent", "delivered", "read"}
     assert m["wa_status_times"]["delivered"].startswith("2026-10-19T22:27:50")
+
+
+# ---- Lot 38 : « Répondre » en citant un message de la conversation ----
+
+def test_reponse_citee_transmet_l_identifiant_whatsapp_reel_et_garde_un_apercu(monkeypatch):
+    import albarka_notifications as notif
+    envois = []
+
+    async def faux_send(*, to_phone, message, reply_to=None):
+        envois.append({"to": to_phone, "message": message, "reply_to": reply_to})
+        return {"ok": True, "message_id": "wamid.SORTANT"}
+
+    async def faux_contact(phone):
+        return "c1", "Mr OUOBA"
+    monkeypatch.setattr(notif, "send_whatsapp", faux_send)
+    monkeypatch.setattr(inbox, "_resolve_contact", faux_contact)
+    c = _appli(ADMIN_ACCOUNT_EMAIL)
+    c.portal.call(c.db.wa_messages.insert_many, [
+        {"id": "in1", "phone": "+22670000009", "direction": "inbound", "body": "Bonjour cabinet", "contact_name": "Mr OUOBA",
+         "wa_message_id": "liluvine:reponse:x", "wa_real_id": "wamid.RECU9"},
+        {"id": "in2", "phone": "+22670000009", "direction": "inbound", "body": "Ancien message", "wa_message_id": "liluvine:reponse:y"}])
+    r = c.post("/api/whatsapp/conversations/+22670000009/reply", json={"body": "Bonjour, je vous écoute", "reply_to_id": "in1"})
+    assert r.status_code == 200 and envois[-1]["reply_to"] == "wamid.RECU9"                 # identifiant Meta réel transmis
+    assert r.json()["message"]["reply_to"]["texte"] == "Bonjour cabinet" and r.json()["message"]["reply_to"]["auteur"] == "Mr OUOBA"
+    # Message sans identifiant Meta connu (« liluvine:… ») : l'envoi part quand même, sans citation WhatsApp, aperçu gardé
+    r = c.post("/api/whatsapp/conversations/+22670000009/reply", json={"body": "Merci", "reply_to_id": "in2"})
+    assert r.status_code == 200 and envois[-1]["reply_to"] is None and r.json()["message"]["reply_to"]["texte"] == "Ancien message"
+    # Message cité d'une autre conversation : ignoré
+    r = c.post("/api/whatsapp/conversations/+22670000009/reply", json={"body": "Autre", "reply_to_id": "inconnu"})
+    assert r.status_code == 200 and envois[-1]["reply_to"] is None and r.json()["message"]["reply_to"] is None
