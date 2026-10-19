@@ -227,6 +227,11 @@ export default function AdminSettings() {
               <Input value={settings.cabinet_phone || ""} onChange={(e) => setSettings({ ...settings, cabinet_phone: e.target.value })} data-testid="cabinet-phone-input" />
             </div>
             <div>
+              <Label>Numéro WhatsApp du cabinet</Label>
+              {/* Lot 34 : affiché sous le nom du cabinet dans l'en-tête du portail ; vide = rien d'affiché */}
+              <Input value={settings.cabinet_whatsapp_number || ""} placeholder="+226 73 37 48 48" onChange={(e) => setSettings({ ...settings, cabinet_whatsapp_number: e.target.value })} data-testid="cabinet-whatsapp-input" />
+            </div>
+            <div>
               <Label>Adresse</Label>
               <Textarea value={settings.cabinet_address || ""} onChange={(e) => setSettings({ ...settings, cabinet_address: e.target.value })} rows={2} data-testid="cabinet-address-input" />
             </div>
@@ -282,6 +287,7 @@ export default function AdminSettings() {
                 cabinet_name: settings.cabinet_name,
                 cabinet_email: settings.cabinet_email,
                 cabinet_phone: settings.cabinet_phone,
+                cabinet_whatsapp_number: settings.cabinet_whatsapp_number || "",
                 cabinet_address: settings.cabinet_address,
                 email_from_address: settings.email_from_address,
                 email_reply_to: settings.email_reply_to,

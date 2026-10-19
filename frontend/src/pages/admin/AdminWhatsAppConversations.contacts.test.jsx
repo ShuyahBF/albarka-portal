@@ -21,9 +21,10 @@ jest.mock("@/components/ui/input", () => ({ Input: (p) => <input {...p} /> }), {
 jest.mock("@/components/ui/textarea", () => ({ Textarea: (p) => <textarea {...p} /> }), { virtual: true });
 jest.mock("@/components/ui/badge", () => ({ Badge: ({ children }) => <span>{children}</span> }), { virtual: true });
 jest.mock("@/components/ui/dropdown-menu", () => { const P = ({ children }) => <div>{children}</div>; return { DropdownMenu: P, DropdownMenuTrigger: P, DropdownMenuContent: P, DropdownMenuItem: P, DropdownMenuLabel: P, DropdownMenuSeparator: P }; }, { virtual: true });
-jest.mock("@/components/ui/dialog", () => { const P = ({ children }) => <div>{children}</div>; return { Dialog: () => null, DialogContent: P, DialogHeader: P, DialogTitle: P, DialogFooter: P, DialogDescription: P }; }, { virtual: true });
+jest.mock("@/components/ui/dialog", () => { const P = ({ children }) => <div>{children}</div>; return { Dialog: ({ open, children }) => (open ? <div>{children}</div> : null), DialogContent: P, DialogHeader: P, DialogTitle: P, DialogFooter: P, DialogDescription: P }; }, { virtual: true });
 jest.mock("@/components/ui/command", () => { const P = ({ children }) => <div>{children}</div>; return { Command: P, CommandEmpty: P, CommandGroup: P, CommandInput: P, CommandItem: P, CommandList: P }; }, { virtual: true });
 jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() } }), { virtual: true });
+jest.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { email: "admin@sawalismartsystems.com" } }) }), { virtual: true });
 jest.mock("@/components/Presence", () => ({ PresenceDot: () => null, PresenceLabel: () => null }), { virtual: true });
 
 import AdminWhatsAppConversations from "./AdminWhatsAppConversations";
@@ -62,5 +63,23 @@ test("vue par défaut = contacts du cabinet seulement, création sur place avec 
   const [url, corps] = mockPost.mock.calls[0];
   expect(url).toBe("/contacts");
   expect(corps).toMatchObject({ scope: "cabinet", full_name: "Nouveau Cab", phone: "+22670112233", channels: ["whatsapp"] });
+  act(() => racine.unmount());
+});
+
+test("lot 34 : le super-admin voit « Vider les conversations » et doit taper SUPPRIMER pour confirmer", async () => {
+  const conteneur = document.createElement("div"); document.body.appendChild(conteneur);
+  const racine = createRoot(conteneur);
+  await act(async () => { racine.render(<AdminWhatsAppConversations />); });
+  await attendre(30);
+  mockPost.mockClear();
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-purge-btn"]').click(); });
+  const bouton = conteneur.querySelector('[data-testid="wa-inbox-purge-confirm"]');
+  expect(bouton.disabled).toBe(true);                                   // pas de confirmation sans le mot SUPPRIMER
+  await saisir(conteneur.querySelector('[data-testid="wa-inbox-purge-input"]'), "SUPPRIMER");
+  expect(conteneur.querySelector('[data-testid="wa-inbox-purge-confirm"]').disabled).toBe(false);
+  mockPost.mockResolvedValueOnce({ data: { ok: true, messages_supprimes: 3, etiquettes_supprimees: 1 } });
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-purge-confirm"]').click(); });
+  await attendre(30);
+  expect(mockPost).toHaveBeenCalledWith("/whatsapp/conversations/purge", { confirmation: "SUPPRIMER" });
   act(() => racine.unmount());
 });

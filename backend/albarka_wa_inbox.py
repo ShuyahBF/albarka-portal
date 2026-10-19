@@ -20,7 +20,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from albarka_admin_settings import get_settings_doc
-from albarka_auth import require_roles
+from albarka_auth import get_current_user, require_roles
 from db import db, serialize, serialize_many
 
 logger = logging.getLogger("albarka.wa_inbox")
@@ -306,3 +306,40 @@ async def send_reply(
     }
     await db.wa_messages.insert_one(dict(doc))
     return {"ok": bool(result.get("ok")), "message": serialize(doc), "result": result}
+
+
+
+# =====================================================================
+# Lot 34 — numéro WhatsApp du cabinet (en-tête du portail) et remise à zéro des conversations (super-admin)
+# =====================================================================
+@router.get("/numero-cabinet")
+async def numero_cabinet(user: dict = Depends(get_current_user)):
+    """Numéro WhatsApp du cabinet, affiché sous son nom dans l'en-tête du portail (chaîne vide = rien à afficher)."""
+    s = await get_settings_doc()
+    return {"numero": (s.get("cabinet_whatsapp_number") or "").strip()}
+
+
+class PurgePayload(BaseModel):
+    confirmation: str = Field("", max_length=20)
+
+
+async def _super_admin(user: dict = Depends(get_current_user)) -> dict:
+    """Compte super-admin du portail uniquement (mêmes règles que les autres outils d'administration)."""
+    from albarka_models import is_admin_account
+    if not is_admin_account(user):
+        raise HTTPException(status_code=403, detail="Réservé à l'administrateur du portail")
+    return user
+
+
+@router.post("/conversations/purge")
+async def purger_conversations(payload: PurgePayload, user: dict = Depends(_super_admin)):
+    """Vide TOUTES les conversations WhatsApp du portail (messages et étiquettes), pour repartir à zéro après des tests.
+    Réservé au compte super-admin ; il faut renvoyer la confirmation « SUPPRIMER ». Ne touche ni aux contacts, ni aux
+    réponses rapides, ni aux données de SAWALI (journal de transmission), ni aux messages déjà reçus sur les téléphones."""
+    if (payload.confirmation or "").strip().upper() != "SUPPRIMER":
+        raise HTTPException(status_code=422, detail="Tapez SUPPRIMER pour confirmer la remise à zéro des conversations")
+    messages = await db.wa_messages.delete_many({})
+    etiquettes = await db.wa_conversation_labels.delete_many({})
+    logger.warning("[wa_inbox] conversations vidées par %s : %s messages, %s étiquettes",
+                   user.get("email"), messages.deleted_count, etiquettes.deleted_count)
+    return {"ok": True, "messages_supprimes": messages.deleted_count, "etiquettes_supprimees": etiquettes.deleted_count}

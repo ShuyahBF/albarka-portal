@@ -175,6 +175,16 @@ export default function PortalLayout({ admin = false }) {
   // Keep-alive : signale au cabinet que ce compte (client ou collaborateur) est connecté
   usePresenceHeartbeat(!!user);
   const [openSidebar, setOpenSidebar] = useState(false);
+  // Lot 34 : numéro WhatsApp du cabinet affiché dans l'en-tête (mis en forme « +226 73 37 48 48 »)
+  const [numeroCabinet, setNumeroCabinet] = useState("");
+  useEffect(() => {
+    if (!admin || !user) return;
+    apiClient.get("/whatsapp/numero-cabinet").then(({ data }) => {
+      const n = (data?.numero || "").replace(/\s+/g, "");
+      setNumeroCabinet(/^\+226\d{8}$/.test(n) ? n.replace(/^(\+226)(\d{2})(\d{2})(\d{2})(\d{2})$/, "$1 $2 $3 $4 $5") : (data?.numero || ""));
+    }).catch(() => {});
+    // eslint-disable-next-line
+  }, [admin, !!user]);
   const navigate = useNavigate();
   const location = useLocation();
   const roles = user?.roles || [];
@@ -430,6 +440,10 @@ export default function PortalLayout({ admin = false }) {
                 <div className="font-display text-lg text-foreground">
                   {admin ? "Cabinet ALBARKA" : "Bienvenue"}
                 </div>
+                {/* Lot 34 : numéro WhatsApp du cabinet, sous son nom (côté cabinet seulement ; rien s'il n'est pas renseigné) */}
+                {admin && numeroCabinet && (
+                  <div className="text-xs text-muted-foreground" data-testid="topbar-numero-whatsapp">WhatsApp {numeroCabinet}</div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-3">
