@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "32.1"
-LOT_LIBELLE = "Paie : l'abattement pour charges de famille s'affiche en positif sur le bulletin (le calcul et le net ne changent pas)"
+LOT = "32.2"
+LOT_LIBELLE = "Paie : la catégorie et l'échelon du salarié s'affichent aussi en tête du bulletin à l'écran (déjà présents sur le PDF)"
