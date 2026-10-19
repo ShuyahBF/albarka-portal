@@ -109,6 +109,13 @@ export default function AdminWhatsAppConversations() {
   const [newConvOpen, setNewConvOpen] = useState(false);
   const [contacts, setContacts] = useState([]);
   const [contactsLoading, setContactsLoading] = useState(false);
+  // Vue de gauche : « contacts » (liste propre au cabinet, vue par défaut) ou « conversations » (toutes les discussions)
+  const [vue, setVue] = useState("contacts");
+  const [cabContacts, setCabContacts] = useState([]);
+  const [cabLoading, setCabLoading] = useState(true);
+  const [nouveauContact, setNouveauContact] = useState(false);   // formulaire de création ouvert
+  const [nc, setNc] = useState({ full_name: "", phone: "", organization: "" });
+  const [ncSaving, setNcSaving] = useState(false);
   const scrollRef = useRef(null);
   const lastUnreadTotalRef = useRef(0);
   const firstLoadRef = useRef(true);
@@ -177,6 +184,63 @@ export default function AdminWhatsAppConversations() {
     finally { setContactsLoading(false); }
   };
 
+  // --- Contacts du cabinet : liste, création sur place, ouverture d'un fil ---
+  const loadCabinetContacts = async () => {
+    try {
+      const { data } = await apiClient.get("/contacts");
+      setCabContacts((data || []).filter((c) => c.scope === "cabinet"));
+    } catch (err) { toast.error(extractError(err, "Impossible de charger les contacts du cabinet")); }
+    finally { setCabLoading(false); }
+  };
+
+  // Numéro au format international : 8 chiffres → +226 (Burkina Faso), « 00… » → « +… »
+  const normaliserTel = (v) => {
+    const t = (v || "").replace(/[\s.\-()]/g, "");
+    if (/^\d{8}$/.test(t)) return `+226${t}`;
+    if (t.startsWith("00")) return `+${t.slice(2)}`;
+    return t;
+  };
+
+  // Crée le contact du cabinet (WhatsApp activé) puis ouvre directement son fil de conversation
+  const creerContactCabinet = async (e) => {
+    e.preventDefault();
+    const phone = normaliserTel(nc.phone);
+    if (!/^\+\d{8,15}$/.test(phone)) { toast.error("Numéro invalide : 8 chiffres (Burkina) ou format international +226…"); return; }
+    setNcSaving(true);
+    try {
+      const { data } = await apiClient.post("/contacts", {
+        scope: "cabinet", full_name: nc.full_name.trim(), phone, organization: nc.organization.trim() || null,
+        function: "autre", channels: ["whatsapp"],
+      });
+      toast.success("Contact créé");
+      setNc({ full_name: "", phone: "", organization: "" });
+      setNouveauContact(false);
+      await loadCabinetContacts();
+      startConversation({ ...data, full_name: data?.full_name || nc.full_name.trim(), phone });
+    } catch (err) { toast.error(extractError(err, "Création impossible")); }
+    finally { setNcSaving(false); }
+  };
+
+  // Clé de rapprochement contact ↔ conversation : les 8 derniers chiffres du numéro
+  const cle8 = (t) => (t || "").replace(/\D/g, "").slice(-8);
+  const convParCle = useMemo(() => {
+    const m = {};
+    conversations.forEach((c) => { m[cle8(c.phone)] = c; });
+    return m;
+  }, [conversations]);
+
+  const contactsFiltres = useMemo(() => {
+    const term = q.trim().toLowerCase();
+    return cabContacts.filter((c) => !term || `${c.full_name} ${c.organization || ""} ${c.phone || ""}`.toLowerCase().includes(term));
+  }, [cabContacts, q]);
+
+  const ouvrirContact = (c) => {
+    if (!(c.phone || "").trim()) { toast.error("Ce contact n'a pas de numéro : complétez-le dans le module Contacts."); return; }
+    const phone = c.phone.trim();
+    const existante = convParCle[cle8(phone)];
+    startConversation({ ...c, phone: existante?.phone || phone });
+  };
+
   const openNewConversation = () => { setNewConvOpen(true); loadContacts(); };
 
   const startConversation = (contact) => {
@@ -192,7 +256,7 @@ export default function AdminWhatsAppConversations() {
     setSelectedPhone(phone);
   };
 
-  useEffect(() => { loadConversations({ notify: false }); loadQuickReplies(); }, []);
+  useEffect(() => { loadConversations({ notify: false }); loadQuickReplies(); loadCabinetContacts(); /* eslint-disable-next-line */ }, []);
   useEffect(() => {
     const t = setInterval(() => {
       loadConversations();
@@ -358,10 +422,20 @@ export default function AdminWhatsAppConversations() {
           data-testid="wa-inbox-list-panel"
         >
           <div className="p-2 border-b border-border space-y-2">
+            {/* Onglets : liste de contacts du cabinet (par défaut) / toutes les conversations */}
+            <div className="flex gap-1" role="tablist">
+              {[{ v: "contacts", t: "Contacts du cabinet" }, { v: "conversations", t: "Conversations", n: totalUnread }].map((o) => (
+                <button key={o.v} role="tab" aria-selected={vue === o.v} onClick={() => setVue(o.v)}
+                  className={`flex-1 text-xs px-2 py-1.5 rounded border ${vue === o.v ? "bg-[#0F6B4A] text-white border-[#0F6B4A]" : "bg-white border-slate-200 hover:bg-slate-50"}`}
+                  data-testid={`wa-inbox-tab-${o.v}`}>
+                  {o.t}{o.n > 0 && <span className="ml-1 rounded-full bg-[#E5A24B] px-1.5 text-[10px] text-white">{o.n}</span>}
+                </button>
+              ))}
+            </div>
             <div className="relative">
               <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Rechercher numéro, contact, message…"
+                placeholder={vue === "contacts" ? "Rechercher un contact du cabinet…" : "Rechercher numéro, contact, message…"}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 className="pl-8 h-9"
@@ -369,7 +443,7 @@ export default function AdminWhatsAppConversations() {
               />
             </div>
             {/* Filtre par étiquette */}
-            <div className="flex items-center gap-1 flex-wrap">
+            <div className={`flex items-center gap-1 flex-wrap ${vue === "contacts" ? "hidden" : ""}`}>
               {[
                 { v: "all", t: "Tous" },
                 { v: "todo", t: "À traiter" },
@@ -393,7 +467,55 @@ export default function AdminWhatsAppConversations() {
               })}
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto" data-testid="wa-inbox-list">
+          {vue === "contacts" && (
+            <div className="flex-1 overflow-y-auto" data-testid="wa-inbox-contacts">
+              {/* Création d'un contact du cabinet sur place, sans quitter la messagerie */}
+              <div className="p-2 border-b border-slate-100">
+                {!nouveauContact ? (
+                  <Button size="sm" variant="outline" className="w-full" onClick={() => setNouveauContact(true)} data-testid="wa-inbox-new-contact-btn">
+                    <UserPlus className="w-4 h-4 mr-1" /> Nouveau contact
+                  </Button>
+                ) : (
+                  <form onSubmit={creerContactCabinet} className="space-y-2" data-testid="wa-inbox-new-contact-form">
+                    <Input required placeholder="Nom du contact" value={nc.full_name} onChange={(e) => setNc({ ...nc, full_name: e.target.value })} className="h-9" data-testid="wa-inbox-nc-name" />
+                    <Input required placeholder="Téléphone (ex. 70 00 00 00 ou +226…)" value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} className="h-9" data-testid="wa-inbox-nc-phone" />
+                    <Input placeholder="Société (facultatif)" value={nc.organization} onChange={(e) => setNc({ ...nc, organization: e.target.value })} className="h-9" />
+                    <div className="flex gap-2">
+                      <Button type="submit" size="sm" disabled={ncSaving} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="wa-inbox-nc-save">
+                        {ncSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Créer et écrire"}
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setNouveauContact(false)}>Annuler</Button>
+                    </div>
+                  </form>
+                )}
+              </div>
+              {cabLoading && <div className="p-6 text-center text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Chargement…</div>}
+              {!cabLoading && contactsFiltres.length === 0 && (
+                <div className="p-6 text-center text-sm text-muted-foreground">Aucun contact du cabinet. Utilisez « Nouveau contact ».</div>
+              )}
+              {contactsFiltres.map((c) => {
+                const conv = convParCle[cle8(c.phone)];
+                const actif = conv && conv.phone === selectedPhone;
+                return (
+                  <button key={c.id} onClick={() => ouvrirContact(c)}
+                    className={`w-full text-left px-3 py-2.5 border-b border-slate-100 hover:bg-slate-50 transition ${actif ? "bg-emerald-50" : ""}`}
+                    data-testid={`wa-inbox-contact-${c.id}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-medium text-sm truncate">{c.full_name}</div>
+                      <div className="text-[10px] text-muted-foreground shrink-0">{conv ? fmtDate(conv.last_at) : ""}</div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <div className="text-xs text-muted-foreground truncate">
+                        {conv ? preview(conv) || c.phone : `${c.phone || "Sans numéro"} · nouvelle conversation`}
+                      </div>
+                      {conv?.unread > 0 && <Badge className="bg-[#E5A24B] text-white h-5 min-w-5 px-1.5 text-[10px]">{conv.unread}</Badge>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className={`flex-1 overflow-y-auto ${vue === "contacts" ? "hidden" : ""}`} data-testid="wa-inbox-list">
             {loadingList && (
               <div className="p-6 text-center text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin inline mr-2" />Chargement…
@@ -452,7 +574,7 @@ export default function AdminWhatsAppConversations() {
             <div className="flex-1 flex items-center justify-center text-center p-8 text-muted-foreground">
               <div>
                 <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-40" />
-                <div className="text-sm">Sélectionnez une conversation pour afficher les messages.</div>
+                <div className="text-sm">Sélectionnez un contact (ou une conversation) pour afficher l'historique et écrire.</div>
               </div>
             </div>
           )}
