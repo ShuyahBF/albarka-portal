@@ -428,7 +428,8 @@ export default function AdminWhatsAppConversations() {
           </h1>
           <p className="text-sm text-muted-foreground">Messages reçus via le webhook Meta — répondez en texte libre.</p>
         </div>
-        <div className="flex items-center gap-2">
+        {/* Lot 43 : les boutons passent à la ligne sur mobile (sinon la page déborde à droite) */}
+        <div className="flex flex-wrap items-center gap-2 max-w-full">
           <Button
             size="sm"
             onClick={openNewConversation}

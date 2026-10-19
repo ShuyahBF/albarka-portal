@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "42"
-LOT_LIBELLE = "Envois WhatsApp et paie : le mode test du super-admin est respecté (fenêtre de 24 h et destinataire affiché = son numéro de test)"
+LOT = "43"
+LOT_LIBELLE = "Affichage mobile : plus de débordement à droite, boutons qui passent à la ligne, fenêtres toujours à la taille de l'écran"

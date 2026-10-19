@@ -228,3 +228,11 @@ table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td {
   background-color: #f6a35b !important;
   color: #ffffff !important;
 }
+
+
+/* Lot 43 — chaque page respecte la largeur de l'écran : le cadre (barre latérale, en-tête) ne défile jamais
+   horizontalement ; si un contenu est plus large que l'écran (grand tableau), c'est la zone de contenu qui défile,
+   pas toute la page. */
+html, body { max-width: 100%; overflow-x: clip; }
+body.portal-ui main { min-width: 0; max-width: 100%; overflow-x: auto; }
+body.portal-ui main img, body.portal-ui main video { max-width: 100%; height: auto; }
