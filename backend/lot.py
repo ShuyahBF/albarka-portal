@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "37"
-LOT_LIBELLE = "Conversations WhatsApp : coches superposées (comme WhatsApp) pour Distribué et Lu ; la coche seule disparaît quand l'état détaillé est affiché"
+LOT = "38"
+LOT_LIBELLE = "Conversations WhatsApp : répondre en citant un message, double coche réservée à Lu, et fin des oscillations verticales au rafraîchissement automatique"

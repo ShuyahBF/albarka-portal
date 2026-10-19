@@ -307,7 +307,7 @@ def _wa_window_open(last_inbound_iso: Optional[str], window_seconds: int = 86400
         return None
 
 
-async def send_whatsapp(*, to_phone: str, message: str) -> dict:
+async def send_whatsapp(*, to_phone: str, message: str, reply_to: Optional[str] = None) -> dict:
     """Envoie un WhatsApp via l'API Meta Graph.
 
     Retourne un dictionnaire structuré :
@@ -325,7 +325,7 @@ async def send_whatsapp(*, to_phone: str, message: str) -> dict:
         # WA Universelle Liluvine (SAWALI) si elle est configurée. Sinon, on
         # garde l'échec « not_configured » d'origine.
         from albarka_transmission_wa import repli_send_whatsapp
-        repli = await repli_send_whatsapp(to_phone, message)
+        repli = await repli_send_whatsapp(to_phone, message, reply_to=reply_to)   # lot 38 : réponse citée
         if repli is not None:
             return repli
         logger.info("WhatsApp non configuré — envoi vers %s ignoré.", to_phone)

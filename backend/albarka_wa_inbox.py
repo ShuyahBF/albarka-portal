@@ -268,6 +268,8 @@ async def conversation_messages(
 
 class ReplyPayload(BaseModel):
     body: str = Field(..., min_length=1, max_length=8000)
+    # Lot 38 : « Répondre » à un message précis de la conversation (identifiant du message dans la boîte, pas celui de Meta)
+    reply_to_id: Optional[str] = Field(None, max_length=64)
 
 
 @router.post("/conversations/{phone}/reply")
@@ -284,8 +286,19 @@ async def send_reply(
             detail="Ce numéro ne correspond à aucun contact ni client enregistré — "
                    "ajoutez-le d'abord dans le module Contacts avant de lui écrire.",
         )
+    # Lot 38 : message cité (même conversation) → identifiant WhatsApp réel + aperçu gardé avec le message envoyé
+    cite, cite_wa_id = None, None
+    if payload.reply_to_id:
+        origine = await db.wa_messages.find_one({"id": payload.reply_to_id, "phone": phone}, {"_id": 0})
+        if origine:
+            wa_id = origine.get("wa_real_id") or origine.get("wa_message_id") or ""
+            cite_wa_id = wa_id if wa_id and not wa_id.startswith("liluvine:") else None   # « liluvine:… » = pas un identifiant Meta
+            cite = {"id": origine["id"], "direction": origine.get("direction"),
+                    "auteur": (origine.get("contact_name") or origine.get("profile_name") or origine.get("sent_by_name") or phone)
+                    if origine.get("direction") == "inbound" else (origine.get("sent_by_name") or "Cabinet"),
+                    "texte": (origine.get("body") or origine.get("voice_note_transcript") or f"[{origine.get('message_type') or 'message'}]")[:200]}
     from albarka_notifications import send_whatsapp
-    result = await send_whatsapp(to_phone=phone, message=payload.body)
+    result = await send_whatsapp(to_phone=phone, message=payload.body, reply_to=cite_wa_id)
     doc = {
         "id": secrets.token_urlsafe(12),
         "direction": "outbound",
@@ -303,6 +316,7 @@ async def send_reply(
         "wa_kind": result.get("kind"),
         "wa_error": result.get("error"),
         "outside_24h_window": result.get("outside_24h_window"),
+        "reply_to": cite,                                  # lot 38 : aperçu du message cité (affiché au-dessus de la réponse)
     }
     await db.wa_messages.insert_one(dict(doc))
     return {"ok": bool(result.get("ok")), "message": serialize(doc), "result": result}

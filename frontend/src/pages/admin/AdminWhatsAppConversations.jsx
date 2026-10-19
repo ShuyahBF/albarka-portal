@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  MessageCircle, Send, Loader2, Search, RefreshCw, ArrowLeft,
+  MessageCircle, Reply, Send, Loader2, Search, RefreshCw, ArrowLeft,
   Image as ImageIcon, Mic, FileText, MapPin, Video, Check, CheckCheck, AlertTriangle,
   Zap, Plus, Trash2, Pencil, Tag, BellRing, BellOff, BarChart3, UserPlus,
 } from "lucide-react";
@@ -105,6 +105,9 @@ export default function AdminWhatsAppConversations() {
   const [selectedPhone, setSelectedPhone] = useState(null);
   const [messages, setMessages] = useState([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
+  const [citation, setCitation] = useState(null);                // lot 38 : message auquel on répond (« Répondre » sur une bulle)
+  const signatureMsgsRef = useRef("");                           // lot 38 : empreinte des messages affichés (évite les rafraîchissements inutiles)
+  const signatureConvsRef = useRef("");
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const [q, setQ] = useState("");
@@ -151,21 +154,31 @@ export default function AdminWhatsAppConversations() {
       }
       lastUnreadTotalRef.current = total;
       firstLoadRef.current = false;
-      setConversations(data);
+      // Lot 38 : la liste n'est redessinée que si elle a réellement changé (plus de « tremblement » à chaque rafraîchissement)
+      const signature = JSON.stringify(data);
+      if (signature !== signatureConvsRef.current) { signatureConvsRef.current = signature; setConversations(data); }
     } catch (err) { toast.error(extractError(err)); }
     finally { setLoadingList(false); }
   };
 
-  const loadMessages = async (phone) => {
+  // Lot 38 : un rafraîchissement automatique (`silent`) n'affiche plus « Chargement… », ne redessine la conversation que si elle a
+  // changé, et ne fait défiler vers le bas que lorsqu'un NOUVEAU message arrive : fini les oscillations verticales.
+  const loadMessages = async (phone, { silent = false } = {}) => {
     if (!phone) return;
-    setLoadingMsgs(true);
+    if (!silent) setLoadingMsgs(true);
     try {
       const { data } = await apiClient.get(`/whatsapp/conversations/${encodeURIComponent(phone)}/messages`);
-      setMessages(data);
-      setTimeout(() => scrollRef.current?.scrollTo({ top: 9e9, behavior: "smooth" }), 60);
-      loadConversations({ notify: false });
-    } catch (err) { toast.error(extractError(err)); }
-    finally { setLoadingMsgs(false); }
+      const signature = JSON.stringify(data.map((m) => [m.id, m.wa_status, m.wa_status_at, m.body]));
+      const dernierId = data.length ? data[data.length - 1].id : "";
+      const nouveauMessage = !signatureMsgsRef.current || !signatureMsgsRef.current.endsWith(`|${dernierId}`);
+      if (signature + `|${dernierId}` !== signatureMsgsRef.current) {
+        signatureMsgsRef.current = `${signature}|${dernierId}`;
+        setMessages(data);
+        if (!silent || nouveauMessage) setTimeout(() => scrollRef.current?.scrollTo({ top: 9e9, behavior: silent ? "auto" : "smooth" }), 60);
+      }
+      if (!silent) loadConversations({ notify: false });
+    } catch (err) { if (!silent) toast.error(extractError(err)); }
+    finally { if (!silent) setLoadingMsgs(false); }
   };
 
   const loadQuickReplies = async () => {
@@ -280,13 +293,13 @@ export default function AdminWhatsAppConversations() {
   useEffect(() => {
     const t = setInterval(() => {
       loadConversations();
-      if (selectedPhone) loadMessages(selectedPhone);
+      if (selectedPhone) loadMessages(selectedPhone, { silent: true });
     }, POLL_MS);
     return () => clearInterval(t);
     // eslint-disable-next-line
   }, [selectedPhone, notifEnabled]);
 
-  useEffect(() => { if (selectedPhone) loadMessages(selectedPhone); /* eslint-disable-next-line */ }, [selectedPhone]);
+  useEffect(() => { signatureMsgsRef.current = ""; setCitation(null); if (selectedPhone) loadMessages(selectedPhone); /* eslint-disable-next-line */ }, [selectedPhone]);
 
   const toggleNotif = async () => {
     const next = !notifEnabled;
@@ -345,13 +358,13 @@ export default function AdminWhatsAppConversations() {
     try {
       const { data } = await apiClient.post(
         `/whatsapp/conversations/${encodeURIComponent(selectedPhone)}/reply`,
-        { body: reply.trim() },
+        { body: reply.trim(), ...(citation ? { reply_to_id: citation.id } : {}) },
       );
       if (data?.result?.outside_24h_window) toast.warning("Message envoyé hors fenêtre 24h — Meta peut le refuser.");
       else if (!data?.ok) toast.error(data?.result?.error || "Envoi refusé par Meta");
       else toast.success("Réponse envoyée");
-      setReply("");
-      await Promise.all([loadMessages(selectedPhone), loadConversations({ notify: false })]);
+      setReply(""); setCitation(null);
+      await Promise.all([loadMessages(selectedPhone, { silent: true }), loadConversations({ notify: false })]);
     } catch (err) { toast.error(extractError(err)); }
     finally { setSending(false); }
   };
@@ -680,6 +693,11 @@ export default function AdminWhatsAppConversations() {
                       <div className={`max-w-[85%] rounded-lg p-2 shadow-sm text-sm ${outbound ? "bg-[#0F6B4A] text-white" : "bg-white border border-border"}`}>
                         <div className={`text-[10px] mb-0.5 flex items-center gap-1 ${outbound ? "text-white/70" : "text-muted-foreground"}`}>
                           {kindIcon(m.message_type)}
+                          {/* Lot 38 : « Répondre » à ce message (citation) */}
+                          <button type="button" onClick={() => setCitation(m)} title="Répondre à ce message" aria-label="Répondre à ce message"
+                            className="mr-1 opacity-70 hover:opacity-100" data-testid={`wa-msg-repondre-${m.id}`}>
+                            <Reply className="w-3 h-3" />
+                          </button>
                           <span>{outbound ? (m.sent_by_name || "Cabinet") : (m.contact_name || m.profile_name || m.phone)}</span>
                           <span>·</span>
                           <span>{m.created_at?.slice(11, 16)}</span>
@@ -689,6 +707,13 @@ export default function AdminWhatsAppConversations() {
                           {outbound && !m.wa_error && !m.wa_status && <Check className="w-3 h-3 ml-1" />}   {/* l'état détaillé sous le message remplace cette coche */}
                           {/* Lot 35 : plus de mention « via Liluvine » — confidentialité des échanges du cabinet avec ses clients */}
                         </div>
+                        {/* Lot 38 : message cité par cette réponse */}
+                        {m.reply_to && (
+                          <div className={`mb-1 rounded border-l-4 px-2 py-1 text-[11px] ${outbound ? "bg-white/15 border-white/60" : "bg-slate-100 border-[#0F6B4A]"}`} data-testid={`wa-msg-citation-${m.id}`}>
+                            <div className="font-semibold">{m.reply_to.auteur}</div>
+                            <div className="line-clamp-2 opacity-90">{m.reply_to.texte}</div>
+                          </div>
+                        )}
                         {m.message_type === "location" && <div className="italic opacity-80">📍 Localisation partagée</div>}
                         {["image", "video", "audio", "document"].includes(m.message_type) && !m.body && !m.voice_note_transcript && (
                           <div className="italic opacity-80">
@@ -717,8 +742,8 @@ export default function AdminWhatsAppConversations() {
                                   const quand = (m.wa_status_times || {})[cle] || (m.wa_status === cle ? m.wa_status_at : null);
                                   return (
                                     <span key={cle} className={`inline-flex items-center gap-1 ${cle === "read" ? "text-sky-200" : ""}`}>
-                                      {/* Coches superposées comme dans WhatsApp : une seule (transmis) ou deux qui se chevauchent (distribué, lu) */}
-                                      {rang === 1 ? <Check className="w-3.5 h-3.5" /> : <CheckCheck className="w-3.5 h-3.5" />}
+                                      {/* Une coche pour Transmis et Distribué ; la double coche (chevauchée, bleue) est réservée à Lu */}
+                                      {rang < 3 ? <Check className="w-3.5 h-3.5" /> : <CheckCheck className="w-3.5 h-3.5" />}
                                       {libelle}{quand ? ` ${quand.slice(11, 16)}` : ""}
                                     </span>
                                   );
@@ -735,7 +760,7 @@ export default function AdminWhatsAppConversations() {
                 })}
               </div>
 
-              <div className="p-2 border-t border-border bg-white flex gap-2 items-stretch">
+              <div className="p-2 border-t border-border bg-white flex flex-wrap gap-2 items-stretch">
                 {/* Dropdown quick replies */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -782,6 +807,16 @@ export default function AdminWhatsAppConversations() {
                     ))}
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {citation && (
+                  <div className="order-first flex w-full items-start gap-2 rounded-md border bg-slate-50 px-2 py-1 text-xs" data-testid="wa-inbox-citation-barre">
+                    <Reply className="w-3 h-3 mt-0.5 shrink-0 text-[#0F6B4A]" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold truncate">{citation.direction === "outbound" ? (citation.sent_by_name || "Cabinet") : (citation.contact_name || citation.profile_name || citation.phone)}</div>
+                      <div className="truncate text-muted-foreground">{citation.body || citation.voice_note_transcript || `[${citation.message_type}]`}</div>
+                    </div>
+                    <button type="button" onClick={() => setCitation(null)} aria-label="Annuler la citation" className="text-slate-500 hover:text-slate-800">✕</button>
+                  </div>
+                )}
                 <Textarea
                   rows={2}
                   value={reply}
