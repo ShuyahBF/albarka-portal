@@ -20,6 +20,16 @@ import albarka_wa_inbox as inbox  # noqa: E402
 from albarka_models import ADMIN_ACCOUNT_EMAIL  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _pas_de_suspension(monkeypatch):
+    """Aucun contrat échu dans ces tests : on n'interroge pas la vraie base (lot 41)."""
+    import albarka_suspension
+
+    async def pas_suspendu(_):
+        return None
+    monkeypatch.setattr(albarka_suspension, "refus_envoi", pas_suspendu)
+
+
 def _appli(email):
     db = mongomock_motor.AsyncMongoMockClient()["test"]
     inbox.db = db

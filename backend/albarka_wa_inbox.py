@@ -292,7 +292,12 @@ async def _fenetre_24h_ouverte(phone: str) -> bool:
 async def refus_hors_fenetre(phone: str, confirme: bool) -> None:
     """Lot 40 : lève HTTP 409 « hors_fenetre_24h » si le contact n'a pas écrit depuis 24 h et que le
     cabinet n'a pas confirmé (l'envoi passerait par un modèle Meta facturé). Commun à tous les envois."""
-    if not confirme and not await _fenetre_24h_ouverte(phone):
+    # Mode test du super-admin : l'envoi part vers son numéro de test, c'est donc la fenêtre de CE numéro qui compte
+    from albarka_envoi_test import numero_effectif
+    reel, erreur = await numero_effectif(phone)
+    if erreur:
+        raise HTTPException(status_code=400, detail=erreur)
+    if not confirme and not await _fenetre_24h_ouverte(reel):
         raise HTTPException(status_code=409, detail={
             "code": "hors_fenetre_24h",
             "message": "Ce contact ne vous a pas écrit depuis plus de 24 h : le message sera envoyé avec un "
