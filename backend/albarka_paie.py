@@ -1148,7 +1148,14 @@ async def _responsable(eid: str) -> Dict[str, Any]:
 async def get_responsable(eid: str, user: dict = Depends(require_roles(HR_ROLES))):
     """Destinataire d'un envoi de PDF de paie (affiché dans la confirmation de l'écran)."""
     await _employer_identity(eid)
-    return await _responsable(eid)
+    r = await _responsable(eid)
+    # Mode test du super-admin : l'envoi est redirigé vers son numéro / e-mail de test, jamais vers le responsable
+    from albarka_envoi_test import emails_effectifs, mode_test_actif, numero_effectif
+    if mode_test_actif():
+        wa, _ = await numero_effectif(r["whatsapp"])
+        mails = await emails_effectifs([r["email"]])
+        r = {"nom": "Mode test (vos coordonnées de test)", "whatsapp": wa or "", "email": mails[0] if mails else "", "test": True}
+    return r
 
 
 async def _envoyer_pdf_responsable(eid: str, pdf: bytes, nom_fichier: str, titre: str, p: EnvoiPaieIn) -> Dict[str, Any]:
