@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "35"
-LOT_LIBELLE = "Conversations WhatsApp : la mention « via Liluvine » n'apparaît plus sur les messages (confidentialité des échanges avec les clients)"
+LOT = "36"
+LOT_LIBELLE = "Conversations WhatsApp : l'état de chaque message envoyé (Transmis, Distribué, Lu, avec l'heure) s'affiche sous le message"

@@ -633,11 +633,16 @@ async def _appliquer_statut(base, retour: Dict[str, Any]) -> None:
     maj = {"statut": retour["statut"], "statut_le": retour["date"], "erreur_statut": retour.get("erreur")}
     await base.liluvine_envois.update_many({"$or": [{"id": {"$in": ids}}, {"message_id": {"$in": ids}}]},
                                            {"$set": maj})
-    await base.wa_messages.update_many(
-        {"direction": "outbound", "wa_message_id": {"$in": ids}},
-        {"$set": {"wa_status": retour["statut"], "wa_status_at": retour["date"],
-                  "wa_status_error": retour.get("erreur")}},
-    )
+    # Lot 35 : état du message sous la bulle (Transmis → Distribué → Lu) : l'heure de CHAQUE étape est gardée et l'état
+    # global ne recule jamais (Meta peut renvoyer « distribué » après « lu »). Un échec prime toujours.
+    rang = {"sent": 1, "delivered": 2, "read": 3, "failed": 9}
+    statut = retour["statut"]
+    async for m in base.wa_messages.find({"direction": "outbound", "wa_message_id": {"$in": ids}},
+                                         {"_id": 0, "id": 1, "wa_status": 1}):
+        maj_msg = {f"wa_status_times.{statut}": retour["date"]}
+        if rang.get(statut, 0) >= rang.get(m.get("wa_status"), 0):
+            maj_msg.update({"wa_status": statut, "wa_status_at": retour["date"], "wa_status_error": retour.get("erreur")})
+        await base.wa_messages.update_one({"id": m["id"]}, {"$set": maj_msg})
 
 
 async def traiter_retour(corps: Dict[str, Any]) -> Dict[str, Any]:

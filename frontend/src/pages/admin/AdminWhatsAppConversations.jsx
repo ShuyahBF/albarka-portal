@@ -688,10 +688,6 @@ export default function AdminWhatsAppConversations() {
                           )}
                           {outbound && !m.wa_error && <Check className="w-3 h-3 ml-1" />}
                           {/* Lot 35 : plus de mention « via Liluvine » — confidentialité des échanges du cabinet avec ses clients */}
-                          {/* Lot 13.9 : statut renvoyé par SAWALI (remis, lu, échec) */}
-                          {outbound && m.wa_status && (
-                            <span className="ml-1">{{ sent: "envoyé", delivered: "remis", read: "lu", failed: "échec" }[m.wa_status] || m.wa_status}</span>
-                          )}
                         </div>
                         {m.message_type === "location" && <div className="italic opacity-80">📍 Localisation partagée</div>}
                         {["image", "video", "audio", "document"].includes(m.message_type) && !m.body && !m.voice_note_transcript && (
@@ -709,6 +705,25 @@ export default function AdminWhatsAppConversations() {
                           <div className={`italic ${outbound ? "text-white/90" : "text-slate-600"} mb-1`}>🎙️ {m.voice_note_transcript}</div>
                         )}
                         {m.body && <div className="whitespace-pre-wrap break-words">{m.body}</div>}
+                        {/* Lot 35 : état de l'envoi sous le message — Transmis, Distribué, Lu (avec l'heure de chaque étape) ou Échec */}
+                        {outbound && m.wa_status && (
+                          <div className="text-[10px] mt-1 text-white/80 flex flex-wrap items-center gap-x-2" data-testid={`wa-msg-etat-${m.id}`}>
+                            {m.wa_status === "failed" ? (
+                              <span className="text-amber-300">✗ Échec{m.wa_status_error ? ` : ${m.wa_status_error}` : ""}</span>
+                            ) : (
+                              [["sent", "Transmis", 1], ["delivered", "Distribué", 2], ["read", "Lu", 3]]
+                                .filter(([cle, , rang]) => (m.wa_status_times || {})[cle] || { sent: 1, delivered: 2, read: 3 }[m.wa_status] >= rang)
+                                .map(([cle, libelle, rang]) => {
+                                  const quand = (m.wa_status_times || {})[cle] || (m.wa_status === cle ? m.wa_status_at : null);
+                                  return (
+                                    <span key={cle} className={cle === "read" ? "text-sky-200" : ""}>
+                                      {rang === 1 ? "✓" : "✓✓"} {libelle}{quand ? ` ${quand.slice(11, 16)}` : ""}
+                                    </span>
+                                  );
+                                })
+                            )}
+                          </div>
+                        )}
                         {outbound && m.outside_24h_window && (
                           <div className="text-[10px] mt-1 text-amber-300">Hors fenêtre 24h</div>
                         )}

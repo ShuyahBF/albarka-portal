@@ -52,3 +52,22 @@ def test_purge_vide_messages_et_etiquettes():
     assert r.status_code == 200 and r.json()["messages_supprimes"] == 2 and r.json()["etiquettes_supprimees"] == 1
     assert c.portal.call(c.db.wa_messages.count_documents, {}) == 0
     assert c.portal.call(c.db.wa_conversation_labels.count_documents, {}) == 0
+
+
+# ---- Lot 36 : état de l'envoi sous le message (Transmis → Distribué → Lu), sans jamais reculer ----
+
+def test_etat_du_message_avance_sans_reculer_et_garde_l_heure_de_chaque_etape():
+    import asyncio
+    import albarka_transmission_wa as tw
+    db = mongomock_motor.AsyncMongoMockClient()["test36"]
+
+    async def scenario():
+        await db.wa_messages.insert_one({"id": "m1", "direction": "outbound", "wa_message_id": "wamid.1"})
+        for statut, date in (("sent", "2026-10-19T22:27:36+00:00"), ("read", "2026-10-19T22:28:10+00:00"),
+                             ("delivered", "2026-10-19T22:27:50+00:00")):          # « distribué » arrive APRÈS « lu »
+            await tw._appliquer_statut(db, {"statut": statut, "date": date, "message_id": "wamid.1", "id_origine": None})
+        return await db.wa_messages.find_one({"id": "m1"}, {"_id": 0})
+    m = asyncio.get_event_loop().run_until_complete(scenario())
+    assert m["wa_status"] == "read"                                                  # l'état global ne recule pas
+    assert set(m["wa_status_times"]) == {"sent", "delivered", "read"}
+    assert m["wa_status_times"]["delivered"].startswith("2026-10-19T22:27:50")
