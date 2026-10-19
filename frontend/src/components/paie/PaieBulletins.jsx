@@ -108,12 +108,13 @@ function BulletinDrawer({ id, onClose, onChanged }) {
                   <td className="py-1">{ln.label}</td><td className="text-right tabular-nums text-slate-500">{ln.base ? fcfa(ln.base) : ""}</td>
                   <td className="text-right text-slate-500">{ln.rate ? `${String(ln.rate).replace(".", ",")} %` : ""}</td>
                   <td className="text-right tabular-nums">{ln.kind === "gain" ? fcfa(ln.amount) : ""}</td>
-                  <td className="text-right tabular-nums">{ln.kind === "deduction" ? fcfa(ln.amount) : ""}</td>
+                  <td className="text-right tabular-nums">{/* L'abattement (charges de famille) s'affiche en positif : il vient en diminution de l'IUTS, déjà comptée dans « IUTS net » */}
+                  {ln.kind === "deduction" || ln.kind === "abattement" ? fcfa(Math.abs(ln.amount)) : ""}</td>
                 </tr>
               );
               const lines = r.lines || [];
               const gains = lines.filter((ln) => ln.kind === "gain");
-              const taxes = lines.filter((ln) => ln.kind === "deduction" && !isAfter(ln));
+              const taxes = lines.filter((ln) => (ln.kind === "deduction" || ln.kind === "abattement") && !isAfter(ln));
               const after = lines.filter(isAfter);
               return (
                 <>

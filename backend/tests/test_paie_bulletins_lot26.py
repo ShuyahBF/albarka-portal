@@ -271,3 +271,13 @@ def test_api_exceptional_bonus_pdf_and_year_cumul(env):
     # Livre de paie : colonne FSP
     lv = c.get("/api/hr/paie/livre?employer_id=c1&period_month=2026-08", headers=H).json()
     assert any(col["label"] == "FSP" for col in lv["columns"])
+
+
+def test_abattement_charges_famille_affiche_en_positif_sans_changer_le_calcul():
+    """Lot 32.1 : la ligne « Abattement charges de famille » est positive (type « abattement ») ; le net ne change pas."""
+    e = {"base_salary": 300000, "category": "non_cadre", "dependents": 3, "years_of_service": 0}
+    r = moteur.compute_payslip(e, None, "2026-10")
+    ligne = next(x for x in r["lines"] if x["code"] == "iuts_family")
+    assert ligne["amount"] == r["family_abatement"] > 0 and ligne["kind"] == "abattement"
+    assert r["iuts"] == r["iuts_gross"] - r["family_abatement"]
+    assert r["net"] == 256726 and r["withholdings_total"] == r["cnss"] + r["iuts"]
