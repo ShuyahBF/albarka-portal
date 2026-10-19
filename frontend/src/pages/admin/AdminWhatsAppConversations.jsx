@@ -6,6 +6,7 @@ import {
   Image as ImageIcon, Mic, FileText, MapPin, Video, Check, CheckCheck, AlertTriangle,
   Zap, Plus, Trash2, Pencil, Tag, BellRing, BellOff, BarChart3, UserPlus,
 } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, extractError } from "@/lib/api";
 import { PresenceDot, PresenceLabel } from "@/components/Presence";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,8 @@ import {
  */
 
 const POLL_MS = 10000;
+// Même compte que ADMIN_ACCOUNT_EMAIL côté serveur (albarka_models.py) : seul lui peut vider les conversations
+const ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com";
 
 const LABELS = {
   todo: { text: "À traiter", bg: "bg-amber-100", fg: "text-amber-800", dot: "bg-amber-500" },
@@ -92,6 +95,11 @@ function playBeep() {
 
 export default function AdminWhatsAppConversations() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const isSuperAdmin = (user?.email || "").toLowerCase() === ADMIN_ACCOUNT_EMAIL;
+  const [purgeOuvert, setPurgeOuvert] = useState(false);       // fenêtre de confirmation « Vider les conversations »
+  const [purgeTexte, setPurgeTexte] = useState("");
+  const [purgeEnCours, setPurgeEnCours] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [loadingList, setLoadingList] = useState(true);
   const [selectedPhone, setSelectedPhone] = useState(null);
@@ -239,6 +247,18 @@ export default function AdminWhatsAppConversations() {
     const phone = c.phone.trim();
     const existante = convParCle[cle8(phone)];
     startConversation({ ...c, phone: existante?.phone || phone });
+  };
+
+  // Super-admin : vide TOUTES les conversations (messages et étiquettes) après saisie de « SUPPRIMER »
+  const purgerConversations = async () => {
+    setPurgeEnCours(true);
+    try {
+      const { data } = await apiClient.post("/whatsapp/conversations/purge", { confirmation: purgeTexte.trim() });
+      toast.success(`Conversations vidées : ${data.messages_supprimes} message(s) supprimé(s)`);
+      setPurgeOuvert(false); setPurgeTexte(""); setSelectedPhone(null); setMessages([]);
+      await loadConversations({ notify: false });
+    } catch (err) { toast.error(extractError(err, "Suppression impossible")); }
+    finally { setPurgeEnCours(false); }
   };
 
   const openNewConversation = () => { setNewConvOpen(true); loadContacts(); };
@@ -410,6 +430,11 @@ export default function AdminWhatsAppConversations() {
           <Button variant="outline" size="sm" onClick={() => navigate("/admin/whatsapp/stats")} data-testid="wa-inbox-stats-btn">
             <BarChart3 className="w-4 h-4 mr-1" /> Stats
           </Button>
+          {isSuperAdmin && (
+            <Button variant="outline" size="sm" onClick={() => setPurgeOuvert(true)} className="text-red-700 border-red-200" data-testid="wa-inbox-purge-btn">
+              <Trash2 className="w-4 h-4 mr-1" /> Vider les conversations
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => loadConversations({ notify: false })} data-testid="wa-inbox-refresh-btn">
             <RefreshCw className="w-4 h-4 mr-1" /> Rafraîchir
           </Button>
@@ -765,6 +790,27 @@ export default function AdminWhatsAppConversations() {
           )}
         </div>
       </div>
+
+      {/* Dialog de confirmation — vider toutes les conversations (super-admin) */}
+      <Dialog open={purgeOuvert} onOpenChange={(o) => { setPurgeOuvert(o); if (!o) setPurgeTexte(""); }}>
+        <DialogContent data-testid="wa-inbox-purge-dialog">
+          <DialogHeader>
+            <DialogTitle>Vider toutes les conversations WhatsApp ?</DialogTitle>
+            <DialogDescription className="text-xs">
+              Tous les messages et toutes les étiquettes de cette messagerie seront supprimés définitivement. Les contacts, les réponses rapides
+              et les messages déjà reçus sur les téléphones ne sont pas touchés. Tapez <b>SUPPRIMER</b> pour confirmer.
+            </DialogDescription>
+          </DialogHeader>
+          <Input value={purgeTexte} onChange={(e) => setPurgeTexte(e.target.value)} placeholder="SUPPRIMER" data-testid="wa-inbox-purge-input" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPurgeOuvert(false)}>Annuler</Button>
+            <Button onClick={purgerConversations} disabled={purgeEnCours || purgeTexte.trim().toUpperCase() !== "SUPPRIMER"}
+              className="bg-red-700 hover:bg-red-800 text-white" data-testid="wa-inbox-purge-confirm">
+              {purgeEnCours ? <Loader2 className="w-4 h-4 animate-spin" /> : "Vider définitivement"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog Nouvelle conversation — un contact existant uniquement */}
       <Dialog open={newConvOpen} onOpenChange={setNewConvOpen}>

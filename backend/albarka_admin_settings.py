@@ -35,6 +35,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "cabinet_name": "Cabinet ALBARKA",
     "cabinet_email": "contact@albarka-bf.com",
     "cabinet_phone": "",
+    # Lot 34 : numéro WhatsApp du cabinet (ligne Liluvine d'ALBARKA), affiché sous le nom du cabinet dans l'en-tête du portail
+    "cabinet_whatsapp_number": "+22673374848",
     "cabinet_address": "Ouagadougou, Burkina Faso",
     # Email — expéditeur & domaine
     "email_from_address": "",   # ex noreply@albarka-bf.com — nécessite domaine vérifié Resend
@@ -166,6 +168,7 @@ class SettingsUpdate(BaseModel):
     cabinet_name: Optional[str] = None
     cabinet_email: Optional[str] = None
     cabinet_phone: Optional[str] = None
+    cabinet_whatsapp_number: Optional[str] = Field(None, max_length=40)
     cabinet_address: Optional[str] = None
     # Email
     email_from_address: Optional[str] = None
@@ -250,6 +253,13 @@ async def update_settings(payload: SettingsUpdate, user: dict = Depends(require_
         changes["test_envoi_whatsapp"] = numero_international_wa(brut) if brut else ""
         if brut and not changes["test_envoi_whatsapp"]:
             raise HTTPException(status_code=400, detail="Numéro WhatsApp de test invalide (ex. +226 70 00 00 00)")
+    # Lot 34 : numéro WhatsApp du cabinet (normalisé +226…) ; vide = rien n'est affiché dans l'en-tête
+    if "cabinet_whatsapp_number" in changes:
+        from albarka_models import numero_international_wa
+        brut = (changes["cabinet_whatsapp_number"] or "").strip()
+        changes["cabinet_whatsapp_number"] = numero_international_wa(brut) if brut else ""
+        if brut and not changes["cabinet_whatsapp_number"]:
+            raise HTTPException(status_code=400, detail="Numéro WhatsApp du cabinet invalide (ex. +226 73 37 48 48)")
     for k in ("email_from_address", "email_reply_to", "test_envoi_email"):
         if k in changes:
             val = (changes[k] or "").strip()

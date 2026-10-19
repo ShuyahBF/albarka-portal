@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "33"
-LOT_LIBELLE = "Conversations WhatsApp : liste des contacts propres au cabinet en vue par défaut, création d'un contact sur place et ouverture de son historique"
+LOT = "34"
+LOT_LIBELLE = "WhatsApp : le super-admin peut vider toutes les conversations (confirmation SUPPRIMER) et le numéro WhatsApp du cabinet s'affiche sous son nom dans l'en-tête du portail"
