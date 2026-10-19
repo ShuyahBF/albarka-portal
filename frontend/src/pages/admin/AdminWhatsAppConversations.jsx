@@ -115,6 +115,7 @@ export default function AdminWhatsAppConversations() {
   const [notifEnabled, setNotifEnabled] = useState(() => localStorage.getItem(LS_NOTIF) !== "0");
   const [quickReplies, setQuickReplies] = useState([]);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [horsFenetre, setHorsFenetre] = useState(false);   // lot 39 : confirmation d'envoi hors fenêtre de 24 h
   const [qrEditing, setQrEditing] = useState(null); // {id?, label, body}
   const [qrSaving, setQrSaving] = useState(false);
   const [newConvOpen, setNewConvOpen] = useState(false);
@@ -352,20 +353,25 @@ export default function AdminWhatsAppConversations() {
     [conversations]
   );
 
-  const send = async () => {
+  // Lot 39 : `confirmer` = true quand le cabinet a accepté l'envoi hors fenêtre de 24 h (modèle Meta facturé)
+  const send = async (confirmer = false) => {
     if (!reply.trim() || !selectedPhone) return;
     setSending(true);
     try {
       const { data } = await apiClient.post(
         `/whatsapp/conversations/${encodeURIComponent(selectedPhone)}/reply`,
-        { body: reply.trim(), ...(citation ? { reply_to_id: citation.id } : {}) },
+        { body: reply.trim(), ...(citation ? { reply_to_id: citation.id } : {}), ...(confirmer ? { confirmer_modele: true } : {}) },
       );
       if (data?.result?.outside_24h_window) toast.warning("Message envoyé hors fenêtre 24h — Meta peut le refuser.");
       else if (!data?.ok) toast.error(data?.result?.error || "Envoi refusé par Meta");
       else toast.success("Réponse envoyée");
-      setReply(""); setCitation(null);
+      setReply(""); setCitation(null); setHorsFenetre(false);
       await Promise.all([loadMessages(selectedPhone, { silent: true }), loadConversations({ notify: false })]);
-    } catch (err) { toast.error(extractError(err)); }
+    } catch (err) {
+      // 409 « hors_fenetre_24h » : on demande d'abord l'accord du cabinet (facturation du modèle Meta)
+      if (err?.response?.status === 409 && err.response.data?.detail?.code === "hors_fenetre_24h") setHorsFenetre(true);
+      else toast.error(extractError(err));
+    }
     finally { setSending(false); }
   };
 
@@ -827,7 +833,7 @@ export default function AdminWhatsAppConversations() {
                   data-testid="wa-inbox-reply-input"
                 />
                 <Button
-                  onClick={send}
+                  onClick={() => send(false)}
                   disabled={!reply.trim() || sending}
                   className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white self-stretch px-3"
                   data-testid="wa-inbox-send-btn"
@@ -839,6 +845,23 @@ export default function AdminWhatsAppConversations() {
           )}
         </div>
       </div>
+
+      {/* Lot 39 — confirmation : envoi hors fenêtre de 24 h = modèle Meta facturé au cabinet */}
+      <Dialog open={horsFenetre} onOpenChange={setHorsFenetre}>
+        <DialogContent data-testid="wa-inbox-hors-fenetre-dialog">
+          <DialogHeader>
+            <DialogTitle>Envoyer hors de la fenêtre de 24 h ?</DialogTitle>
+            <DialogDescription className="text-xs">
+              Ce contact ne vous a pas écrit depuis plus de 24 h. Le message partira avec un modèle Meta approuvé,
+              et Meta facture chaque modèle envoyé au cabinet.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHorsFenetre(false)} data-testid="wa-inbox-hors-fenetre-annuler">Annuler</Button>
+            <Button onClick={() => send(true)} disabled={sending} data-testid="wa-inbox-hors-fenetre-confirmer">Envoyer avec un modèle (facturé)</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Dialog de confirmation — vider toutes les conversations (super-admin) */}
       <Dialog open={purgeOuvert} onOpenChange={(o) => { setPurgeOuvert(o); if (!o) setPurgeTexte(""); }}>

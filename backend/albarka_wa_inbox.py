@@ -11,7 +11,7 @@ from __future__ import annotations
 import io
 import logging
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -270,6 +270,23 @@ class ReplyPayload(BaseModel):
     body: str = Field(..., min_length=1, max_length=8000)
     # Lot 38 : « Répondre » à un message précis de la conversation (identifiant du message dans la boîte, pas celui de Meta)
     reply_to_id: Optional[str] = Field(None, max_length=64)
+    # Lot 39 : le cabinet a accepté d'envoyer hors fenêtre de 24 h (modèle Meta facturé)
+    confirmer_modele: bool = False
+
+
+async def _fenetre_24h_ouverte(phone: str) -> bool:
+    """Lot 39 : vrai si le contact a écrit au cabinet il y a moins de 24 h (réponse libre gratuite)."""
+    dernier = await db.wa_messages.find_one(
+        {"phone": phone, "direction": "inbound"}, {"_id": 0, "created_at": 1}, sort=[("created_at", -1)])
+    if not dernier or not dernier.get("created_at"):
+        return False
+    try:
+        quand = datetime.fromisoformat(str(dernier["created_at"]).replace("Z", "+00:00"))
+        if quand.tzinfo is None:
+            quand = quand.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - quand < timedelta(hours=24)
 
 
 @router.post("/conversations/{phone}/reply")
@@ -286,6 +303,14 @@ async def send_reply(
             detail="Ce numéro ne correspond à aucun contact ni client enregistré — "
                    "ajoutez-le d'abord dans le module Contacts avant de lui écrire.",
         )
+    # Lot 39 : hors fenêtre de 24 h (aucun message reçu de ce numéro depuis 24 h), l'envoi passe par un
+    # modèle Meta payant → le cabinet doit l'accepter explicitement (HTTP 409 tant qu'il n'a pas confirmé).
+    if not payload.confirmer_modele and not await _fenetre_24h_ouverte(phone):
+        raise HTTPException(status_code=409, detail={
+            "code": "hors_fenetre_24h",
+            "message": "Ce contact ne vous a pas écrit depuis plus de 24 h : le message sera envoyé avec un "
+                       "modèle Meta, facturé au cabinet.",
+        })
     # Lot 38 : message cité (même conversation) → identifiant WhatsApp réel + aperçu gardé avec le message envoyé
     cite, cite_wa_id = None, None
     if payload.reply_to_id:
