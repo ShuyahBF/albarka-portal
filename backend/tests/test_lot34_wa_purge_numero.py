@@ -132,3 +132,23 @@ def test_envoi_hors_fenetre_24h_demande_la_confirmation_du_cabinet(monkeypatch):
     assert r.status_code == 200 and envois == ["Bonjour"]
     # 3) contact jamais venu : fenêtre fermée aussi
     assert c.post("/api/whatsapp/conversations/+22670000007/reply", json={"body": "x"}).status_code in (404, 409)
+
+
+# ---- Lot 40 : même contrôle pour les envois de pièces (bulletins) et de situations de compte ----
+
+def test_refus_hors_fenetre_commun_aux_envois_de_pieces():
+    import asyncio
+    from fastapi import HTTPException
+    c = _appli(ADMIN_ACCOUNT_EMAIL)
+    ancien = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+    c.portal.call(c.db.wa_messages.insert_one, {"id": "o1", "phone": "+22670000006", "direction": "inbound", "created_at": ancien})
+    # Fenêtre fermée et pas d'accord → 409 « hors_fenetre_24h »
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(inbox.refus_hors_fenetre("+22670000006", False))
+    assert e.value.status_code == 409 and e.value.detail["code"] == "hors_fenetre_24h"
+    # Avec l'accord du cabinet → aucun refus
+    asyncio.run(inbox.refus_hors_fenetre("+22670000006", True))
+    # Contact qui vient d'écrire → fenêtre ouverte, aucun refus
+    c.portal.call(c.db.wa_messages.insert_one, {"id": "o2", "phone": "+22670000006", "direction": "inbound",
+                                                "created_at": datetime.now(timezone.utc).isoformat()})
+    asyncio.run(inbox.refus_hors_fenetre("+22670000006", False))

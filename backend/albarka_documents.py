@@ -443,6 +443,8 @@ class SendDocumentEmailPayload(BaseModel):
 class SendDocumentWhatsAppPayload(BaseModel):
     to: Optional[str] = None
     message: Optional[str] = None
+    # Lot 40 : accord du cabinet pour un envoi hors fenêtre de 24 h (modèle Meta facturé)
+    confirmer_modele: bool = False
 
 
 async def _fetch_document_and_owner(document_id: str) -> tuple[dict, dict]:
@@ -526,6 +528,10 @@ async def send_document_whatsapp(
     from albarka_transmission_wa import liluvine_configure
     if not settings.get("wa_enabled") and not liluvine_configure():
         raise HTTPException(status_code=400, detail="WhatsApp désactivé dans les paramètres")
+
+    # Lot 40 : hors fenêtre de 24 h, l'envoi passe par un modèle Meta facturé → accord explicite du cabinet
+    from albarka_wa_inbox import refus_hors_fenetre
+    await refus_hors_fenetre(phone, payload.confirmer_modele)
 
     filename = doc.get("original_filename") or "document"
     caption = (payload.message or "").strip() or f"Pièce — {filename}"

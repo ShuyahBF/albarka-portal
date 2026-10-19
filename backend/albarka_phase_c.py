@@ -666,6 +666,7 @@ class SendStatementPayload(BaseModel):
     date_to: Optional[str] = None
     all_time: bool = False
     channel: str = "whatsapp"  # "whatsapp" | "email"
+    confirmer_modele: bool = False  # lot 40 : accord pour un envoi hors fenêtre de 24 h (modèle Meta facturé)
 
 
 @billing_router.post("/statement/send")
@@ -724,6 +725,9 @@ async def send_billing_statement(payload: SendStatementPayload, user: dict = Dep
     from albarka_transmission_wa import liluvine_configure
     if not settings.get("wa_enabled") and not liluvine_configure():
         raise HTTPException(status_code=400, detail="WhatsApp désactivé dans les paramètres")
+    # Lot 40 : hors fenêtre de 24 h → accord explicite du cabinet (modèle Meta facturé)
+    from albarka_wa_inbox import refus_hors_fenetre
+    await refus_hors_fenetre(phone, payload.confirmer_modele)
     # Envoi du PDF : WABA (téléversement Meta) sinon Liluvine ; repli
     # Liluvine si le WABA échoue (fenêtre de 24 h, etc.).
     result = await send_whatsapp_fichier(

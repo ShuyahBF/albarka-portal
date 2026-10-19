@@ -184,16 +184,24 @@ export default function AdminBilling() {
     } finally { setExporting(false); }
   };
 
-  const sendStatement = async () => {
+  // `confirme` = true quand le cabinet a accepté l'envoi hors fenêtre de 24 h (modèle Meta facturé, lot 40)
+  const sendStatement = async (confirme = false) => {
     if (!filterTenantId) return;
     setSending(true);
     try {
       const { data } = await apiClient.post("/billing/statement/send", {
         ...currentStatementParams(), tenant_id: filterTenantId, channel: sendChannel,
+        ...(confirme === true ? { confirmer_modele: true } : {}),
       });
       toast.success(`Situation de compte envoyée (${sendChannel === "whatsapp" ? "WhatsApp" : "email"}) à ${data.to}`);
       setOpenSend(false);
     } catch (err) {
+      const d = err?.response?.data?.detail;
+      if (err?.response?.status === 409 && d?.code === "hors_fenetre_24h") {
+        setSending(false);
+        if (window.confirm(`${d.message}\n\nEnvoyer quand même (message facturé) ?`)) await sendStatement(true);
+        return;
+      }
       toast.error(extractError(err, "Échec de l'envoi"));
     } finally { setSending(false); }
   };
@@ -470,7 +478,7 @@ export default function AdminBilling() {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setOpenSend(false)}>Annuler</Button>
-                <Button onClick={sendStatement} disabled={sending} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="billing-send-statement-submit">
+                <Button onClick={() => sendStatement(false)} disabled={sending} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="billing-send-statement-submit">
                   {sending ? "Envoi…" : "Envoyer"}
                 </Button>
               </DialogFooter>
