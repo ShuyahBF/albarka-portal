@@ -20,6 +20,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient, extractError } from "@/lib/api";
 import { RefreshCw, Printer, FileText, Lock, Unlock, Plus, Trash2, X, FileSpreadsheet } from "lucide-react";
+import EnvoiResponsable from "@/components/paie/EnvoiResponsable";
 import { EmployerSelect, MonthInput, useEmployers, fcfa, previousMonth, GREEN } from "@/components/paie/paieCommon";
 
 // Ouvre un PDF (bulletin, lot du mois, livre de paie) ; génération parfois
@@ -153,6 +154,7 @@ function BulletinDrawer({ id, onClose, onChanged }) {
           <button type="button" onClick={toggle} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="bulletin-toggle">
             {locked ? <><Unlock className="h-4 w-4" /> Rouvrir</> : <><Lock className="h-4 w-4" /> Valider le bulletin</>}</button>
           <button type="button" onClick={() => openPdf(`/hr/paie/bulletins/${id}/pdf`)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="bulletin-pdf"><FileText className="h-4 w-4" /> PDF</button>
+          <EnvoiResponsable employerId={b.employer_id} url={`/hr/paie/bulletins/${id}/envoyer`} label="Ce bulletin" />
         </div>
       </div>
     </div>
@@ -192,6 +194,7 @@ export function PaieBulletins() {
           <button type="button" onClick={prepare} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ background: GREEN }} data-testid="bulletins-prepare">
             <RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} /> Préparer / recalculer le mois</button>
           {data?.items?.length > 0 && <button type="button" onClick={() => openPdf("/hr/paie/bulletins-pdf", { employer_id: eid, period_month: month })} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><Printer className="h-4 w-4" /> Tout imprimer</button>}
+          {data?.items?.length > 0 && <EnvoiResponsable employerId={eid} url="/hr/paie/bulletins-pdf/envoyer" body={{ employer_id: eid, period_month: month }} label="Les bulletins du mois" />}
         </>}
       </div>
       {data && (
@@ -248,6 +251,7 @@ export function PaieLivre() {
         {data?.rows?.length > 0 && <>
           <button type="button" onClick={() => openPdf("/hr/paie/livre/pdf", { employer_id: eid, period_month: month })} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><FileText className="h-4 w-4" /> PDF</button>
           <button type="button" onClick={downloadCsv} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"><FileSpreadsheet className="h-4 w-4" /> Excel</button>
+          <EnvoiResponsable employerId={eid} url="/hr/paie/livre/envoyer" body={{ employer_id: eid, period_month: month }} label="Le livre de paie" />
         </>}
       </div>
       {data && (

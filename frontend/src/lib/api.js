@@ -43,6 +43,8 @@ export function extractError(err, fallback = "Une erreur est survenue") {
     if (msgs.length) return msgs.join(" · ");
   } else if (typeof detail === "string" && detail) {
     return detail;
+  } else if (detail && typeof detail === "object" && typeof detail.message === "string") {
+    return detail.message;   // lot 41 : détail structuré {code, message} (ex. 409 hors fenêtre de 24 h)
   }
   if (err?.response?.data?.message) return err.response.data.message;
   // Lot 11 : erreur du serveur sans explication (500, 502…) — plutôt que
