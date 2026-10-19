@@ -607,7 +607,9 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
     iuts = max(0, iuts_gross - fam)
     line("iuts", "IUTS", iuts_gross, "deduction", iuts_base, None)
     if fam:
-        line("iuts_family", f"Abattement charges de famille ({charges})", -fam, "deduction", iuts_gross, fam_rate)
+        # Montant affiché en POSITIF (« 3 651 », jamais « −3 651 »), de type « abattement » : il est déjà déduit de l'IUTS
+        # (IUTS net = IUTS barème − abattement) et ne s'ajoute donc pas une seconde fois aux retenues.
+        line("iuts_family", f"Abattement charges de famille ({charges})", fam, "abattement", iuts_gross, fam_rate)
     # 11. Salaire net (arrondi) : l'avantage en nature, non versé en argent, en est retiré
     in_kind_deducted = in_kind if p["in_kind"]["deduct_from_net"] else 0
     if in_kind_deducted:

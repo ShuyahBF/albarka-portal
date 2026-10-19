@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "32"
-LOT_LIBELLE = "Formulaires publics (vérification de la paie) : plus d'écran blanc (filet de sécurité, incident signalé au serveur), erreur d'envoi visible près du bouton, champ piège sans remplissage automatique"
+LOT = "32.1"
+LOT_LIBELLE = "Paie : l'abattement pour charges de famille s'affiche en positif sur le bulletin (le calcul et le net ne changent pas)"
