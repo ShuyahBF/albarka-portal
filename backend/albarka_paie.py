@@ -1120,6 +1120,95 @@ async def ledger_pdf(employer_id: str, period_month: str, user: dict = Depends(r
     return Response(pdf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="livre_de_paie_{period_month}.pdf"'})
 
 
+# =====================================================================
+# Lot 41 — envoyer un PDF de paie (bulletin, bulletins du mois, livre de paie) au RESPONSABLE de la société,
+# par WhatsApp ou par e-mail. Pour le cabinet : son numéro WhatsApp et son e-mail des Paramètres.
+# =====================================================================
+class EnvoiPaieIn(BaseModel):
+    canal: str = Field("whatsapp", pattern="^(whatsapp|email)$")
+    confirmer_modele: bool = False              # accord du cabinet pour un envoi hors fenêtre de 24 h (modèle Meta facturé)
+    employer_id: Optional[str] = None           # bulletins du mois / livre de paie
+    period_month: Optional[str] = None
+
+
+async def _responsable(eid: str) -> Dict[str, Any]:
+    """Coordonnées du responsable de la société : nom, numéro WhatsApp (format +226…), e-mail."""
+    from albarka_models import numero_international_wa, whatsapp_number_of
+    cfg = await employer_config(eid, strict=False)            # e-mail / téléphone saisis dans les Paramètres de paie
+    if eid == CABINET_ID:
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "cabinet_whatsapp_number": 1}) or {}
+        tel = numero_international_wa(s.get("cabinet_whatsapp_number") or "") or s.get("cabinet_whatsapp_number") or ""
+        return {"nom": cfg.get("name") or "Cabinet", "whatsapp": tel, "email": cfg.get("email") or ""}
+    u = await db.users.find_one({"id": eid}, {"_id": 0}) or {}
+    tel = whatsapp_number_of(u) or numero_international_wa(cfg.get("phone") or "") or ""
+    return {"nom": u.get("full_name") or cfg.get("name") or "Responsable", "whatsapp": tel, "email": u.get("email") or cfg.get("email") or ""}
+
+
+@router.get("/employeurs/{eid}/responsable")
+async def get_responsable(eid: str, user: dict = Depends(require_roles(HR_ROLES))):
+    """Destinataire d'un envoi de PDF de paie (affiché dans la confirmation de l'écran)."""
+    await _employer_identity(eid)
+    return await _responsable(eid)
+
+
+async def _envoyer_pdf_responsable(eid: str, pdf: bytes, nom_fichier: str, titre: str, p: EnvoiPaieIn) -> Dict[str, Any]:
+    """Envoie le PDF au responsable : WhatsApp (avec accord préalable hors fenêtre de 24 h) ou e-mail."""
+    import base64
+    r = await _responsable(eid)
+    if p.canal == "email":
+        from albarka_notifications import send_email
+        if not r["email"]:
+            raise HTTPException(status_code=400, detail="Aucune adresse e-mail pour le responsable de cette société")
+        html = (f"<div style=\"font-family:Arial,sans-serif;color:#0F172A;padding:16px;\"><p>Bonjour {escape(r['nom'])},</p>"
+                f"<p>Veuillez trouver ci-joint : <strong>{escape(titre)}</strong>.</p></div>")
+        mid = await send_email(to=[r["email"]], subject=titre, html=html, attachments=[{
+            "filename": nom_fichier, "content": base64.b64encode(pdf).decode("ascii"), "content_type": "application/pdf"}])
+        if not mid:
+            raise HTTPException(status_code=502, detail="Échec envoi e-mail (service indisponible ou rejeté)")
+        return {"ok": True, "canal": "email", "to": r["email"], "nom": r["nom"]}
+    from albarka_notifications import send_whatsapp_fichier
+    from albarka_wa_inbox import refus_hors_fenetre
+    if not (r["whatsapp"] or "").startswith("+"):
+        raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp (format +226…) pour le responsable de cette société")
+    await refus_hors_fenetre(r["whatsapp"], p.confirmer_modele)          # 409 « hors_fenetre_24h » sans accord du cabinet
+    res = await send_whatsapp_fichier(to_phone=r["whatsapp"], data=pdf, filename=nom_fichier,
+                                      content_type="application/pdf", caption=titre)
+    if not res.get("ok"):
+        raise HTTPException(status_code=502, detail=f"Échec envoi WhatsApp : {res.get('error') or res.get('kind') or 'inconnu'}")
+    return {"ok": True, "canal": "whatsapp", "to": r["whatsapp"], "nom": r["nom"]}
+
+
+@router.post("/bulletins/{bid}/envoyer")
+async def envoyer_bulletin(bid: str, p: EnvoiPaieIn, user: dict = Depends(require_roles(HR_ROLES))):
+    """Envoie le bulletin (PDF) au responsable de la société, par WhatsApp ou e-mail."""
+    import asyncio
+    b = await _bulletin(bid)
+    pdf = await asyncio.to_thread(build_bulletin_pdf, b, await _bulletin_pdf_context(b))
+    salarie = (b.get("employee") or {}).get("full_name") or "salarié"
+    nom = re.sub(r"[^A-Za-z0-9_-]+", "_", f"bulletin_{b['period_month']}_{salarie}")[:90] + ".pdf"
+    return await _envoyer_pdf_responsable(b["employer_id"], pdf, nom, f"Bulletin de paie — {salarie} — {period_label(b['period_month'])}", p)
+
+
+@router.post("/bulletins-pdf/envoyer")
+async def envoyer_bulletins_du_mois(p: EnvoiPaieIn, user: dict = Depends(require_roles(HR_ROLES))):
+    """Envoie les bulletins du mois (un seul PDF) au responsable de la société."""
+    if not p.employer_id or not p.period_month:
+        raise HTTPException(status_code=422, detail="Société et mois requis")
+    rep = await bulletins_pdf(p.employer_id, p.period_month, user)
+    return await _envoyer_pdf_responsable(p.employer_id, rep.body, f"bulletins_{p.period_month}.pdf",
+                                          f"Bulletins de paie — {period_label(p.period_month)}", p)
+
+
+@router.post("/livre/envoyer")
+async def envoyer_livre(p: EnvoiPaieIn, user: dict = Depends(require_roles(HR_ROLES))):
+    """Envoie le livre de paie du mois (PDF) au responsable de la société."""
+    if not p.employer_id or not p.period_month:
+        raise HTTPException(status_code=422, detail="Société et mois requis")
+    rep = await ledger_pdf(p.employer_id, p.period_month, user)
+    return await _envoyer_pdf_responsable(p.employer_id, rep.body, f"livre_de_paie_{p.period_month}.pdf",
+                                          f"Livre de paie — {period_label(p.period_month)}", p)
+
+
 async def bulletin_for_verify(token: str) -> Optional[dict]:
     """Page publique du QR code (albarka_docgen.verify_document)."""
     b = await db.paie_bulletins.find_one({"verify_token": token}, {"_id": 0, "params": 0})
