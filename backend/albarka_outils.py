@@ -420,9 +420,16 @@ async def admin_download_history_csv(
 @router.get("")
 async def list_tools(user: dict = Depends(get_current_user)):
     """Outils visibles destinés à l'utilisateur connecté, dans l'ordre choisi."""
-    q = {"visible": True, **audience_filter(user)}
+    # Lot 60 : l'administrateur du portail (et lui seul) voit TOUS les outils visibles, quel que soit leur public,
+    # avec le public visé affiché sur la carte ; les autres ne voient que les outils destinés à leur public.
+    super_admin = is_admin_account(user)
+    q = {"visible": True} if super_admin else {"visible": True, **audience_filter(user)}
     items = await db.digital_tools.find(q, {"_id": 0}).sort([("order", 1), ("created_at", 1)]).to_list(500)
-    return {"items": [_public_view(t) for t in items], "is_super_admin": is_admin_account(user)}
+    vues = [_public_view(t) for t in items]
+    if super_admin:
+        for vue, t in zip(vues, items):
+            vue["audience"] = t.get("audience") or "tous"
+    return {"items": vues, "is_super_admin": super_admin}
 
 
 @router.get("/{tool_id}/image")

@@ -74,6 +74,12 @@ export default function OutilsNumeriques({ admin = false }) {
               </span>
             </div>
             <div className="font-medium text-sm leading-tight mt-1 break-words w-full">{t.caption}</div>
+            {/* Administrateur du portail seulement : public visé de l'outil (le serveur ne renvoie ce champ qu'à lui) */}
+            {t.audience && t.audience !== "tous" && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800" data-testid="outil-public">
+                {t.audience === "clients" ? "destiné aux clients" : "destiné au personnel"}
+              </span>
+            )}
             <div className="text-[11px] text-muted-foreground">
               {[t.version && `v${t.version.replace(/^v/i, "")}`, t.size_label].filter(Boolean).join(" · ")}
             </div>

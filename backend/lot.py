@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "59"
-LOT_LIBELLE = "Vider les conversations : vide aussi la discussion avec le support SAWALI"
+LOT = "60"
+LOT_LIBELLE = "Outils Numériques : l'administrateur du portail voit tous les outils visibles, avec leur public visé"
