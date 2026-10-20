@@ -26,8 +26,10 @@ from __future__ import annotations
 import base64
 import gzip
 import hashlib
+import json
 import logging
 import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
@@ -45,6 +47,7 @@ PREFIXE_PAR_DEFAUT = "albarka/sauvegardes/"
 BUCKET_SAUVEGARDES_PAR_DEFAUT = "sawali-sauvegardes"   # comme SAWALI
 CONSERVATION = 30                 # nombre de sauvegardes gardées dans R2
 HEURE_SAUVEGARDE_UTC = 2          # sauvegarde quotidienne à 02h00 UTC
+TAILLE_PAQUET = 200   # documents écrits à la fois dans la sauvegarde (borne la mémoire)
 COLLECTIONS_IGNOREES = {"otps"}   # codes de connexion temporaires : inutiles à sauvegarder
 DELAI_NOUVEL_ESSAI = timedelta(hours=1)  # sauvegarde nocturne échouée : nouvel essai une heure plus tard
 
@@ -69,14 +72,36 @@ def _fernet():
 
 
 async def exporter_base(db) -> bytes:
-    """Toutes les collections -> JSON étendu MongoDB -> gzip -> chiffré."""
-    contenu: Dict[str, List[Any]] = {}
-    for nom in sorted(await db.list_collection_names()):
-        if nom in COLLECTIONS_IGNOREES or nom.startswith("system."):
-            continue
-        contenu[nom] = await db[nom].find({}).to_list(None)
-    brut = json_util.dumps({"date": datetime.now(timezone.utc), "collections": contenu}).encode("utf-8")
-    return _fernet().encrypt(gzip.compress(brut))
+    """Toutes les collections -> JSON étendu MongoDB -> gzip -> chiffré.
+
+    Lot 61 — MÉMOIRE : l'ancienne version chargeait toute la base en mémoire (to_list(None)) puis en faisait plusieurs
+    copies (texte JSON, octets, compressé) : dépassement des 512 Mo du service (Render « exceeded its memory limit »,
+    comme sur e-Kol). Maintenant les documents sont lus par paquets et écrits au fur et à mesure dans un fichier gzip
+    TEMPORAIRE ; seul le résultat compressé est chiffré en mémoire. Format identique : lire_sauvegarde() relit
+    anciennes et nouvelles sauvegardes."""
+    with tempfile.TemporaryFile() as fichier:
+        with gzip.GzipFile(fileobj=fichier, mode="wb", compresslevel=6) as gz:
+            # En-tête : même structure qu'avant {"date": ..., "collections": {nom: [documents]}}
+            gz.write(('{"date": ' + json_util.dumps(datetime.now(timezone.utc)) + ', "collections": {').encode("utf-8"))
+            premiere_collection = True
+            for nom in sorted(await db.list_collection_names()):
+                if nom in COLLECTIONS_IGNOREES or nom.startswith("system."):
+                    continue
+                gz.write(((" " if premiere_collection else ", ") + json.dumps(nom) + ": [").encode("utf-8"))
+                premiere_collection = False
+                premier_document = True
+                paquet: List[str] = []
+                async for doc in db[nom].find({}):
+                    paquet.append(json_util.dumps(doc))
+                    if len(paquet) >= TAILLE_PAQUET:
+                        gz.write((("" if premier_document else ", ") + ", ".join(paquet)).encode("utf-8"))
+                        premier_document, paquet = False, []
+                if paquet:
+                    gz.write((("" if premier_document else ", ") + ", ".join(paquet)).encode("utf-8"))
+                gz.write(b"]")
+            gz.write(b"}}")
+        fichier.seek(0)
+        return _fernet().encrypt(fichier.read())
 
 
 def lire_sauvegarde(octets: bytes) -> Dict[str, Any]:

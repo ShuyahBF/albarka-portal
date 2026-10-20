@@ -287,6 +287,11 @@ async def _ensure_indexes():
         await _db.report_series.create_index("key", unique=True)
         # Contacts (iteration 4)
         await _db.contacts.create_index([("scope", 1), ("tenant_id", 1), ("is_primary", -1)])
+        # Lot 61 : accusés de réception WhatsApp (recherche par identifiant, avec $or) : sans ces index, chaque accusé
+        # parcourait tout le journal et toute la boîte WhatsApp (alerte MongoDB « Query Targeting »).
+        await _db.liluvine_envois.create_index("id")
+        await _db.liluvine_envois.create_index("message_id")
+        await _db.wa_messages.create_index("wa_message_id")
         # Formulaires (jetons de lien uniques, réponses par formulaire, anti-abus)
         await ensure_forms_indexes()
         # Lot 7 : index des documents et modèle « Avis de mission » fourni d'office
