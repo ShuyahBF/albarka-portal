@@ -276,6 +276,9 @@ export default function AdminWhatsAppConversations() {
     try {
       const { data } = await apiClient.post("/whatsapp/conversations/purge", { confirmation: purgeTexte.trim() });
       toast.success(`Conversations vidées : ${data.messages_supprimes} message(s) supprimé(s)`);
+      // Lot 59 : le support SAWALI est vidé avec les conversations (au mieux)
+      if (data.support?.vide) toast.success(`Discussion avec le support vidée : ${data.support.messages_supprimes} message(s)`);
+      else if (data.support?.erreur) toast.warning(`Support SAWALI non vidé : ${data.support.erreur}`);
       setPurgeOuvert(false); setPurgeTexte(""); setSelectedPhone(null); setMessages([]);
       await loadConversations({ notify: false });
     } catch (err) { toast.error(extractError(err, "Suppression impossible")); }
@@ -945,7 +948,7 @@ export default function AdminWhatsAppConversations() {
           <DialogHeader>
             <DialogTitle>Vider toutes les conversations WhatsApp ?</DialogTitle>
             <DialogDescription className="text-xs">
-              Tous les messages et toutes les étiquettes de cette messagerie seront supprimés définitivement. Les contacts, les réponses rapides
+              Tous les messages et toutes les étiquettes de cette messagerie, ainsi que la discussion avec le support SAWALI, seront supprimés définitivement. Les contacts, les réponses rapides
               et les messages déjà reçus sur les téléphones ne sont pas touchés. Tapez <b>SUPPRIMER</b> pour confirmer.
             </DialogDescription>
           </DialogHeader>
