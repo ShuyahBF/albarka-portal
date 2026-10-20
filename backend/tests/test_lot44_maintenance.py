@@ -128,6 +128,10 @@ def test_lot48_reprise_du_bandeau_range_dans_l_ancienne_collection():
                                                    "image": "data:image/png;base64,iVBORw0KGgo=", "maj_le": "2026-10-19T22:00:00+00:00"}))
     b = c.get("/api/bandeau").json()
     assert b["actif"] and b["message"] == "Incident en cours" and b["severite"] == "critical" and b["image"]
+    # Le formulaire des Paramètres (lecture admin) reçoit lui aussi le bandeau repris, avec son statut
+    adm = c.get("/api/bandeau/admin").json()
+    assert adm["message"] == "Incident en cours" and adm["severite"] == "critical" and adm["statut"] == "affiche" and adm["image"]
+    assert c.get("/api/maintenance/journal").status_code == 200
     copie = asyncio.run(db.settings.find_one({"_id": "maintenance_portail_bandeau"}))
     assert copie and copie["message"] == "Incident en cours"                          # recopié : l'ancien emplacement n'est plus lu
     # La maintenance annoncée avant le changement est reprise aussi

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "48"
-LOT_LIBELLE = "Bandeau d'alerte et maintenance : reprise du réglage enregistré avant le lot 46 (rien n'est perdu au changement d'emplacement)"
+LOT = "49"
+LOT_LIBELLE = "Paramètres Alerte et maintenance : lectures indépendantes (le formulaire du bandeau se remplit même si une autre lecture échoue) et erreur affichée dans la carte"

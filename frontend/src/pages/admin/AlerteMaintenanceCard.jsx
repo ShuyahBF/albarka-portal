@@ -36,13 +36,19 @@ export default function AlerteMaintenanceCard() {
   const [journal, setJournal] = useState([]);
   const [occupe, setOccupe] = useState(false);
 
+  const [erreurs, setErreurs] = useState([]);              // lot 49 : ce qui n'a pas pu être lu (affiché dans la carte)
   const charger = useCallback(async () => {
-    try {
-      const [bd, et, jr] = await Promise.all([apiClient.get("/bandeau/admin"), apiClient.get("/maintenance/etat"), apiClient.get("/maintenance/journal")]);
-      setActif(!!bd.data?.actif); setStatutB(bd.data?.statut || "aucun");
-      if (bd.data?.actif) setB({ message: bd.data.message || "", severite: bd.data.severite || "warning", image: bd.data.image || "", lien_url: bd.data.lien_url || "", lien_libelle: bd.data.lien_libelle || "", debut: versChamp(bd.data.debut), fin: versChamp(bd.data.fin) });
-      setEtat(et.data); setJournal(jr.data?.journal || []);
-    } catch (e) { toast.error(extractError(e, "Lecture impossible")); }
+    // Lot 49 : chaque lecture est indépendante — l'échec de l'une (ex. journal) ne vide plus le formulaire du bandeau
+    const [bd, et, jr] = await Promise.allSettled([apiClient.get("/bandeau/admin"), apiClient.get("/maintenance/etat"), apiClient.get("/maintenance/journal")]);
+    const pannes = [];
+    if (bd.status === "fulfilled") {
+      const d = bd.value.data || {};
+      setActif(!!d.actif); setStatutB(d.statut || "aucun");
+      if (d.actif) setB({ message: d.message || "", severite: d.severite || "warning", image: d.image || "", lien_url: d.lien_url || "", lien_libelle: d.lien_libelle || "", debut: versChamp(d.debut), fin: versChamp(d.fin) });
+    } else pannes.push(`Bandeau : ${extractError(bd.reason, "lecture impossible")}`);
+    if (et.status === "fulfilled") setEtat(et.value.data); else pannes.push(`Maintenance : ${extractError(et.reason, "lecture impossible")}`);
+    if (jr.status === "fulfilled") setJournal(jr.value.data?.journal || []); else pannes.push(`Journal : ${extractError(jr.reason, "lecture impossible")}`);
+    setErreurs(pannes);
   }, []);
   useEffect(() => { charger(); }, [charger]);
 
@@ -64,6 +70,11 @@ export default function AlerteMaintenanceCard() {
   const phase = etat?.phase || "aucune";
   return (
     <div className="space-y-6 max-w-2xl" data-testid="alerte-maintenance">
+      {erreurs.length > 0 && (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800" role="alert" data-testid="alerte-erreurs">
+          Lecture incomplète : {erreurs.join(" · ")}. Rechargez la page en forçant (Ctrl+F5) ; si l'erreur persiste, signalez-la.
+        </div>
+      )}
       {/* ---------- Bandeau d'alerte ---------- */}
       <div className="albarka-card p-6 space-y-3" data-testid="bandeau-admin">
         <div className="flex items-center gap-2 font-semibold"><Megaphone className="h-4 w-4" /> Alerte / incident (bandeau en haut du portail)</div>
