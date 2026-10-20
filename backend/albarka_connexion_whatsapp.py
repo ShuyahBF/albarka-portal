@@ -283,6 +283,8 @@ async def connexion_whatsapp(demande: ConnexionWhatsapp):
         await db.tentatives_pin_wa.insert_one({"numero": numero, "le": _maintenant().isoformat()})
         raise refus
 
+    from albarka_maintenance import refuser_connexion_si_maintenance   # lot 44 : connexions suspendues (sauf super-admin)
+    await refuser_connexion_si_maintenance(trouve)
     # Code à 6 chiffres, même format que le code reçu par e-mail (collection otps)
     code = generer_code_otp()
     session_token = generate_session_token()

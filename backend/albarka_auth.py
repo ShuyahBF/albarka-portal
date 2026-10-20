@@ -118,6 +118,9 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_securi
             changed_ts = None
         if changed_ts and (payload.get("iat") or 0) < int(changed_ts):
             raise HTTPException(status_code=401, detail="Session expirée : mot de passe réinitialisé, reconnectez-vous")
+    # Lot 44 : maintenance du portail (503 / session fermée) ; le super-admin n'est jamais bloqué
+    from albarka_maintenance import controler_session
+    await controler_session(user, payload)
     # Lot 20 : le super-admin du portail n'envoie jamais rien aux clients (envois redirigés vers ses contacts de test)
     from albarka_envoi_test import marquer_acteur
     marquer_acteur(user)
@@ -147,6 +150,8 @@ async def login(payload: LoginRequest):
     user = await db.users.find_one({"email": payload.email.lower()})
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Identifiants invalides")
+    from albarka_maintenance import refuser_connexion_si_maintenance   # lot 44 : connexions suspendues (sauf super-admin)
+    await refuser_connexion_si_maintenance(user)
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Compte désactivé")
 
@@ -200,6 +205,8 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
     user = await db.users.find_one({"id": otp["user_id"]}, {"_id": 0, "password_hash": 0})
     if not user:
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    from albarka_maintenance import refuser_connexion_si_maintenance   # lot 44
+    await refuser_connexion_si_maintenance(user)
     # Liste blanche du personnel (appareils / IP / jeton temporaire) — après
     # mot de passe ET OTP ; refus = fausse « ERREUR 404 » (albarka_access.py).
     from albarka_access import check_staff_access

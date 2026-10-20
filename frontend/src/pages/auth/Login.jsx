@@ -10,6 +10,7 @@ import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp
 import { apiClient, extractError } from "@/lib/api";
 import { saveAccessCode, getAccessCode } from "@/lib/device";
 import MentionVersion from "@/components/MentionVersion";
+import BandeauAlerte from "@/components/BandeauAlerte";   // lot 44
 import LiensJuridiques from "@/components/LiensJuridiques";
 import EtatServeur from "@/components/EtatServeur";
 import InstallerApplication from "@/components/InstallerApplication";
@@ -154,8 +155,23 @@ export default function Login() {
     }
   };
 
+  // Lot 44 : la connexion est suspendue pendant une maintenance (le super-admin peut quand même se connecter)
+  const [enMaintenance, setEnMaintenance] = useState(false);
+  useEffect(() => {
+    apiClient.get("/maintenance/etat").then((r) => setEnMaintenance(r.data?.phase === "maintenance")).catch(() => {});
+  }, []);
+
   return (
     <div className="min-h-screen grid md:grid-cols-2" data-testid="login-page">
+      {/* Lot 44 : alerte du super-admin et, en maintenance, avis de connexion suspendue */}
+      <div className="md:col-span-2">
+        <BandeauAlerte />
+        {enMaintenance && (
+          <div className="bg-rose-700 text-white text-sm px-4 py-2" role="alert" data-testid="login-maintenance">
+            Portail en maintenance : les connexions sont suspendues. Elles seront rétablies par l'administrateur.
+          </div>
+        )}
+      </div>
       {/* Left visual */}
       <div className="albarka-hero relative hidden md:flex items-center justify-center p-12 overflow-hidden">
         <div className="albarka-hero-grain absolute inset-0 opacity-40 pointer-events-none" />
