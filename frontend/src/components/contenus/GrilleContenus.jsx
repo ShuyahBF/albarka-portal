@@ -6,7 +6,7 @@
 */
 import React, { useState } from "react";
 import { toast } from "sonner";
-import { Play, Headphones, FileText, Link2, Lock, Loader2 } from "lucide-react";
+import { Play, Headphones, FileText, Link2, Lock, Loader2, CheckCircle2 } from "lucide-react";
 import { API, apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -51,12 +51,29 @@ function Lecteur({ item, chemin }) {
   return item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[#0F6B4A] underline">Ouvrir le lien</a> : null;
 }
 
-export default function GrilleContenus({ contenus, onAcheter, vide = "Rien à afficher pour le moment." }) {
+export default function GrilleContenus({ contenus, onAcheter, onChange, vide = "Rien à afficher pour le moment." }) {
   const [ouvert, setOuvert] = useState(null);
   const [lecon, setLecon] = useState(null);             // leçon choisie dans une série
   const [attente, setAttente] = useState(false);
+  const [prog, setProg] = useState(null);               // progression du client sur le contenu ouvert (étapes terminées)
 
-  const ouvrir = (c) => { setOuvert(c); setLecon(c.lecons?.length ? c.lecons[0] : null); };
+  // Enregistre la consultation (fait = null) ou la fin / reprise (true / false) d'une étape ; réservé à l'espace client
+  const noter = async (c, etape, fait = null) => {
+    if (!c.progression) return;
+    try {
+      const { data } = await apiClient.post(`/contenus/${c.id}/progression`, { lecon_id: etape, fait });
+      setProg(data);
+      if (fait !== null) onChange?.();
+    } catch { /* la lecture continue même si l'enregistrement échoue */ }
+  };
+
+  const ouvrir = (c) => {
+    // Reprend à la dernière leçon consultée (sinon la première)
+    const reprise = c.lecons?.find((l) => l.id === c.progression?.derniere) || c.lecons?.[0] || null;
+    setOuvert(c); setLecon(reprise); setProg(c.progression || null);
+    if (c.acces) noter(c, reprise?.id || null);
+  };
+  const choisir = (c, l) => { setLecon(l); if (c.acces) noter(c, l.id); };
   const acheter = async (c) => {
     setAttente(true);
     try { await onAcheter(c); } catch (e) { toast.error(extractError(e, "Paiement impossible")); } finally { setAttente(false); }
@@ -79,6 +96,7 @@ export default function GrilleContenus({ contenus, onAcheter, vide = "Rien à af
                     {c.gratuit ? "Gratuit" : c.acces ? "Acheté" : fmtPrix(c.prix)}
                   </span>
                 )}
+                {c.progression?.pct > 0 && <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700">{c.progression.pct} %</span>}
                 {c.publie === false && <span className="ml-auto px-2 py-0.5 rounded-full bg-slate-200">Brouillon</span>}
               </div>
             </div>
@@ -86,7 +104,7 @@ export default function GrilleContenus({ contenus, onAcheter, vide = "Rien à af
         ))}
       </div>
 
-      <Dialog open={!!ouvert} onOpenChange={(o) => { if (!o) { setOuvert(null); setLecon(null); } }}>
+      <Dialog open={!!ouvert} onOpenChange={(o) => { if (!o) { setOuvert(null); setLecon(null); onChange?.(); } }}>
         <DialogContent className="max-w-xl">
           {ouvert && (<>
             <DialogHeader><DialogTitle>{ouvert.titre}</DialogTitle></DialogHeader>
@@ -106,13 +124,29 @@ export default function GrilleContenus({ contenus, onAcheter, vide = "Rien à af
                 <div className="space-y-3">
                   <div className="flex flex-wrap gap-2">
                     {ouvert.lecons.map((l, i) => (
-                      <button key={l.id} type="button" onClick={() => setLecon(l)} data-testid="lecon-onglet"
-                        className={`px-3 py-1.5 rounded-full border text-xs ${lecon?.id === l.id ? "bg-[#0F6B4A] text-white border-[#0F6B4A]" : "bg-white"}`}>{i + 1}. {l.titre}</button>
+                      <button key={l.id} type="button" onClick={() => choisir(ouvert, l)} data-testid="lecon-onglet"
+                        className={`px-3 py-1.5 rounded-full border text-xs ${lecon?.id === l.id ? "bg-[#0F6B4A] text-white border-[#0F6B4A]" : "bg-white"}`}>{prog?.terminees?.includes(l.id) ? "✓ " : ""}{i + 1}. {l.titre}</button>
                     ))}
                   </div>
                   {lecon && <Lecteur item={lecon} chemin={`/contenus/${ouvert.id}/lecons/${lecon.id}/fichier`} />}
+                  {lecon && ouvert.progression && (
+                    <Button variant="outline" size="sm" data-testid="btn-terminer"
+                      onClick={() => noter(ouvert, lecon.id, !prog?.terminees?.includes(lecon.id))}>
+                      <CheckCircle2 className="w-4 h-4 mr-2" />{prog?.terminees?.includes(lecon.id) ? "Terminée — rouvrir" : "Marquer comme terminée"}
+                    </Button>
+                  )}
+                  {prog && <div className="text-xs text-muted-foreground">Avancement : {prog.terminees?.length || 0} / {prog.total} leçon(s)</div>}
                 </div>
-              ) : <Lecteur item={ouvert} chemin={`/contenus/${ouvert.id}/fichier`} />}
+              ) : (
+                <div className="space-y-3">
+                  <Lecteur item={ouvert} chemin={`/contenus/${ouvert.id}/fichier`} />
+                  {ouvert.progression && (
+                    <Button variant="outline" size="sm" onClick={() => noter(ouvert, null, !prog?.terminees?.includes("principal"))}>
+                      <CheckCircle2 className="w-4 h-4 mr-2" />{prog?.terminees?.includes("principal") ? "Terminé — rouvrir" : "Marquer comme terminé"}
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
           </>)}
         </DialogContent>

@@ -167,9 +167,13 @@ async def lister(type: str = "info", user: dict = Depends(get_current_user)):
         q["publie"] = True
     docs = await db.settings.find(q).to_list(500)
     docs.sort(key=lambda d: (d.get("publie_le") or "", d.get("created_at") or ""), reverse=True)
+    prog = await _progressions_du_client(user) if is_client(user) else {}
     sortie = []
     for d in docs:
-        sortie.append(_vue(d, acces=await _a_acces(d, user)))
+        v = _vue(d, acces=await _a_acces(d, user))
+        if is_client(user):
+            v["progression"] = _resume_progression(d, prog.get(d["id"]))
+        sortie.append(v)
     return sortie
 
 
@@ -590,3 +594,83 @@ async def diffuser_infos_dues(maintenant: Optional[datetime] = None) -> Dict[str
         await db.settings.update_one({"_id": doc["_id"]}, {"$set": {"diffusion": {
             "statut": "envoyee", "envoyee_le": datetime.now(timezone.utc).isoformat(), "nb_envoyes": ok, "nb_echecs": ko}}})
     return bilan
+
+
+# ----------------------------------------------------------------- ordre des leçons (lot 56)
+class OrdreIn(BaseModel):
+    ids: list
+
+
+@router.put("/{contenu_id}/lecons-ordre")
+async def ordonner_lecons(contenu_id: str, p: OrdreIn, user: dict = Depends(GESTION_DEP)):
+    """Réordonne les leçons : `ids` doit contenir exactement les identifiants des leçons existantes."""
+    doc = await _lire(contenu_id)
+    lecons = doc.get("lecons") or []
+    if sorted(p.ids) != sorted(l["id"] for l in lecons):
+        raise HTTPException(status_code=400, detail="La liste doit contenir toutes les leçons, une seule fois chacune")
+    par_id = {l["id"]: l for l in lecons}
+    await db.settings.update_one({"_id": PREFIXE + contenu_id}, {"$set": {"lecons": [par_id[i] for i in p.ids]}})
+    return _vue(await _lire(contenu_id), acces=True, gestion=True)
+
+
+# ----------------------------------------------------------------- progression de lecture (lot 56)
+# Un document `settings` par client et par contenu : _id « progression:<client>:<contenu> » (aucune nouvelle collection).
+PREFIXE_PROG = "progression:"
+PRINCIPAL = "principal"          # contenu sans leçons : une seule « étape »
+
+
+async def _progressions_du_client(user: dict) -> Dict[str, dict]:
+    """Toutes les progressions d'un client en une lecture, indexées par identifiant de contenu."""
+    tid = tenant_id_of(user)
+    docs = await db.settings.find({"_id": {"$regex": f"^{re.escape(PREFIXE_PROG + tid)}:"}}).to_list(1000)
+    return {d["contenu_id"]: d for d in docs}
+
+
+def _resume_progression(contenu: dict, prog: Optional[dict]) -> dict:
+    """Étapes terminées / total, pourcentage et dernière étape consultée (étapes disparues ignorées)."""
+    etapes = [l["id"] for l in contenu.get("lecons") or []] or [PRINCIPAL]
+    faites = [e for e in (prog or {}).get("terminees", []) if e in etapes]
+    return {"terminees": faites, "total": len(etapes), "pct": round(100 * len(faites) / len(etapes)),
+            "derniere": (prog or {}).get("derniere")}
+
+
+class ProgressionIn(BaseModel):
+    lecon_id: Optional[str] = None       # None = le contenu lui-même (sans leçons)
+    fait: Optional[bool] = None          # True / False : marquer terminée / non terminée ; None : simple consultation
+
+
+@router.post("/{contenu_id}/progression")
+async def enregistrer_progression(contenu_id: str, p: ProgressionIn, user: dict = Depends(get_current_user)):
+    """Enregistre la consultation ou la fin d'une leçon pour le client connecté (accès requis)."""
+    doc = await _lire(contenu_id)
+    if not await _a_acces(doc, user):
+        raise HTTPException(status_code=402, detail="Formation payante : réglez-la pour y accéder")
+    etape = p.lecon_id or PRINCIPAL
+    if etape not in ([l["id"] for l in doc.get("lecons") or []] or [PRINCIPAL]):
+        raise HTTPException(status_code=404, detail="Leçon introuvable")
+    _id = f"{PREFIXE_PROG}{tenant_id_of(user)}:{contenu_id}"
+    maj: Dict[str, Any] = {"$set": {"contenu_id": contenu_id, "tenant_id": tenant_id_of(user), "derniere": etape,
+                                    "maj": datetime.now(timezone.utc).isoformat()}}
+    if p.fait is True:
+        maj["$addToSet"] = {"terminees": etape}
+    elif p.fait is False:
+        maj["$pull"] = {"terminees": etape}
+    await db.settings.update_one({"_id": _id}, maj, upsert=True)
+    return _resume_progression(doc, await db.settings.find_one({"_id": _id}))
+
+
+@router.get("/{contenu_id}/progression")
+async def progression_clients(contenu_id: str, user: dict = Depends(GESTION_DEP)):
+    """Cabinet : avancement de chaque client sur ce contenu (lecture en bloc, pas de boucle par client)."""
+    doc = await _lire(contenu_id)
+    progs = await db.settings.find({"_id": {"$regex": f"^{PREFIXE_PROG}"}, "contenu_id": contenu_id}).to_list(2000)
+    users = await db.users.find({"id": {"$in": [p["tenant_id"] for p in progs]}},
+                                {"_id": 0, "id": 1, "company": 1, "full_name": 1}).to_list(2000)
+    noms = {u["id"]: u.get("company") or u.get("full_name") or u["id"] for u in users}
+    sortie = []
+    for p in progs:
+        r = _resume_progression(doc, p)
+        sortie.append({"tenant_id": p["tenant_id"], "client": noms.get(p["tenant_id"], p["tenant_id"]),
+                       "terminees": len(r["terminees"]), "total": r["total"], "pct": r["pct"], "maj": p.get("maj")})
+    sortie.sort(key=lambda x: (-x["pct"], x["client"]))
+    return sortie

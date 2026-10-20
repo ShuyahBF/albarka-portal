@@ -42,7 +42,7 @@ export default function Formations() {
         <p className="text-muted-foreground mt-1">Se former à la comptabilité, à la fiscalité et à la gestion sociale — gratuitement ou en payant par mobile money.</p>
       </div>
       {liste === null ? <div className="text-sm text-muted-foreground">Chargement…</div>
-        : <GrilleContenus contenus={liste} onAcheter={acheter} vide="Aucune formation disponible pour le moment." />}
+        : <GrilleContenus contenus={liste} onAcheter={acheter} onChange={charger} vide="Aucune formation disponible pour le moment." />}
     </div>
   );
 }
