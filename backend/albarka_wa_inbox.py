@@ -362,11 +362,9 @@ async def send_reply(
 # =====================================================================
 # Lot 45 — envoi d'un DOCUMENT (PDF, Word) ou d'une IMAGE (JPEG, PNG) depuis une conversation. Pas de vidéo.
 # =====================================================================
-# type de fichier accepté : extension → (type MIME, famille WhatsApp, taille maximale en octets)
+# Lot 47 : un fichier choisi sur l'appareil ne peut être qu'une IMAGE ; les DOCUMENTS (PDF, Word) viennent de la
+# bibliothèque, marqués « partageable » (voir send-archive).
 FICHIERS_ACCEPTES = {
-    "pdf": ("application/pdf", "document", 10 * 1024 * 1024),
-    "doc": ("application/msword", "document", 10 * 1024 * 1024),
-    "docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "document", 10 * 1024 * 1024),
     "jpg": ("image/jpeg", "image", 5 * 1024 * 1024),
     "jpeg": ("image/jpeg", "image", 5 * 1024 * 1024),
     "png": ("image/png", "image", 5 * 1024 * 1024),
@@ -382,7 +380,7 @@ async def send_file(
     confirmer_modele: bool = Form(False),
     user: dict = Depends(require_roles(_INBOX_ROLES)),
 ):
-    """Envoie un document (PDF / Word) ou une image (JPEG / PNG) au contact, avec une légende facultative.
+    """Envoie une image (JPEG / PNG) choisie sur l'appareil au contact, avec une légende facultative.
     Mêmes règles que la réponse texte : contact connu, accord du cabinet hors fenêtre de 24 h (409), mode test du super-admin.
     Les vidéos et tout autre type sont refusés."""
     if not phone.startswith("+"):
@@ -390,7 +388,9 @@ async def send_file(
     nom = (fichier.filename or "fichier").replace("\\", "/").rsplit("/", 1)[-1][:120] or "fichier"
     ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
     if ext not in FICHIERS_ACCEPTES:
-        raise HTTPException(status_code=415, detail="Fichier refusé : PDF, Word (DOC, DOCX) ou image (JPEG, PNG) uniquement — pas de vidéo.")
+        if ext in ("pdf", "doc", "docx"):
+            raise HTTPException(status_code=415, detail="Les documents (PDF, Word) se joignent depuis la bibliothèque : chargez-les-y d'abord et marquez-les « partageable ».")
+        raise HTTPException(status_code=415, detail="Fichier refusé : image JPEG ou PNG uniquement (documents depuis la bibliothèque) — pas de vidéo.")
     mime, famille, maxi = FICHIERS_ACCEPTES[ext]
     donnees = await fichier.read()
     if not donnees:
@@ -418,6 +418,51 @@ async def send_file(
         "id": secrets.token_urlsafe(12), "direction": "outbound", "phone": phone,
         "wa_message_id": result.get("message_id"), "message_type": famille, "body": legende,
         "media_url": None, "media_mime": mime, "media_kind": famille, "media_filename": nom, "media_path": chemin,
+        "voice_note_transcript": None, "contact_id": contact_id, "contact_name": contact_name,
+        "created_at": datetime.now(timezone.utc).isoformat(), "read_by_staff_at": datetime.now(timezone.utc).isoformat(),
+        "sent_by": user["id"], "sent_by_name": user.get("full_name") or user.get("email"),
+        "wa_kind": result.get("kind"), "wa_error": result.get("error"), "outside_24h_window": result.get("outside_24h_window"),
+        "reply_to": None,
+    }
+    await db.wa_messages.insert_one(dict(doc))
+    doc.pop("media_path", None)
+    return {"ok": bool(result.get("ok")), "message": serialize(doc), "result": result}
+
+
+class ArchiveSendPayload(BaseModel):
+    archive_id: str = Field(..., max_length=64)
+    legende: str = Field("", max_length=1000)
+    confirmer_modele: bool = False
+
+
+@router.post("/conversations/{phone}/send-archive")
+async def send_archive(phone: str, payload: ArchiveSendPayload, user: dict = Depends(require_roles(_INBOX_ROLES))):
+    """Lot 47 — envoie un document de la BIBLIOTHÈQUE (PDF, Word) marqué « partageable » au contact.
+    Mêmes règles que le texte : contact connu, accord du cabinet hors fenêtre de 24 h (409), mode test du super-admin."""
+    if not phone.startswith("+"):
+        raise HTTPException(status_code=400, detail="Numéro attendu au format international (+226…)")
+    a = await db.archives.find_one({"id": payload.archive_id}, {"_id": 0})
+    if not a or not a.get("storage_path"):
+        raise HTTPException(status_code=404, detail="Document introuvable dans la bibliothèque")
+    if not a.get("partageable"):
+        raise HTTPException(status_code=403, detail="Ce document n'est pas marqué « partageable » dans la bibliothèque")
+    contact_id, contact_name = await _resolve_contact(phone)
+    if not contact_id:
+        raise HTTPException(status_code=404, detail="Ce numéro ne correspond à aucun contact ni client enregistré — "
+                                                    "ajoutez-le d'abord dans le module Contacts avant de lui écrire.")
+    await refus_hors_fenetre(phone, payload.confirmer_modele)
+    from albarka_notifications import send_whatsapp_fichier
+    from albarka_storage import get_object
+    donnees, ct = await get_object(a["storage_path"])
+    nom = a.get("original_filename") or f"{a.get('title') or 'document'}.pdf"
+    mime = a.get("content_type") or ct or "application/octet-stream"
+    legende = payload.legende.strip()
+    result = await send_whatsapp_fichier(to_phone=phone, data=donnees, filename=nom, content_type=mime, caption=legende)
+    doc = {
+        "id": secrets.token_urlsafe(12), "direction": "outbound", "phone": phone,
+        "wa_message_id": result.get("message_id"), "message_type": "document", "body": legende,
+        "media_url": None, "media_mime": mime, "media_kind": "document", "media_filename": nom,
+        "media_path": a["storage_path"], "archive_id": a["id"],      # le fichier reste celui de la bibliothèque
         "voice_note_transcript": None, "contact_id": contact_id, "contact_name": contact_name,
         "created_at": datetime.now(timezone.utc).isoformat(), "read_by_staff_at": datetime.now(timezone.utc).isoformat(),
         "sent_by": user["id"], "sent_by_name": user.get("full_name") or user.get("email"),

@@ -219,29 +219,48 @@ def _app_fichier(monkeypatch):
     return c, envois, stockes
 
 
-def test_envoi_d_un_pdf_word_ou_image_et_refus_des_videos(monkeypatch):
+def test_envoi_d_une_image_et_refus_des_documents_libres_et_des_videos(monkeypatch):
     c, envois, stockes = _app_fichier(monkeypatch)
     url = "/api/whatsapp/conversations/+22670000004/send-file"
-    r = c.post(url, files={"fichier": ("bulletin.pdf", b"%PDF-1.4 x", "application/pdf")}, data={"legende": "Votre bulletin 📎"})
+    r = c.post(url, files={"fichier": ("photo.PNG", b"\x89PNG", "image/png")}, data={"legende": "Voici le plan 📎"})
     assert r.status_code == 200 and r.json()["ok"]
-    assert envois[-1] == ("+22670000004", "bulletin.pdf", "application/pdf", "Votre bulletin 📎") and len(stockes) == 1
+    assert envois[-1] == ("+22670000004", "photo.PNG", "image/png", "Voici le plan 📎") and len(stockes) == 1
     m = r.json()["message"]
-    assert m["message_type"] == "document" and m["media_filename"] == "bulletin.pdf" and "media_path" not in m
-    assert c.post(url, files={"fichier": ("lettre.docx", b"PK", "application/octet-stream")}).status_code == 200
-    assert envois[-1][2].endswith("wordprocessingml.document")
-    assert c.post(url, files={"fichier": ("photo.PNG", b"\x89PNG", "image/png")}).status_code == 200
-    assert envois[-1][2] == "image/png"
-    # Refus : vidéo, autre type, fichier vide, image trop lourde
+    assert m["message_type"] == "image" and m["media_filename"] == "photo.PNG" and "media_path" not in m
+    assert c.post(url, files={"fichier": ("p.jpg", b"\xff\xd8", "image/jpeg")}).status_code == 200
+    # Refus : un document libre (il faut la bibliothèque), une vidéo, un autre type, un fichier vide, une image trop lourde
+    r = c.post(url, files={"fichier": ("bulletin.pdf", b"%PDF", "application/pdf")})
+    assert r.status_code == 415 and "bibliothèque" in r.json()["detail"]
+    assert c.post(url, files={"fichier": ("lettre.docx", b"PK", "application/octet-stream")}).status_code == 415
     assert c.post(url, files={"fichier": ("film.mp4", b"xx", "video/mp4")}).status_code == 415
     assert c.post(url, files={"fichier": ("macro.exe", b"xx", "application/octet-stream")}).status_code == 415
-    assert c.post(url, files={"fichier": ("vide.pdf", b"", "application/pdf")}).status_code == 400
+    assert c.post(url, files={"fichier": ("vide.png", b"", "image/png")}).status_code == 400
     assert c.post(url, files={"fichier": ("grosse.jpg", b"x" * (5 * 1024 * 1024 + 1), "image/jpeg")}).status_code == 413
     # L'écran relit la conversation : le fichier est annoncé disponible, le chemin interne n'est pas exposé
     liste = c.get("/api/whatsapp/conversations/+22670000004/messages").json()
     envoyes = [x for x in liste if x.get("media_filename")]
     assert envoyes and all(x["fichier_disponible"] and "media_path" not in x for x in envoyes)
-    # Ouverture du fichier depuis la conversation
     assert c.get(f"/api/whatsapp/messages/{envoyes[0]['id']}/fichier").content == b"%PDF-contenu"
+
+
+def test_document_de_la_bibliotheque_envoye_seulement_s_il_est_partageable(monkeypatch):
+    c, envois, _ = _app_fichier(monkeypatch)
+    c.portal.call(c.db.archives.insert_many, [
+        {"id": "A1", "title": "Contrat type", "storage_path": "bibliotheque/a1.pdf", "original_filename": "contrat.pdf",
+         "content_type": "application/pdf", "partageable": True},
+        {"id": "A2", "title": "Note interne", "storage_path": "bibliotheque/a2.pdf", "original_filename": "note.pdf",
+         "content_type": "application/pdf", "partageable": False},
+        {"id": "A3", "title": "Événement sans fichier", "partageable": True}])
+    url = "/api/whatsapp/conversations/+22670000004/send-archive"
+    r = c.post(url, json={"archive_id": "A1", "legende": "Pour signature ✍️"})
+    assert r.status_code == 200 and r.json()["ok"]
+    assert envois[-1] == ("+22670000004", "contrat.pdf", "application/pdf", "Pour signature ✍️")
+    m = r.json()["message"]
+    assert m["message_type"] == "document" and m["archive_id"] == "A1" and "media_path" not in m
+    assert c.post(url, json={"archive_id": "A2"}).status_code == 403          # non partageable
+    assert c.post(url, json={"archive_id": "A3"}).status_code == 404          # pas de fichier dans la bibliothèque
+    assert c.post(url, json={"archive_id": "inconnu"}).status_code == 404
+    assert len(envois) == 1                                                    # rien d'autre n'est parti
 
 
 def test_envoi_de_fichier_hors_fenetre_demande_l_accord(monkeypatch):
@@ -250,7 +269,7 @@ def test_envoi_de_fichier_hors_fenetre_demande_l_accord(monkeypatch):
     ancien = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
     c.portal.call(c.db.wa_messages.insert_one, {"id": "v9", "phone": "+22670000004", "direction": "inbound", "created_at": ancien})
     url = "/api/whatsapp/conversations/+22670000004/send-file"
-    r = c.post(url, files={"fichier": ("a.pdf", b"%PDF", "application/pdf")})
+    r = c.post(url, files={"fichier": ("a.png", b"\x89PNG", "image/png")})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "hors_fenetre_24h" and envois == []
-    r = c.post(url, files={"fichier": ("a.pdf", b"%PDF", "application/pdf")}, data={"confirmer_modele": "true"})
+    r = c.post(url, files={"fichier": ("a.png", b"\x89PNG", "image/png")}, data={"confirmer_modele": "true"})
     assert r.status_code == 200 and len(envois) == 1

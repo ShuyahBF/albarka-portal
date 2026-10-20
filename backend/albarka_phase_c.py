@@ -18,7 +18,7 @@ import secrets
 from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from albarka_admin_settings import get_settings_doc
@@ -1035,6 +1035,68 @@ class ArchiveItemCreate(BaseModel):
     original_filename: Optional[str] = None
 
 
+# Lot 47 — documents de la bibliothèque joignables à une conversation WhatsApp : PDF et Word, 10 Mo au plus.
+# Un document n'est proposé dans les conversations que s'il est marqué « partageable ».
+TYPES_BIBLIOTHEQUE = {
+    "pdf": "application/pdf",
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+TAILLE_MAX_BIBLIOTHEQUE = 10 * 1024 * 1024
+
+
+@archives_router.post("/fichier")
+async def create_archive_with_file(
+    fichier: UploadFile = File(...),
+    title: str = Form(..., min_length=1, max_length=200),
+    category: str = Form("autre"),
+    description: str = Form(""),
+    tags: str = Form(""),
+    partageable: bool = Form(False),
+    user: dict = Depends(require_staff()),
+):
+    """Charge un document (PDF, DOC, DOCX) dans la bibliothèque, avec la case « partageable » (envoi en conversation)."""
+    nom = (fichier.filename or "document").replace("\\", "/").rsplit("/", 1)[-1][:120] or "document"
+    ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
+    if ext not in TYPES_BIBLIOTHEQUE:
+        raise HTTPException(status_code=415, detail="Document refusé : PDF ou Word (DOC, DOCX) uniquement")
+    donnees = await fichier.read()
+    if not donnees:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    if len(donnees) > TAILLE_MAX_BIBLIOTHEQUE:
+        raise HTTPException(status_code=413, detail="Document trop lourd (10 Mo au plus)")
+    from albarka_storage import build_path, put_object
+    chemin = build_path("bibliotheque", "cabinet", ext)
+    await put_object(chemin, donnees, TYPES_BIBLIOTHEQUE[ext])
+    doc = {
+        "id": secrets.token_urlsafe(12), "title": title.strip()[:200], "category": (category or "autre")[:60],
+        "description": (description or "").strip() or None,
+        "tags": [t.strip() for t in (tags or "").split(",") if t.strip()],
+        "storage_path": chemin, "original_filename": nom, "content_type": TYPES_BIBLIOTHEQUE[ext],
+        "partageable": bool(partageable),
+        "created_at": datetime.now(timezone.utc).isoformat(), "created_by": user["id"],
+        "created_by_name": user.get("full_name") or user.get("email"),
+    }
+    await db.archives.insert_one(doc.copy())
+    return serialize(doc)
+
+
+class PartageableIn(BaseModel):
+    partageable: bool
+
+
+@archives_router.patch("/{archive_id}/partageable")
+async def set_archive_shareable(archive_id: str, payload: PartageableIn, user: dict = Depends(require_staff())):
+    """Marque (ou démarque) un document comme « partageable ». Il faut un fichier chargé dans la bibliothèque."""
+    a = await db.archives.find_one({"id": archive_id}, {"_id": 0, "storage_path": 1})
+    if not a:
+        raise HTTPException(status_code=404, detail="Élément introuvable")
+    if payload.partageable and not a.get("storage_path"):
+        raise HTTPException(status_code=400, detail="Aucun fichier dans cet élément : chargez d'abord un document (PDF ou Word)")
+    await db.archives.update_one({"id": archive_id}, {"$set": {"partageable": payload.partageable}})
+    return {"ok": True, "id": archive_id, "partageable": payload.partageable}
+
+
 @archives_router.get("")
 async def list_archives(
     category: Optional[str] = None,
@@ -1042,9 +1104,13 @@ async def list_archives(
     q: Optional[str] = None,
     source_kind: Optional[str] = None,
     only_manual: Optional[bool] = None,
+    partageable: Optional[bool] = None,
     user: dict = Depends(require_staff()),
 ):
     query: dict = {}
+    if partageable:                                   # lot 47 : documents joignables aux conversations
+        query["partageable"] = True
+        query["storage_path"] = {"$nin": [None, ""]}
     if category: query["category"] = category
     if tag: query["tags"] = tag
     if source_kind: query["source.kind"] = source_kind
@@ -1056,6 +1122,9 @@ async def list_archives(
             {"description": {"$regex": q, "$options": "i"}},
         ]
     items = await db.archives.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for a in items:                                   # lot 47 : l'écran sait si un fichier existe sans connaître son chemin interne
+        a["a_fichier"] = bool(a.pop("storage_path", None))
+        a["partageable"] = bool(a.get("partageable"))
     return serialize_many(items)
 
 
