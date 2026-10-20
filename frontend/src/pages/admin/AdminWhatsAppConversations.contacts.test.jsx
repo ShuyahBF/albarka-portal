@@ -27,6 +27,8 @@ jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn(), info
 jest.mock("@/contexts/AuthContext", () => ({ useAuth: () => ({ user: { email: "admin@sawalismartsystems.com" } }) }), { virtual: true });
 jest.mock("@/components/wa/SelecteurEmojis", () => ({ __esModule: true, default: ({ onChoisir }) => <button type="button" data-testid="wa-inbox-emoji-btn" onClick={() => onChoisir("😀")}>emoji</button> }), { virtual: true });
 jest.mock("@/components/wa/PieceJointeMessage", () => ({ __esModule: true, default: ({ message }) => <span data-testid={`wa-msg-fichier-${message.id}`}>{message.media_filename}</span> }), { virtual: true });
+jest.mock("@/lib/sonNotification", () => ({ jouerBip: jest.fn(), CLE_ALERTES_WA: "albarka:wa:notif", sonActif: () => true, definirSonActif: jest.fn() }), { virtual: true });   // lot 62
+jest.mock("@/components/PushOptIn", () => ({ __esModule: true, default: () => null }), { virtual: true });   // lot 62
 jest.mock("@/components/Presence", () => ({ PresenceDot: () => null, PresenceLabel: () => null }), { virtual: true });
 
 import AdminWhatsAppConversations from "./AdminWhatsAppConversations";

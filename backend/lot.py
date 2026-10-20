@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "61"
-LOT_LIBELLE = "Mémoire et MongoDB : sauvegarde quotidienne écrite par paquets (plus de dépassement de mémoire), index pour les accusés de réception WhatsApp"
+LOT = "62"
+LOT_LIBELLE = "Alertes WhatsApp : bip sur toutes les pages du portail et notification sur téléphone / ordinateur (même portail fermé) à chaque nouveau message reçu"

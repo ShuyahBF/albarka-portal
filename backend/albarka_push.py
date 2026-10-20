@@ -149,6 +149,43 @@ async def send_push_to_user(user_id: str, *, title: str, body: str, url: str = "
     return {"sent": sent, "failed": failed, "devices": len(subs)}
 
 
+# ---------------------------------------------------------------- nouveau message WhatsApp → équipe
+# Lot 62 : chaque message WhatsApp reçu prévient, par notification push (même portail fermé), les membres de l'équipe qui
+# ont activé les notifications sur un appareil ET qui ont accès à la boîte WhatsApp. Un seul envoi par conversation et par
+# minute (une rafale de messages d'un même contact ne fait sonner qu'une fois). Toujours lancé EN ARRIÈRE-PLAN : la réponse
+# au webhook de Meta n'attend jamais le service de push.
+DELAI_ENTRE_PUSH_WA_S = 60
+_dernier_push_wa: Dict[str, float] = {}
+
+
+async def prevenir_equipe_message_wa(phone: str, nom: Optional[str], apercu: Optional[str]) -> int:
+    """Envoie la notification « Nouveau message WhatsApp » à l'équipe abonnée ; renvoie le nombre d'appareils prévenus."""
+    try:
+        maintenant = time.monotonic()
+        if maintenant - _dernier_push_wa.get(phone, -1e9) < DELAI_ENTRE_PUSH_WA_S:
+            return 0                       # même conversation prévenue il y a moins d'une minute
+        _dernier_push_wa[phone] = maintenant
+        if len(_dernier_push_wa) > 500:    # mémoire bornée : on oublie les plus anciennes conversations
+            for k in sorted(_dernier_push_wa, key=_dernier_push_wa.get)[:250]:
+                _dernier_push_wa.pop(k, None)
+        abonnes = await db.push_subscriptions.distinct("user_id")
+        if not abonnes:
+            return 0
+        from albarka_wa_inbox import _INBOX_ROLES
+        equipe = await db.users.find({"id": {"$in": abonnes}, "roles": {"$in": list(_INBOX_ROLES)},
+                                      "is_active": {"$ne": False}}, {"_id": 0, "id": 1}).to_list(50)
+        prevenus = 0
+        texte = (apercu or "").strip() or "Message reçu"
+        for u in equipe:
+            r = await send_push_to_user(u["id"], title=f"WhatsApp — {nom or phone}", body=texte[:140],
+                                        url="/admin/whatsapp", tag=f"wa-{phone}")
+            prevenus += r.get("sent", 0)
+        return prevenus
+    except Exception:  # noqa: BLE001 — une notification manquée ne doit jamais gêner la réception du message
+        logger.warning("[push] alerte nouveau message WhatsApp impossible", exc_info=True)
+        return 0
+
+
 # ---------------------------------------------------------------- routes
 @router.get("/public-key")
 async def public_key(user: dict = Depends(get_current_user)):
@@ -178,11 +215,16 @@ async def unsubscribe(payload: Dict[str, Any] = Body(...), user: dict = Depends(
 
 
 @router.post("/test")
-async def test_push(user: dict = Depends(get_current_user)):
-    """Notification d'essai sur les appareils abonnés du compte connecté."""
-    r = await send_push_to_user(user["id"], title="Notifications activées",
-                                body="Vous recevrez ici les documents que le cabinet met à votre disposition.",
-                                url="/portal/documents-cabinet" if "client" in (user.get("roles") or []) else "/admin")
+async def test_push(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
+    """Notification d'essai sur les appareils abonnés du compte connecté (contexte « whatsapp » : équipe du cabinet)."""
+    if payload.get("contexte") == "whatsapp":
+        r = await send_push_to_user(user["id"], title="WhatsApp — notifications activées",
+                                    body="Vous serez prévenu(e) ici à chaque nouveau message WhatsApp reçu.", url="/admin/whatsapp",
+                                    tag="wa-test")
+    else:
+        r = await send_push_to_user(user["id"], title="Notifications activées",
+                                    body="Vous recevrez ici les documents que le cabinet met à votre disposition.",
+                                    url="/portal/documents-cabinet" if "client" in (user.get("roles") or []) else "/admin")
     if not r["devices"]:
         raise HTTPException(status_code=404, detail="Aucun appareil abonné pour ce compte")
     return r

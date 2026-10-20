@@ -20,7 +20,8 @@ const b64ToBytes = (b64) => {
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isStandalone = () => window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
 
-export default function PushOptIn() {
+// contexte="whatsapp" (lot 62) : textes pour l'équipe du cabinet — alerte à chaque nouveau message WhatsApp reçu
+export default function PushOptIn({ contexte = "documents" }) {
   const supported = typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
   const [state, setState] = useState("loading"); // loading | on | off | denied | unsupported | ios-install
   const [busy, setBusy] = useState(false);
@@ -71,11 +72,19 @@ export default function PushOptIn() {
     } catch (err) { toast.error(extractError(err)); } finally { setBusy(false); }
   };
   const test = async () => {
-    try { const { data } = await apiClient.post("/push/test"); toast.success(`Notification d'essai envoyée (${data.sent} appareil(s))`); }
+    try { const { data } = await apiClient.post("/push/test", { contexte }); toast.success(`Notification d'essai envoyée (${data.sent} appareil(s))`); }
     catch (err) { toast.error(extractError(err)); }
   };
 
-  const text = {
+  const wa = contexte === "whatsapp";
+  const text = wa ? {
+    loading: "Vérification…",
+    on: "Activées : cet appareil est prévenu à chaque nouveau message WhatsApp reçu, même portail fermé (une alerte par conversation et par minute).",
+    off: "Soyez prévenu(e) sur cet appareil (téléphone ou ordinateur), même portail fermé, à chaque nouveau message WhatsApp reçu.",
+    denied: "Les notifications sont bloquées pour ce site dans les réglages du navigateur. Autorisez-les puis rechargez la page.",
+    unsupported: "Ce navigateur ne prend pas en charge les notifications push.",
+    "ios-install": "Sur iPhone : touchez Partager puis « Sur l'écran d'accueil », ouvrez le portail depuis l'icône ALBARKA, puis revenez ici.",
+  }[state] : {
     loading: "Vérification…",
     on: "Activées : vous êtes prévenu(e) sur cet appareil dès que le cabinet met un document à votre disposition.",
     off: "Soyez prévenu(e) sur cet appareil, même portail fermé, dès qu'un document est disponible.",
