@@ -3,6 +3,7 @@ import { FileText, Briefcase, CalendarClock, AlertTriangle, Users, UserCog, Mess
 import { apiClient, extractError } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import SynthesesMensuelles from "@/components/synthese/SynthesesMensuelles";   // lot 52
 
 function KPI({ icon: Icon, label, value, tone = "emerald", testid }) {
   const tones = {
@@ -121,6 +122,9 @@ export function DashboardShared({ admin = false }) {
             : "Voici l'état de vos pièces, missions et échéances."}
         </p>
       </div>
+
+      {/* Lot 52 : cartes de synthèse mensuelles (RH, CNSS, Fiscal, Comptable) — espace client seulement */}
+      {!admin && <SynthesesMensuelles />}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {showDocs && <KPI icon={FileText} label="Pièces déposées" value={summary?.documents_total} tone="emerald" testid="kpi-docs" />}

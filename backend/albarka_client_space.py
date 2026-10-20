@@ -53,6 +53,30 @@ CATEGORIES: Dict[str, str] = {
     "courrier": "Courrier",
     "autre": "Autre document",
 }
+# Lot 52 — synthèses mensuelles du tableau de bord client : 4 thèmes, rangés par mois (période AAAA-MM)
+THEMES: Dict[str, str] = {"rh": "Rapport RH", "cnss": "CNSS", "fiscal": "Fiscal", "comptable": "Comptable"}
+_PERIODE_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def _theme_ok(theme: str) -> str:
+    """Thème de synthèse : vide (aucun) ou l'un des 4 ; sinon 400."""
+    theme = (theme or "").strip()
+    if theme and theme not in THEMES:
+        raise HTTPException(status_code=400, detail=f"Thème inconnu (attendu : {', '.join(THEMES)})")
+    return theme
+
+
+def _periode_ok(periode: str, doc_date: str = "") -> str:
+    """Mois de la synthèse (AAAA-MM) : celui saisi, sinon celui de la date du document, sinon le mois courant."""
+    periode = (periode or "").strip()
+    if periode:
+        if not _PERIODE_RE.match(periode):
+            raise HTTPException(status_code=400, detail="Période attendue au format AAAA-MM")
+        return periode
+    d = (doc_date or "").strip()[:7]
+    return d if _PERIODE_RE.match(d) else datetime.now(timezone.utc).strftime("%Y-%m")
+
+
 MAX_FILES = 10
 MAX_FILE_BYTES = 20 * 1024 * 1024  # 20 Mo, comme les pièces
 ALLOWED_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "webp", "doc", "docx", "xls", "xlsx", "txt", "csv"}
@@ -276,6 +300,7 @@ def _upload_item(d: Dict[str, Any]) -> Dict[str, Any]:
         "visible": bool(d.get("visible")), "viewed_at": d.get("viewed_at"),
         "last_notification": (d.get("notifications") or [None])[-1],
         "uploaded_by_name": d.get("uploaded_by_name"),
+        "theme": d.get("theme") or "", "periode": d.get("periode") or (d.get("doc_date") or d.get("created_at") or "")[:7],
     }
 
 
@@ -407,12 +432,15 @@ async def upload_documents(
     doc_date: str = Form(""),
     visible: bool = Form(True),
     notify: bool = Form(True),
+    theme: str = Form(""),
+    periode: str = Form(""),
     files: List[UploadFile] = File(...),
     user: dict = Depends(require_roles(CLIENT_SPACE_ROLES)),
 ):
     """Dépose un ou plusieurs fichiers (ou scans) dans l'espace d'un client.
     Aucune analyse OCR. Si visibles, le client est prévenu en UN seul message."""
     _check_category_rights(user, category)
+    theme, periode = _theme_ok(theme), _periode_ok(periode, doc_date)      # lot 52 : synthèse du mois (RH, CNSS, fiscal, comptable)
     client = await _client_or_404(tenant_id)
     if not files:
         raise HTTPException(status_code=400, detail="Aucun fichier")
@@ -448,7 +476,7 @@ async def upload_documents(
             "size": stored["size"], "original_filename": name, "visible": bool(visible),
             "published_at": now if visible else None, "uploaded_by": user["id"],
             "uploaded_by_name": user.get("full_name") or user.get("email"), "created_at": now,
-            "viewed_at": None, "is_deleted": False, "notifications": [],
+            "viewed_at": None, "is_deleted": False, "notifications": [], "theme": theme, "periode": periode,
         }
         await db.client_documents.insert_one(dict(doc))
         created.append(doc)
@@ -478,6 +506,8 @@ async def upload_documents_multi(
     doc_date: str = Form(""),
     visible: bool = Form(True),
     notify: bool = Form(True),
+    theme: str = Form(""),
+    periode: str = Form(""),
     files: List[UploadFile] = File(...),
     user: dict = Depends(require_roles(CLIENT_SPACE_ROLES)),
 ):
@@ -486,6 +516,7 @@ async def upload_documents_multi(
     stocké une seule fois ; chaque client reçoit sa propre fiche et sa propre
     notification. Aucune analyse OCR."""
     _check_category_rights(user, category)
+    theme, periode = _theme_ok(theme), _periode_ok(periode, doc_date)      # lot 52
     ids = list(dict.fromkeys(t.strip() for t in tenant_ids.split(",") if t.strip()))
     if not ids:
         raise HTTPException(status_code=400, detail="Choisissez au moins un client")
@@ -536,7 +567,7 @@ async def upload_documents_multi(
                 "size": stored["size"], "original_filename": name, "visible": bool(visible),
                 "published_at": now if visible else None, "uploaded_by": user["id"],
                 "uploaded_by_name": user.get("full_name") or user.get("email"), "created_at": now,
-                "viewed_at": None, "is_deleted": False, "notifications": [], "batch": True,
+                "viewed_at": None, "is_deleted": False, "notifications": [], "batch": True, "theme": theme, "periode": periode,
             }
             await db.client_documents.insert_one(dict(doc))
             created.append(doc)
@@ -555,6 +586,19 @@ async def upload_documents_multi(
     await _log(user, "client_space.upload_multi", ids[0],
                {"clients": len(ids), "files": len(stored_files), "category": category, "visible": bool(visible)})
     return summary
+
+
+@router.patch("/documents/{doc_id}/synthese")
+async def set_document_theme(doc_id: str, payload: Dict[str, Any] = Body(...),
+                             user: dict = Depends(require_roles(CLIENT_SPACE_ROLES))):
+    """Lot 52 — range un document déjà déposé dans une synthèse mensuelle (thème + mois) ; thème vide = retiré des synthèses."""
+    theme = _theme_ok(str(payload.get("theme") or ""))
+    d = await db.client_documents.find_one({"id": doc_id, "is_deleted": {"$ne": True}}, {"_id": 0, "doc_date": 1, "created_at": 1})
+    if not d:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+    periode = _periode_ok(str(payload.get("periode") or ""), d.get("doc_date") or d.get("created_at") or "")
+    await db.client_documents.update_one({"id": doc_id}, {"$set": {"theme": theme, "periode": periode}})
+    return {"ok": True, "id": doc_id, "theme": theme, "periode": periode}
 
 
 async def _doc_or_404(doc_id: str) -> Dict[str, Any]:
@@ -674,6 +718,30 @@ async def my_space(user: dict = Depends(get_current_user)):
         it["is_new"] = not it.get("viewed_at")
     items.sort(key=lambda x: x.get("created_at") or "", reverse=True)
     return {"items": items, "modules": mods, "categories": [{"key": k, "label": v} for k, v in CATEGORIES.items()]}
+
+
+@me_router.get("/syntheses")
+async def my_syntheses(user: dict = Depends(get_current_user)):
+    """Lot 52 — cartes de synthèse du tableau de bord : pour chaque MOIS (24 derniers), 4 cartes (RH, CNSS, Fiscal, Comptable)
+    avec les documents que le cabinet y a rangés. Seuls les documents visibles du client connecté, jamais ceux d'un autre."""
+    vide = {"themes": [{"key": k, "label": v} for k, v in THEMES.items()], "mois": []}
+    if not is_client(user) or "cabinet_documents" not in client_modules(user):
+        return vide
+    docs = await db.client_documents.find(
+        {"tenant_id": user["id"], "visible": True, "is_deleted": {"$ne": True}, "theme": {"$in": list(THEMES)}},
+        {"_id": 0}).to_list(2000)
+    par_mois: Dict[str, Dict[str, list]] = {}
+    for d in docs:
+        it = _upload_item(d)
+        par_mois.setdefault(it["periode"] or "", {k: [] for k in THEMES})[d["theme"]].append({
+            "id": it["id"], "source": "upload", "title": it["title"], "date": it["date"], "filename": it["filename"],
+            "is_new": not d.get("viewed_at")})
+    for m in par_mois.values():
+        for k in m:
+            m[k].sort(key=lambda x: x.get("date") or "", reverse=True)
+    vide["mois"] = [{"periode": p, "themes": par_mois[p], "total": sum(len(v) for v in par_mois[p].values())}
+                    for p in sorted(par_mois, reverse=True)[:24]]
+    return vide
 
 
 @me_router.get("/{source}/{item_id}/file")

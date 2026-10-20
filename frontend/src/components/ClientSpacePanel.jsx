@@ -9,6 +9,7 @@
   Props : tenantId (identifiant du client)
   API : /client-space/* (albarka_client_space.py)
 */
+import { THEMES } from "@/components/synthese/themes";   // lot 52
 import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -39,7 +40,7 @@ export default function ClientSpacePanel({ tenantId }) {
   const [modules, setModules] = useState([]);
   const [savingModules, setSavingModules] = useState(false);
   // Formulaire de dépôt
-  const emptyForm = { category: "facture", title: "", reference: "", amount: "", doc_date: "", visible: true, notify: true };
+  const emptyForm = { category: "facture", title: "", reference: "", amount: "", doc_date: "", visible: true, notify: true, theme: "", periode: "" };
   const [form, setForm] = useState(emptyForm);
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -163,6 +164,15 @@ export default function ClientSpacePanel({ tenantId }) {
           <div><Label className="text-xs">Titre (facultatif)</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="ex. Honoraires septembre" data-testid="cs-title" /></div>
           <div><Label className="text-xs">Référence / n° (facultatif)</Label><Input value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} data-testid="cs-reference" /></div>
           <div><Label className="text-xs">Montant FCFA (facultatif)</Label><Input inputMode="decimal" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} data-testid="cs-amount" /></div>
+          {/* Lot 52 : synthèse du mois du client (tableau de bord) — thème et mois */}
+          <div>
+            <Label className="text-xs">Synthèse du tableau de bord (facultatif)</Label>
+            <select value={form.theme} onChange={(e) => setForm({ ...form, theme: e.target.value })} className="mt-1 w-full h-10 rounded-md border px-2 text-sm bg-white" data-testid="cs-theme">
+              <option value="">Aucune</option>
+              {THEMES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </div>
+          <div><Label className="text-xs">Mois de la synthèse</Label><Input type="month" value={form.periode} onChange={(e) => setForm({ ...form, periode: e.target.value })} data-testid="cs-periode" /></div>
           <div><Label className="text-xs">Date du document</Label><Input type="date" value={form.doc_date} onChange={(e) => setForm({ ...form, doc_date: e.target.value })} data-testid="cs-date" /></div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
