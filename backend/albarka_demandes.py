@@ -24,6 +24,7 @@ from db import db, serialize, serialize_many
 
 logger = logging.getLogger(__name__)
 
+STAFF_DEP = require_staff()   # dépendance unique réutilisée par les routes du cabinet
 router = APIRouter(prefix="/demandes", tags=["Demandes de services"])
 public_router = APIRouter(prefix="/public", tags=["Public"])
 
@@ -200,7 +201,7 @@ async def mes_demandes(user: dict = Depends(get_current_user)):
 
 @router.get("/admin")
 async def liste_cabinet(statut: Optional[str] = None, service: Optional[str] = None,
-                        user: dict = Depends(require_staff())):
+                        user: dict = Depends(STAFF_DEP)):
     """Toutes les demandes (cabinet), filtrables par statut et service."""
     q: Dict[str, Any] = {"type": "demande_service"}
     if statut:
@@ -212,7 +213,7 @@ async def liste_cabinet(statut: Optional[str] = None, service: Optional[str] = N
 
 
 @router.patch("/admin/{demande_id}")
-async def traiter(demande_id: str, payload: dict, user: dict = Depends(require_staff())):
+async def traiter(demande_id: str, payload: dict, user: dict = Depends(STAFF_DEP)):
     """Change le statut (liste finie) et/ou la note interne d'une demande."""
     maj: Dict[str, Any] = {}
     if "status" in payload:

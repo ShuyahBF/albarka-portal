@@ -35,6 +35,9 @@ import CabinetDocuments from "@/pages/portal/CabinetDocuments";
 import Demandes from "@/pages/portal/Demandes";                       // lot 53
 import AdminDemandes from "@/pages/admin/AdminDemandes";               // lot 53
 import DemandeService from "@/pages/public/DemandeService";           // lot 53
+import Infos from "@/pages/portal/Infos";                               // lot 54
+import Formations from "@/pages/portal/Formations";                     // lot 54
+import AdminContenus from "@/pages/admin/AdminContenus";               // lot 54
 // Lot 9 : Outils Numériques (clients et personnel)
 import OutilsNumeriques from "@/pages/portal/OutilsNumeriques";
 
@@ -118,6 +121,8 @@ function App() {
             <Route path="formulaires" element={<MyForms />} />
             <Route path="documents-cabinet" element={<CabinetDocuments />} />
             <Route path="demandes" element={<Demandes />} />
+            <Route path="infos" element={<Infos />} />
+            <Route path="formations" element={<Formations />} />
             <Route path="outils-numeriques" element={<OutilsNumeriques />} />
             <Route path="mon-compte" element={<MyAccount />} />
           </Route>
@@ -132,6 +137,7 @@ function App() {
             <Route path="documents" element={<AdminDocuments />} />
             <Route path="missions" element={<AdminMissions />} />
             <Route path="demandes" element={<AdminDemandes />} />
+            <Route path="contenus" element={<AdminContenus />} />
             <Route path="modeles" element={<AdminTemplates />} />
             <Route path="traitements/:domaine" element={<AdminTraitement />} />   {/* lot 18 : Fiscal, Comptable, RH */}
             <Route path="echeances" element={<AdminEcheances />} />

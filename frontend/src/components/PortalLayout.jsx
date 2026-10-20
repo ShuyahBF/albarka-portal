@@ -6,6 +6,8 @@ import {
   CalendarClock,
   Briefcase,
   Inbox,
+  Newspaper,
+  GraduationCap,
   Users,
   UserCog,
   Contact,
@@ -73,6 +75,9 @@ const CLIENT_LINKS = [
   { to: "/portal/documents-cabinet", label: "Factures", icon: FolderOpen, module: "cabinet_documents" },
   // Lot 53 : demander un service au cabinet (texte, voix, pièces jointes)
   { to: "/portal/demandes", label: "Demander un service", icon: MessageCircle },
+  // Lot 54 : contenu utile de la semaine et formations (gratuites ou payantes)
+  { to: "/portal/infos", label: "Infos", icon: Newspaper },
+  { to: "/portal/formations", label: "Formations", icon: GraduationCap },
   { to: "/portal/missions", label: "Mes missions", icon: Briefcase, module: "missions" },
   { to: "/portal/echeances", label: "Échéances", icon: CalendarClock, module: "echeances" },
   { to: "/portal/historique", label: "Historique", icon: History, module: "historique" },
@@ -103,6 +108,9 @@ const STAFF_MENU = [
   // Lot 53 : demandes de services reçues (clients et visiteurs)
   { to: "/admin/demandes", label: "Demandes de services", icon: Inbox,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
+  // Lot 54 : publier les infos de la semaine et les formations
+  { to: "/admin/contenus", label: "Infos & formations", icon: GraduationCap,
+    roles: ["superviseur", "direction", "secretariat", "administrateur"] },
   { to: "/admin/missions", label: "Missions", icon: Briefcase,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable"] },
   // Lot 7 : ordres / avis de mission, courriers… rédigés comme dans Word, modèles à variables
