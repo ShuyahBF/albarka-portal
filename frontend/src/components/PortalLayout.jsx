@@ -272,6 +272,7 @@ export default function PortalLayout({ admin = false }) {
 
   // Lot 18 — groupe dépliable « Traitements » (comme les menus dépliables de SAWALI) : ouvert d'office quand la page
   // affichée en fait partie, sinon il garde le dernier choix (navigateur)
+  const [rolesOuverts, setRolesOuverts] = useState(false);   // boîte des rôles : repliée par défaut
   const [traitementsOuvert, setTraitementsOuvert] = useState(() => {
     try { return localStorage.getItem("albarka.menu.traitements") === "1"; } catch { return false; }
   });
@@ -324,7 +325,7 @@ export default function PortalLayout({ admin = false }) {
             les derniers liens (ex. "Paramètres") par ce bloc, qui était
             positionné en `absolute` par-dessus le menu. */}
         <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
-          {links.map((link, index) => {
+          {links.filter((l) => l.to !== "/admin/settings").map((link, index) => {
             const count = link.badgeKey ? badges[link.badgeKey] : 0;
             // Lot 18 : les liens du groupe « Traitements » sont dessinés sous un seul titre dépliable,
             // à la place du premier d'entre eux (les suivants sont sautés ici)
@@ -388,14 +389,37 @@ export default function PortalLayout({ admin = false }) {
           })}
         </nav>
         <div className="shrink-0 p-4 border-t border-white/10 bg-[#0B1912]">
-          <div className="text-xs text-white/70 mb-1 truncate font-medium">{user?.full_name}</div>
-          <div className="flex flex-wrap gap-1 mb-2">
-            {(user?.roles || []).map((r) => (
-              <span key={r} className="text-[9px] uppercase tracking-wider bg-white/10 text-[#E5A24B] px-1.5 py-0.5 rounded" data-testid={`role-badge-${r}`}>
-                {r.replace("_", " ")}
-              </span>
-            ))}
+          {/* Nom affiché + engrenage « Paramètres » à sa droite (libère une ligne du menu) */}
+          <div className="flex items-center gap-2 mb-1">
+            <div className="text-xs text-white/70 truncate font-medium flex-1">{user?.full_name}</div>
+            {admin && links.some((l) => l.to === "/admin/settings") && (
+              <NavLink to="/admin/settings" onClick={() => setOpenSidebar(false)} title="Paramètres" aria-label="Paramètres"
+                className={({ isActive }) => `shrink-0 p-1.5 rounded-md hover:bg-white/10 ${isActive ? "bg-white/15 text-[#E5A24B]" : "text-white/70"}`}
+                data-testid="sidebar-link-paramètres">
+                <Settings className="w-4 h-4" />
+              </NavLink>
+            )}
           </div>
+          {/* Rôles de l'utilisateur : boîte dépliable, repliée par défaut */}
+          {!!(user?.roles || []).length && (
+            <div className="mb-2" data-testid="sidebar-roles">
+              <button type="button" onClick={() => setRolesOuverts((v) => !v)} aria-expanded={rolesOuverts}
+                className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-white/50 hover:text-white/80"
+                data-testid="sidebar-roles-bascule">
+                <ChevronDown className={`w-3 h-3 transition-transform ${rolesOuverts ? "rotate-180" : ""}`} />
+                Rôles ({(user?.roles || []).length})
+              </button>
+              {rolesOuverts && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {(user?.roles || []).map((r) => (
+                    <span key={r} className="text-[9px] uppercase tracking-wider bg-white/10 text-[#E5A24B] px-1.5 py-0.5 rounded" data-testid={`role-badge-${r}`}>
+                      {r.replace("_", " ")}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {user?.last_login && (
             <div
               className="text-[10px] text-white/50 mb-2 leading-tight"

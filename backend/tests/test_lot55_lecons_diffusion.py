@@ -158,3 +158,48 @@ def test_progression_refusee_sans_acces_payant(monkeypatch):
     c = _app(monkeypatch)
     cid, ids = _serie(c, prix="9000")
     assert c.post(f"/api/contenus/{cid}/progression", json={"lecon_id": ids[0], "fait": True}).status_code == 402
+
+
+# ---------------------------------------------------------------- lot 57 : relance WhatsApp des formations payantes
+def _relance_env(monkeypatch):
+    c = _app(monkeypatch)
+    envoyes = []
+
+    async def envoi(phone, texte, modele):
+        envoyes.append((phone, texte))
+        return {"ok": True}
+    monkeypatch.setattr(ct, "_envoyer_wa", envoi)
+    monkeypatch.setattr(ct, "PAUSE_ENVOI", 0)
+    asyncio.run(c.db.users.insert_many([
+        {"id": "a", "roles": ["client"], "is_active": True, "phone": "+22670000001"},      # a acheté, inachevé
+        {"id": "b", "roles": ["client"], "is_active": True, "phone": "+22670000002"},      # n'a pas acheté
+        {"id": "d", "roles": ["client"], "is_active": True},                               # pas de numéro
+        {"id": "t", "roles": ["client"], "is_active": True, "phone": "+22670000009", "is_test_account": True},
+    ]))
+    cid, ids = _serie(c, prix="10000")
+    r = c.post(f"/api/contenus/{cid}/acces", json={"tenant_id": "a"})
+    assert r.status_code == 200, r.text
+    return c, cid, envoyes
+
+
+def test_relance_non_achetes_apercu_puis_envoi_sans_doublon(monkeypatch):
+    c, cid, envoyes = _relance_env(monkeypatch)
+
+    async def scenario():
+        r = c.post(f"/api/contenus/{cid}/relance", json={"cible": "non_achetes", "simuler": True}).json()
+        assert r == {"destinataires": 1, "sans_numero": 1, "deja_relances": 0} and not envoyes     # aperçu : rien ne part
+        c.post(f"/api/contenus/{cid}/relance", json={"cible": "non_achetes", "simuler": False})
+        await asyncio.sleep(0.2)                                                                     # tâche de fond
+    asyncio.run(scenario())
+    assert [e[0] for e in envoyes] == ["+22670000002"]
+    r = c.post(f"/api/contenus/{cid}/relance", json={"cible": "non_achetes", "simuler": True}).json()
+    assert r["destinataires"] == 0 and r["deja_relances"] == 1                                       # pas deux fois en 14 jours
+
+
+def test_relance_inacheves_et_refus(monkeypatch):
+    c, cid, envoyes = _relance_env(monkeypatch)
+    r = c.post(f"/api/contenus/{cid}/relance", json={"cible": "inacheves", "simuler": True}).json()
+    assert r["destinataires"] == 1                                                                    # a acheté, n'a rien commencé
+    assert c.post(f"/api/contenus/{cid}/relance", json={"cible": "autre"}).status_code == 400
+    gratuite = c.post("/api/contenus", data={"type": "formation", "titre": "Gratuite", "format": "serie", "theme": "rh"}).json()["id"]
+    assert c.post(f"/api/contenus/{gratuite}/relance", json={"cible": "non_achetes"}).status_code == 400

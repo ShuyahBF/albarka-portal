@@ -14,7 +14,7 @@ import asyncio
 import logging
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
@@ -111,6 +111,8 @@ def _vue(doc: dict, *, acces: bool, gestion: bool = False) -> dict:
         v["lecons"].append(lv)
     if doc.get("diffusion"):
         v["diffusion"] = doc["diffusion"]
+    if gestion and doc.get("derniere_relance"):
+        v["derniere_relance"] = doc["derniere_relance"]
     if acces:
         v["a_fichier"] = bool(doc.get("fichier"))
         if doc.get("format") in ("video", "lien"):
@@ -398,7 +400,7 @@ class AccesIn(BaseModel):
 async def accorder_acces(contenu_id: str, p: AccesIn, user: dict = Depends(GESTION_DEP)):
     """Accorde l'accès à une formation payante à un client (paiement reçu hors PawaPay, geste commercial…)."""
     doc = await _lire(contenu_id)
-    client = await db.users.find_one({"id": p.tenant_id, "roles": "client"}, {"_id": 0, "company": 1, "full_name": 1})
+    client = await db.users.find_one({"id": p.tenant_id, "roles": "client"}, {"_id": 0, "id": 1, "company": 1, "full_name": 1})
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
     now = datetime.now(timezone.utc).isoformat()
@@ -541,6 +543,14 @@ async def rearmer_diffusion(contenu_id: str, user: dict = Depends(GESTION_DEP)):
     return {"ok": True}
 
 
+async def _envoyer_wa(phone: str, texte: str, modele: str) -> dict:
+    """Un message WhatsApp : libre si la fenêtre de 24 h est ouverte, sinon modèle Meta à 1 variable."""
+    from albarka_notifications import send_whatsapp, send_whatsapp_template, wa_window_state
+    if await wa_window_state(phone) is True:
+        return await send_whatsapp(to_phone=phone, message=texte)
+    return await send_whatsapp_template(to_phone=phone, template_name=modele, body_params=[texte], texte_rendu=texte)
+
+
 def _message_diffusion(doc: dict, lien: str) -> str:
     return f"Info de la semaine : {doc['titre']}. Retrouvez-la dans votre espace : {lien}"
 
@@ -561,8 +571,7 @@ async def diffuser_infos_dues(maintenant: Optional[datetime] = None) -> Dict[str
                                    "publie_le": {"$lte": aujourdhui}, "diffusion.statut": "a_envoyer"}).to_list(20)
     if not dues:
         return bilan
-    from albarka_notifications import send_whatsapp, send_whatsapp_template, wa_window_state
-    from albarka_client_space import CLIENT_PAGE_PATH, DEFAULT_BASE_URL   # noqa: F401  (adresse du site)
+    from albarka_client_space import DEFAULT_BASE_URL   # adresse du site
     lien = DEFAULT_BASE_URL + "/portal/infos"
     clients = await db.users.find({"roles": "client", "is_active": True, "is_test_account": {"$ne": True},
                                    "can_receive_notifications": {"$ne": False}}, {"_id": 0, "password_hash": 0}).to_list(2000)
@@ -580,11 +589,7 @@ async def diffuser_infos_dues(maintenant: Optional[datetime] = None) -> Dict[str
             if not phone.startswith("+"):
                 continue
             try:
-                if await wa_window_state(phone) is True:
-                    r = await send_whatsapp(to_phone=phone, message=texte)
-                else:
-                    r = await send_whatsapp_template(to_phone=phone, template_name=reglages["modele"],
-                                                     body_params=[texte], texte_rendu=texte)
+                r = await _envoyer_wa(phone, texte, reglages["modele"])
                 ok, ko = (ok + 1, ko) if r.get("ok") else (ok, ko + 1)
             except Exception:  # noqa: BLE001 — un échec n'arrête pas la diffusion
                 ko += 1
@@ -673,4 +678,91 @@ async def progression_clients(contenu_id: str, user: dict = Depends(GESTION_DEP)
         sortie.append({"tenant_id": p["tenant_id"], "client": noms.get(p["tenant_id"], p["tenant_id"]),
                        "terminees": len(r["terminees"]), "total": r["total"], "pct": r["pct"], "maj": p.get("maj")})
     sortie.sort(key=lambda x: (-x["pct"], x["client"]))
+    return sortie
+
+
+# ----------------------------------------------------------------- relance WhatsApp des formations payantes (lot 57)
+CIBLES_RELANCE = ["non_achetes", "inacheves"]
+DELAI_ENTRE_RELANCES_JOURS = 14          # un client n'est relancé qu'une fois par période pour une même formation
+INACTIVITE_JOURS = 7                     # « inachevée » = pas d'activité depuis 7 jours et leçons restantes
+
+
+class RelanceIn(BaseModel):
+    cible: str
+    simuler: bool = True                 # True : compte seulement, n'envoie rien
+
+
+async def _destinataires_relance(doc: dict, cible: str, maintenant: datetime) -> Dict[str, Any]:
+    """Clients à relancer (lecture en bloc) : éligibles WhatsApp, pas relancés récemment."""
+    clients = await db.users.find({"roles": "client", "is_active": True, "is_test_account": {"$ne": True},
+                                   "can_receive_notifications": {"$ne": False}}, {"_id": 0, "password_hash": 0}).to_list(2000)
+    achats = {a["tenant_id"] for a in await db.payment_links.find(
+        {"kind": "formation", "contenu_id": doc["id"], "status": "completed"}, {"_id": 0, "tenant_id": 1}).to_list(2000)}
+    progs = {p["tenant_id"]: p for p in await db.settings.find(
+        {"_id": {"$regex": f"^{PREFIXE_PROG}"}, "contenu_id": doc["id"]}).to_list(2000)}
+    recents = {r["tenant_id"] for r in await db.settings.find(
+        {"_id": {"$regex": "^relance:"}, "contenu_id": doc["id"], "cible": cible,
+         "date": {"$gte": (maintenant - timedelta(days=DELAI_ENTRE_RELANCES_JOURS)).isoformat()}}).to_list(2000)}
+    limite = (maintenant - timedelta(days=INACTIVITE_JOURS)).isoformat()
+    sans_numero = deja = 0
+    cibles = []
+    for c in clients:
+        if cible == "non_achetes" and c["id"] in achats:
+            continue
+        if cible == "inacheves":
+            if c["id"] not in achats:
+                continue
+            resume = _resume_progression(doc, progs.get(c["id"]))
+            if resume["pct"] >= 100 or ((progs.get(c["id"]) or {}).get("maj") or "") > limite:
+                continue
+        phone = whatsapp_number_of(c) or ""
+        if not phone.startswith("+"):
+            sans_numero += 1
+        elif c["id"] in recents:
+            deja += 1
+        else:
+            cibles.append((c["id"], phone))
+    return {"cibles": cibles, "sans_numero": sans_numero, "deja_relances": deja}
+
+
+async def _envoyer_relances(doc: dict, cible: str, cibles: list) -> None:
+    """Envoi en arrière-plan (jamais dans la requête) ; chaque relance est notée pour ne pas la répéter."""
+    from albarka_client_space import DEFAULT_BASE_URL
+    lien = DEFAULT_BASE_URL + "/portal/formations"
+    if cible == "non_achetes":
+        texte = f"Formation « {doc['titre']} » ({int(doc.get('prix') or 0)} FCFA) : découvrez-la dans votre espace : {lien}"
+    else:
+        texte = f"Il vous reste des leçons à suivre dans la formation « {doc['titre']} ». Reprenez où vous en étiez : {lien}"
+    modele = (await _reglages())["modele"]
+    ok = ko = 0
+    for tid, phone in cibles:
+        try:
+            r = await _envoyer_wa(phone, texte, modele)
+            if r.get("ok"):
+                ok += 1
+                await db.settings.update_one({"_id": f"relance:{tid}:{doc['id']}:{cible}"}, {"$set": {
+                    "tenant_id": tid, "contenu_id": doc["id"], "cible": cible,
+                    "date": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+            else:
+                ko += 1
+        except Exception:  # noqa: BLE001
+            ko += 1
+        await asyncio.sleep(PAUSE_ENVOI)
+    await db.settings.update_one({"_id": PREFIXE + doc["id"]}, {"$set": {"derniere_relance": {
+        "cible": cible, "date": datetime.now(timezone.utc).isoformat(), "nb_envoyes": ok, "nb_echecs": ko}}})
+
+
+@router.post("/{contenu_id}/relance")
+async def relancer(contenu_id: str, p: RelanceIn, user: dict = Depends(GESTION_DEP)):
+    """Relance WhatsApp d'une formation payante. `simuler` (par défaut) compte les destinataires sans rien envoyer."""
+    doc = await _lire(contenu_id)
+    if doc.get("type") != "formation" or float(doc.get("prix") or 0) <= 0 or not doc.get("publie"):
+        raise HTTPException(status_code=400, detail="Seule une formation payante publiée peut être relancée")
+    if p.cible not in CIBLES_RELANCE:
+        raise HTTPException(status_code=400, detail="Cible inconnue : choisissez dans la liste")
+    res = await _destinataires_relance(doc, p.cible, datetime.now(timezone.utc))
+    sortie = {"destinataires": len(res["cibles"]), "sans_numero": res["sans_numero"], "deja_relances": res["deja_relances"]}
+    if not p.simuler and res["cibles"]:
+        asyncio.create_task(_envoyer_relances(doc, p.cible, res["cibles"]))
+        sortie["programme"] = True
     return sortie
