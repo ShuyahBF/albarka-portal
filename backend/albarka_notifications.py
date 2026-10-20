@@ -871,7 +871,8 @@ async def notify_upload(db, *, document: dict, tenant: dict) -> dict:
         },
         {"_id": 0, "password_hash": 0},
     ).to_list(500)
-    subject = f"Nouvelle pièce déposée — {tenant.get('company') or tenant.get('full_name') or ''}"
+    # Lot 51 : pièce marquée « urgent » (demande express du client) → alerte en priorité
+    subject = f"{'🚨 URGENT — ' if document.get('urgent') else ''}Nouvelle pièce déposée — {tenant.get('company') or tenant.get('full_name') or ''}"
     html = f"""
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#FBFAF4;padding:24px 0;font-family:Arial,sans-serif;">
   <tr><td align="center">

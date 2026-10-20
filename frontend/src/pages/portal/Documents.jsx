@@ -49,6 +49,18 @@ const STATUS_TONE = {
   erreur_analyse: "bg-red-100 text-red-700",
 };
 
+// Lot 51 — classement des pièces : dossier du MOIS et 3 SECTIONS (+ « non classé » pour les anciennes pièces)
+const SECTIONS = [
+  { value: "fournisseurs", label: "Fournisseurs" },
+  { value: "prestataires", label: "Prestataires" },
+  { value: "frais_generaux", label: "Frais généraux" },
+];
+const moisCourant = () => new Date().toISOString().slice(0, 7);
+const libelleMois = (m) => {
+  const d = new Date(`${m}-01T12:00:00`);
+  return Number.isNaN(d.getTime()) ? m : d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+};
+
 // Doivent rester identiques aux listes équivalentes côté backend
 // (albarka_models.py DOCS_PRIVILEGED_ROLES/DOCS_DELETE_ROLES, albarka_documents.py DOWNLOAD_ROLES).
 const DOCS_PRIVILEGED_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
@@ -60,6 +72,11 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [kind, setKind] = useState("piece_comptable");
+  const [section, setSection] = useState("fournisseurs");   // lot 51 : section de la pièce déposée
+  const [periode, setPeriode] = useState(moisCourant());      // lot 51 : dossier du mois (AAAA-MM)
+  const [urgent, setUrgent] = useState(false);                // lot 51 : demande de traitement express
+  const [moisFiltre, setMoisFiltre] = useState("");           // lot 51 : dossier du mois affiché ("" = tous)
+  const [sectionFiltre, setSectionFiltre] = useState("");     // lot 51 : "" tous | fournisseurs | … | non_classe | urgent
   const [expanded, setExpanded] = useState(null);
   const [synth, setSynth] = useState({});
   const fileRef = useRef(null);
@@ -121,13 +138,17 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
     const form = new FormData();
     form.append("file", file);
     form.append("kind", kind);
+    form.append("section", section);
+    form.append("periode", periode);
+    form.append("urgent", urgent ? "true" : "false");
     if (!isClient) form.append("tenant_id", tenantIdOverride || tenantId);
     if (!isClient && model) form.append("model", model);
     try {
       await apiClient.post("/documents", form, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.success("Pièce téléversée, analyse IA en cours…");
+      toast.success(urgent ? "Pièce urgente téléversée : le cabinet est alerté." : "Pièce téléversée, analyse IA en cours…");
+      setUrgent(false);
       await load();
     } catch (err) {
       toast.error(extractError(err, "Échec du téléversement"));
@@ -136,6 +157,21 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
       if (fileRef.current) fileRef.current.value = "";
     }
   };
+
+  // Lot 51 : changer le dossier du mois, la section ou l'urgence d'une pièce déjà déposée
+  const reclasser = async (doc, patch) => {
+    try {
+      await apiClient.patch(`/documents/${doc.id}/classement`, { section: doc.section || "", periode: doc.periode, urgent: !!doc.urgent, ...patch });
+      await load();
+    } catch (err) { toast.error(extractError(err)); }
+  };
+
+  // Dossiers du mois (du plus récent au plus ancien) avec leur nombre de pièces
+  const mois = Object.entries(docs.reduce((acc, d) => { acc[d.periode] = (acc[d.periode] || 0) + 1; return acc; }, {}))
+    .sort((x, y) => y[0].localeCompare(x[0]));
+  const duMois = docs.filter((d) => !moisFiltre || d.periode === moisFiltre);
+  const nbSection = (cle) => duMois.filter((d) => (cle === "non_classe" ? !d.section : cle === "urgent" ? d.urgent : d.section === cle)).length;
+  const docsAffiches = duMois.filter((d) => !sectionFiltre || (sectionFiltre === "non_classe" ? !d.section : sectionFiltre === "urgent" ? d.urgent : d.section === sectionFiltre));
 
   const toggleExpand = async (doc) => {
     if (expanded === doc.id) {
@@ -223,7 +259,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
       <div>
         <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Pièces</div>
         <h1 className="font-display text-3xl md:text-4xl text-foreground">
-          {isClient ? "Mes pièces" : "Pièces client"}
+          {isClient ? "Documents" : "Pièces client"}
         </h1>
         <p className="text-muted-foreground mt-1 max-w-2xl">
           Chaque pièce téléversée est automatiquement analysée par notre IA :
@@ -261,6 +297,25 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                 </SelectContent>
               </Select>
             </div>
+            {/* Lot 51 : rangement dans le dossier du mois et la section ; « urgent » alerte le cabinet en priorité */}
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-sm font-medium mb-1.5 block">Section</label>
+              <Select value={section} onValueChange={setSection}>
+                <SelectTrigger data-testid="upload-section-select"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {SECTIONS.map((x) => <SelectItem key={x.value} value={x.value}>{x.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="min-w-[170px]">
+              <label className="text-sm font-medium mb-1.5 block">Dossier du mois</label>
+              <input type="month" value={periode} onChange={(e) => setPeriode(e.target.value || moisCourant())}
+                     className="h-10 w-full rounded-md border border-input bg-white px-3 text-sm" data-testid="upload-periode-input" />
+            </div>
+            <label className="flex items-center gap-2 text-sm h-10" title="Demande de traitement express : le cabinet est alerté en priorité">
+              <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(e.target.checked)} data-testid="upload-urgent-input" />
+              🚨 Urgent
+            </label>
             {!isClient && (
               <div className="flex-1 min-w-[240px]">
                 <label className="text-sm font-medium mb-1.5 block">Modèle d'IA</label>
@@ -316,6 +371,30 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
         </div>
       )}
 
+      {/* Lot 51 : dossiers du mois et sections */}
+      {docs.length > 0 && (
+        <div className="space-y-2" data-testid="documents-dossiers">
+          <div className="flex flex-wrap gap-2">
+            {[["", "Tous les mois", docs.length], ...mois.map(([m, n]) => [m, libelleMois(m), n])].map(([m, libelle, n]) => (
+              <button key={m || "tous"} type="button" onClick={() => { setMoisFiltre(m); setSectionFiltre(""); }} data-testid={`dossier-mois-${m || "tous"}`}
+                      className={`px-3 py-1.5 rounded-full text-sm border capitalize ${moisFiltre === m ? "bg-[#0F6B4A] text-white border-[#0F6B4A]" : "bg-white text-slate-700"}`}>
+                📁 {libelle} <span className="opacity-70">({n})</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {[["", "Toutes les sections", duMois.length], ...SECTIONS.map((x) => [x.value, x.label, nbSection(x.value)]),
+              ["non_classe", "Non classé", nbSection("non_classe")], ["urgent", "🚨 Urgent", nbSection("urgent")]]
+              .filter(([cle, , n]) => cle === "" || n > 0).map(([cle, libelle, n]) => (
+              <button key={cle || "toutes"} type="button" onClick={() => setSectionFiltre(cle)} data-testid={`dossier-section-${cle || "toutes"}`}
+                      className={`px-3 py-1 rounded-md text-xs border ${sectionFiltre === cle ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-700"}`}>
+                {libelle} <span className="opacity-70">({n})</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="albarka-card overflow-hidden" data-testid="documents-table">
         <Table>
           <TableHeader>
@@ -324,6 +403,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
               <TableHead>Fichier</TableHead>
               {!isClient && <TableHead>Entreprise</TableHead>}
               <TableHead>Type</TableHead>
+              <TableHead>Section</TableHead>
               <TableHead className="text-right">Taille</TableHead>
               <TableHead>Déposé le</TableHead>
               <TableHead>Statut</TableHead>
@@ -333,14 +413,17 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
           </TableHeader>
           <TableBody>
             {loading && (
-              <TableRow><TableCell colSpan={isClient ? 7 : 9} className="text-center text-muted-foreground py-8">Chargement…</TableCell></TableRow>
+              <TableRow><TableCell colSpan={isClient ? 8 : 10} className="text-center text-muted-foreground py-8">Chargement…</TableCell></TableRow>
+            )}
+            {!loading && docs.length > 0 && docsAffiches.length === 0 && (
+              <TableRow><TableCell colSpan={isClient ? 8 : 10} className="text-center text-muted-foreground py-8">Aucune pièce dans ce dossier.</TableCell></TableRow>
             )}
             {!loading && docs.length === 0 && (
-              <TableRow><TableCell colSpan={isClient ? 7 : 9} className="text-center text-muted-foreground py-10">
+              <TableRow><TableCell colSpan={isClient ? 8 : 10} className="text-center text-muted-foreground py-10">
                 Aucune pièce déposée pour le moment.
               </TableCell></TableRow>
             )}
-            {docs.map((d) => (
+            {docsAffiches.map((d) => (
               <React.Fragment key={d.id}>
                 <TableRow className="hover:bg-[#0F6B4A]/5">
                   <TableCell>
@@ -356,6 +439,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                     <div className="flex items-center gap-2">
                       <FileText className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                       <span className="truncate max-w-[280px]">{d.original_filename}</span>
+                      {d.urgent && <span className="albarka-chip bg-rose-100 text-rose-800 text-[10px]" data-testid={`urgent-${d.id}`}>🚨 Urgent</span>}
                     </div>
                   </TableCell>
                   {!isClient && (
@@ -364,6 +448,13 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                     </TableCell>
                   )}
                   <TableCell className={`text-sm ${!isClient ? "uppercase" : ""}`}>{d.kind?.replaceAll("_", " ")}</TableCell>
+                  <TableCell className="text-sm">
+                    <select value={d.section || ""} onChange={(e) => reclasser(d, { section: e.target.value })}
+                            className="h-8 rounded-md border border-input bg-white px-1 text-xs" data-testid={`classer-${d.id}`} aria-label="Section">
+                      <option value="">Non classé</option>
+                      {SECTIONS.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+                    </select>
+                  </TableCell>
                   <TableCell className="text-sm text-right">{Math.round((d.size || 0) / 1024)} Ko</TableCell>
                   <TableCell className="text-sm">
                     {isClient ? d.created_at?.slice(0, 10) : d.created_at?.slice(0, 16).replace("T", " ")}
@@ -421,7 +512,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                 </TableRow>
                 {expanded === d.id && (
                   <TableRow>
-                    <TableCell colSpan={isClient ? 7 : 9} className="bg-[var(--albarka-paper)]/50 border-t border-border">
+                    <TableCell colSpan={isClient ? 8 : 10} className="bg-[var(--albarka-paper)]/50 border-t border-border">
                       <div className="p-4">
                         <div className="flex items-center gap-2 mb-3">
                           <Sparkles className="w-4 h-4 text-[#0F6B4A]" />

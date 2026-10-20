@@ -66,9 +66,10 @@ const FORMS_ROLES = ["formulaires"];
 // peut fermer client par client ; sans `module`, le lien est toujours visible.
 const CLIENT_LINKS = [
   { to: "/portal", label: "Tableau de bord", icon: LayoutDashboard, end: true },
-  { to: "/portal/documents", label: "Mes pièces", icon: FileText, module: "documents" },
-  // Factures, reçus, rapports… mis à disposition par le cabinet
-  { to: "/portal/documents-cabinet", label: "Factures & documents", icon: FolderOpen, module: "cabinet_documents" },
+  // Lot 51 : « Documents » = ce que le client envoie au cabinet, rangé par mois et par section
+  { to: "/portal/documents", label: "Documents", icon: FileText, module: "documents" },
+  // Lot 51 : « Factures » = factures, proformas et reçus envoyés par le cabinet (les autres documents : onglet de la page)
+  { to: "/portal/documents-cabinet", label: "Factures", icon: FolderOpen, module: "cabinet_documents" },
   { to: "/portal/missions", label: "Mes missions", icon: Briefcase, module: "missions" },
   { to: "/portal/echeances", label: "Échéances", icon: CalendarClock, module: "echeances" },
   { to: "/portal/historique", label: "Historique", icon: History, module: "historique" },
