@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "54"
-LOT_LIBELLE = "Rubriques Infos (contenu utile hebdomadaire : vidéo, audio, PDF) et Formations (gratuites ou payantes via PawaPay) ; publication par le cabinet"
+LOT = "55"
+LOT_LIBELLE = "Formations en séries de leçons, accès manuel aux formations payantes, diffusion WhatsApp programmée de l'info de la semaine"

@@ -10,6 +10,7 @@ Aucune nouvelle collection MongoDB (cluster Atlas plein) :
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import secrets
@@ -36,7 +37,8 @@ router = APIRouter(prefix="/contenus", tags=["Infos et formations"])
 TYPES = ["info", "formation"]
 THEMES = [("comptabilite", "Comptabilité"), ("fiscalite", "Fiscalité"), ("rh", "Ressources humaines"),
           ("cnss", "CNSS"), ("autre", "Autre")]
-FORMATS = [("video", "Vidéo (lien YouTube / Vimeo)"), ("audio", "Audio"), ("pdf", "Document PDF"), ("lien", "Lien web")]
+FORMATS = [("video", "Vidéo (lien YouTube / Vimeo)"), ("audio", "Audio"), ("pdf", "Document PDF"), ("lien", "Lien web"),
+           ("serie", "Série de leçons")]
 CODES_THEMES = {c for c, _ in THEMES}
 CODES_FORMATS = {c for c, _ in FORMATS}
 GESTION = ["direction", "secretariat", "administrateur"]    # + superviseur (toujours admis)
@@ -80,23 +82,40 @@ def _url_ok(url: str) -> str:
     return url
 
 
+def _lien(url: str) -> Dict[str, str]:
+    """Adresse de lecture intégrée (YouTube / Vimeo) d'un lien vidéo, sinon vide."""
+    vid = _id_video(url or "")
+    if vid.get("fournisseur") == "youtube":
+        return {"embed_url": f"https://www.youtube-nocookie.com/embed/{vid['id']}"}
+    if vid.get("fournisseur") == "vimeo":
+        return {"embed_url": f"https://player.vimeo.com/video/{vid['id']}"}
+    return {}
+
+
 def _vue(doc: dict, *, acces: bool, gestion: bool = False) -> dict:
     """Vue d'un contenu : le lien / fichier n'est révélé qu'à qui y a accès ; jamais de chemin de stockage."""
     v = {k: doc.get(k) for k in ("id", "type", "titre", "description", "theme", "format", "prix", "publie_le", "publie", "created_at")}
     v["gratuit"] = float(doc.get("prix") or 0) <= 0
     v["acces"] = acces
-    v["a_vignette"] = bool(doc.get("vignette") or _id_video(doc.get("url") or "").get("fournisseur") == "youtube")
     vid = _id_video(doc.get("url") or "")
+    v["a_vignette"] = bool(doc.get("vignette") or vid.get("fournisseur") == "youtube")
     if vid.get("fournisseur") == "youtube":
         v["vignette_externe"] = f"https://img.youtube.com/vi/{vid['id']}/hqdefault.jpg"   # aperçu fourni par YouTube
+    # Leçons : le plan (titres, formats) est toujours visible ; liens et fichiers seulement avec l'accès
+    v["lecons"] = []
+    for l in doc.get("lecons") or []:
+        lv = {"id": l["id"], "titre": l["titre"], "format": l["format"], "a_fichier": bool(l.get("fichier"))}
+        if acces or gestion:
+            lv["url"] = l.get("url") or ""
+            lv.update(_lien(l.get("url") or ""))
+        v["lecons"].append(lv)
+    if doc.get("diffusion"):
+        v["diffusion"] = doc["diffusion"]
     if acces:
         v["a_fichier"] = bool(doc.get("fichier"))
         if doc.get("format") in ("video", "lien"):
             v["url"] = doc.get("url")
-            if vid.get("fournisseur") == "youtube":
-                v["embed_url"] = f"https://www.youtube-nocookie.com/embed/{vid['id']}"
-            elif vid.get("fournisseur") == "vimeo":
-                v["embed_url"] = f"https://player.vimeo.com/video/{vid['id']}"
+            v.update(_lien(doc.get("url") or ""))
     if gestion:
         v["url"] = doc.get("url")
         v["a_fichier"] = bool(doc.get("fichier"))
@@ -286,6 +305,7 @@ def _champs(type_: str, titre: str, description: str, theme: str, format_: str, 
         raise HTTPException(status_code=400, detail="Titre obligatoire")
     if format_ in ("video", "lien"):
         url = _url_ok(url)
+    # (« serie » : le contenu n'a ni lien ni fichier propre, tout est dans ses leçons)
     if prix < 0:
         raise HTTPException(status_code=400, detail="Prix invalide")
     if type_ == "info":
@@ -307,7 +327,7 @@ async def creer(
     """Ajoute une info ou une formation (fichier PDF / audio et vignette facultative)."""
     champs = _champs(type, titre, description, theme, format, url, prix, publie_le)
     doc: Dict[str, Any] = {"_id": "", "id": secrets.token_urlsafe(10), **champs, "publie": bool(publie),
-                           "fichier": None, "vignette": None, "created_by": user["id"],
+                           "fichier": None, "vignette": None, "lecons": [], "created_by": user["id"],
                            "created_at": datetime.now(timezone.utc).isoformat()}
     doc["_id"] = PREFIXE + doc["id"]
     if format in ("pdf", "audio"):
@@ -317,6 +337,8 @@ async def creer(
                                         limite=MAX_PDF if format == "pdf" else MAX_AUDIO, kind="contenu")
     if vignette is not None and vignette.filename:
         doc["vignette"] = await _stocker(vignette, extensions=EXT_IMAGE, limite=MAX_VIGNETTE, kind="contenu_vignette")
+    if doc["type"] == "info" and doc["publie"] and await _diffusion_active():
+        doc["diffusion"] = {"statut": "a_envoyer"}           # envoyée par WhatsApp dès la date de publication
     await db.settings.insert_one(doc.copy())
     return _vue(doc, acces=True, gestion=True)
 
@@ -344,6 +366,8 @@ async def modifier(contenu_id: str, p: MajIn, user: dict = Depends(GESTION_DEP))
         maj.pop("prix", None)
     if not maj:
         raise HTTPException(status_code=400, detail="Rien à modifier")
+    if maj.get("publie") and fusion["type"] == "info" and not doc.get("diffusion") and await _diffusion_active():
+        maj["diffusion"] = {"statut": "a_envoyer"}
     await db.settings.update_one({"_id": PREFIXE + contenu_id}, {"$set": maj})
     return _vue(await _lire(contenu_id), acces=True, gestion=True)
 
@@ -380,3 +404,189 @@ async def accorder_acces(contenu_id: str, p: AccesIn, user: dict = Depends(GESTI
         "created_by": user["id"], "amount": 0, "status": "completed", "api_status": "MANUEL", "created_at": now, "updated_at": now,
     })
     return {"ok": True}
+
+
+# ----------------------------------------------------------------- leçons multiples (lot 55)
+MAX_LECONS = 60
+
+
+@router.post("/{contenu_id}/lecons")
+async def ajouter_lecon(
+    contenu_id: str, titre: str = Form(...), format: str = Form(...), url: str = Form(""),
+    fichier: Optional[UploadFile] = File(None), user: dict = Depends(GESTION_DEP),
+):
+    """Ajoute une leçon (vidéo en lien, audio, PDF ou lien) à la fin du contenu."""
+    doc = await _lire(contenu_id)
+    if format not in ("video", "audio", "pdf", "lien"):
+        raise HTTPException(status_code=400, detail="Format de leçon inconnu : choisissez dans la liste")
+    if not titre.strip():
+        raise HTTPException(status_code=400, detail="Titre de la leçon obligatoire")
+    if len(doc.get("lecons") or []) >= MAX_LECONS:
+        raise HTTPException(status_code=400, detail=f"{MAX_LECONS} leçons au plus")
+    lecon: Dict[str, Any] = {"id": secrets.token_urlsafe(6), "titre": titre.strip()[:150], "format": format, "url": "", "fichier": None}
+    if format in ("video", "lien"):
+        lecon["url"] = _url_ok(url)
+    else:
+        if fichier is None or not fichier.filename:
+            raise HTTPException(status_code=400, detail="Joignez le fichier de la leçon")
+        lecon["fichier"] = await _stocker(fichier, extensions={"pdf"} if format == "pdf" else EXT_AUDIO,
+                                          limite=MAX_PDF if format == "pdf" else MAX_AUDIO, kind="contenu")
+    await db.settings.update_one({"_id": PREFIXE + contenu_id}, {"$push": {"lecons": lecon}})
+    return _vue(await _lire(contenu_id), acces=True, gestion=True)
+
+
+@router.delete("/{contenu_id}/lecons/{lecon_id}")
+async def retirer_lecon(contenu_id: str, lecon_id: str, user: dict = Depends(GESTION_DEP)):
+    """Retire une leçon et libère son fichier."""
+    doc = await _lire(contenu_id)
+    lecon = next((l for l in doc.get("lecons") or [] if l["id"] == lecon_id), None)
+    if not lecon:
+        raise HTTPException(status_code=404, detail="Leçon introuvable")
+    if lecon.get("fichier"):
+        try:
+            await delete_object(lecon["fichier"]["path"])
+        except Exception:  # noqa: BLE001
+            logger.warning("Fichier de leçon non supprimé")
+    await db.settings.update_one({"_id": PREFIXE + contenu_id}, {"$pull": {"lecons": {"id": lecon_id}}})
+    return _vue(await _lire(contenu_id), acces=True, gestion=True)
+
+
+@router.get("/{contenu_id}/lecons/{lecon_id}/fichier")
+async def fichier_lecon(contenu_id: str, lecon_id: str, user: dict = Depends(get_current_user)):
+    """PDF ou audio d'une leçon — même contrôle d'accès que le contenu."""
+    doc = await _lire(contenu_id)
+    if is_client(user) and not doc.get("publie"):
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+    if not await _a_acces(doc, user):
+        raise HTTPException(status_code=402, detail="Formation payante : réglez-la pour y accéder")
+    lecon = next((l for l in doc.get("lecons") or [] if l["id"] == lecon_id), None)
+    if not lecon or not lecon.get("fichier"):
+        raise HTTPException(status_code=404, detail="Fichier introuvable")
+    data, ct = await get_object(lecon["fichier"]["path"])
+    return Response(content=data, media_type=lecon["fichier"].get("content_type") or ct,
+                    headers={"Content-Disposition": f'inline; filename="{lecon["fichier"].get("nom") or "lecon"}"'})
+
+
+# ----------------------------------------------------------------- accès manuel (lot 55)
+@router.get("/{contenu_id}/acces")
+async def liste_acces(contenu_id: str, user: dict = Depends(GESTION_DEP)):
+    """Clients ayant accès à la formation (achat PawaPay confirmé ou accès accordé par le cabinet)."""
+    await _lire(contenu_id)
+    achats = await db.payment_links.find({"kind": "formation", "contenu_id": contenu_id, "status": "completed"},
+                                         {"_id": 0}).sort("created_at", -1).to_list(500)
+    return [{"tenant_id": a["tenant_id"], "client": a.get("client_label") or a["tenant_id"],
+             "source": "manuel" if a.get("api_status") == "MANUEL" else "paiement",
+             "date": a.get("created_at"), "montant": a.get("amount") or 0} for a in achats]
+
+
+@router.delete("/{contenu_id}/acces/{tenant_id}")
+async def retirer_acces(contenu_id: str, tenant_id: str, user: dict = Depends(GESTION_DEP)):
+    """Retire un accès accordé à la main (un achat payé par PawaPay ne se retire pas ici)."""
+    res = await db.payment_links.update_many(
+        {"kind": "formation", "contenu_id": contenu_id, "tenant_id": tenant_id, "status": "completed", "api_status": "MANUEL"},
+        {"$set": {"status": "revoked", "updated_at": datetime.now(timezone.utc).isoformat()}})
+    if not res.modified_count:
+        raise HTTPException(status_code=404, detail="Aucun accès manuel à retirer pour ce client")
+    return {"ok": True}
+
+
+# ----------------------------------------------------------------- diffusion WhatsApp de l'info de la semaine (lot 55)
+REGLAGES_ID = "contenus_reglages"
+HEURE_DEBUT_UTC, HEURE_FIN_UTC = 7, 18          # jamais d'envoi de nuit (Burkina Faso = UTC)
+PAUSE_ENVOI = 0.3                                # secondes entre deux messages
+MODELE_PAR_DEFAUT = "message_cabinet"            # modèle Meta approuvé à 1 variable
+
+
+async def _reglages() -> dict:
+    d = await db.settings.find_one({"_id": REGLAGES_ID}) or {}
+    return {"diffusion_wa": d.get("diffusion_wa", True), "modele": d.get("modele") or MODELE_PAR_DEFAUT}
+
+
+async def _diffusion_active() -> bool:
+    return bool((await _reglages())["diffusion_wa"])
+
+
+class ReglagesIn(BaseModel):
+    diffusion_wa: Optional[bool] = None
+    modele: Optional[str] = None
+
+
+@router.get("/admin/reglages")
+async def lire_reglages(user: dict = Depends(GESTION_DEP)):
+    return await _reglages()
+
+
+@router.put("/admin/reglages")
+async def ecrire_reglages(p: ReglagesIn, user: dict = Depends(GESTION_DEP)):
+    """Active / coupe la diffusion WhatsApp automatique et règle le modèle Meta utilisé hors fenêtre de 24 h."""
+    maj = {k: v for k, v in p.model_dump(exclude_none=True).items()}
+    if "modele" in maj:
+        maj["modele"] = maj["modele"].strip()[:80] or MODELE_PAR_DEFAUT
+    if maj:
+        await db.settings.update_one({"_id": REGLAGES_ID}, {"$set": maj}, upsert=True)
+    return await _reglages()
+
+
+@router.post("/{contenu_id}/diffuser")
+async def rearmer_diffusion(contenu_id: str, user: dict = Depends(GESTION_DEP)):
+    """Programme (ou reprogramme) l'envoi WhatsApp d'une info : il part au prochain passage du planificateur."""
+    doc = await _lire(contenu_id)
+    if doc.get("type") != "info" or not doc.get("publie"):
+        raise HTTPException(status_code=400, detail="Seule une info publiée peut être diffusée")
+    await db.settings.update_one({"_id": PREFIXE + contenu_id}, {"$set": {"diffusion": {"statut": "a_envoyer"}}})
+    return {"ok": True}
+
+
+def _message_diffusion(doc: dict, lien: str) -> str:
+    return f"Info de la semaine : {doc['titre']}. Retrouvez-la dans votre espace : {lien}"
+
+
+async def diffuser_infos_dues(maintenant: Optional[datetime] = None) -> Dict[str, int]:
+    """Envoie par WhatsApp les infos publiées dont la date est arrivée et dont la diffusion est « à envoyer ».
+    Appelée par le planificateur. Une info n'est jamais envoyée deux fois : elle est « réservée » (en_cours)
+    avant l'envoi. Pas d'envoi la nuit. Message libre si la fenêtre de 24 h est ouverte, sinon modèle Meta."""
+    maintenant = maintenant or datetime.now(timezone.utc)
+    bilan = {"infos": 0, "envoyes": 0, "echecs": 0}
+    if not (HEURE_DEBUT_UTC <= maintenant.hour < HEURE_FIN_UTC):
+        return bilan
+    reglages = await _reglages()
+    if not reglages["diffusion_wa"]:
+        return bilan
+    aujourdhui = maintenant.strftime("%Y-%m-%d")
+    dues = await db.settings.find({"_id": {"$regex": f"^{PREFIXE}"}, "type": "info", "publie": True,
+                                   "publie_le": {"$lte": aujourdhui}, "diffusion.statut": "a_envoyer"}).to_list(20)
+    if not dues:
+        return bilan
+    from albarka_notifications import send_whatsapp, send_whatsapp_template, wa_window_state
+    from albarka_client_space import CLIENT_PAGE_PATH, DEFAULT_BASE_URL   # noqa: F401  (adresse du site)
+    lien = DEFAULT_BASE_URL + "/portal/infos"
+    clients = await db.users.find({"roles": "client", "is_active": True, "is_test_account": {"$ne": True},
+                                   "can_receive_notifications": {"$ne": False}}, {"_id": 0, "password_hash": 0}).to_list(2000)
+    for doc in dues:
+        # Réservation atomique : un seul passage du planificateur envoie cette info
+        res = await db.settings.update_one({"_id": doc["_id"], "diffusion.statut": "a_envoyer"},
+                                           {"$set": {"diffusion.statut": "en_cours"}})
+        if not res.modified_count:
+            continue
+        bilan["infos"] += 1
+        texte = _message_diffusion(doc, lien)
+        ok = ko = 0
+        for c in clients:
+            phone = whatsapp_number_of(c) or ""
+            if not phone.startswith("+"):
+                continue
+            try:
+                if await wa_window_state(phone) is True:
+                    r = await send_whatsapp(to_phone=phone, message=texte)
+                else:
+                    r = await send_whatsapp_template(to_phone=phone, template_name=reglages["modele"],
+                                                     body_params=[texte], texte_rendu=texte)
+                ok, ko = (ok + 1, ko) if r.get("ok") else (ok, ko + 1)
+            except Exception:  # noqa: BLE001 — un échec n'arrête pas la diffusion
+                ko += 1
+            await asyncio.sleep(PAUSE_ENVOI)                       # cadence douce, sans saturer WhatsApp
+        bilan["envoyes"] += ok
+        bilan["echecs"] += ko
+        await db.settings.update_one({"_id": doc["_id"]}, {"$set": {"diffusion": {
+            "statut": "envoyee", "envoyee_le": datetime.now(timezone.utc).isoformat(), "nb_envoyes": ok, "nb_echecs": ko}}})
+    return bilan
