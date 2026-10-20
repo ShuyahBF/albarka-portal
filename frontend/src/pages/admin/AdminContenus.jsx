@@ -5,7 +5,7 @@
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Eye, EyeOff, ListVideo, KeyRound, Send, ArrowUp, ArrowDown, BarChart3 } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, ListVideo, KeyRound, Send, ArrowUp, ArrowDown, BarChart3, MessageCircle } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +34,10 @@ export default function AdminContenus() {
   const [clientChoisi, setClientChoisi] = useState("");
   const [avancementDe, setAvancementDe] = useState(null);   // id de la formation dont on regarde l'avancement
   const [avancement, setAvancement] = useState([]);
+  const [relanceDe, setRelanceDe] = useState(null);        // id de la formation payante à relancer
+  const [cibleRelance, setCibleRelance] = useState("non_achetes");
+  const [apercu, setApercu] = useState(null);              // { destinataires, sans_numero, deja_relances }
+  const [relanceEnCours, setRelanceEnCours] = useState(false);
 
   const charger = useCallback(() => apiClient.get("/contenus/admin/tout").then(({ data }) => setListe(data))
     .catch((e) => { toast.error(extractError(e)); setListe([]); }), []);
@@ -77,6 +81,19 @@ export default function AdminContenus() {
     if (j < 0 || j >= ids.length) return;
     [ids[i], ids[j]] = [ids[j], ids[i]];
     try { await apiClient.put(`/contenus/${leconsDe}/lecons-ordre`, { ids }); charger(); } catch (e) { toast.error(extractError(e)); }
+  };
+  // Relance WhatsApp : compte d'abord les destinataires (rien n'est envoyé), puis envoi après confirmation
+  const compterRelance = (id, cible) => {
+    setApercu(null);
+    apiClient.post(`/contenus/${id}/relance`, { cible, simuler: true }).then(({ data }) => setApercu(data)).catch((e) => toast.error(extractError(e)));
+  };
+  const ouvrirRelance = (id) => { setRelanceDe(id); setCibleRelance("non_achetes"); compterRelance(id, "non_achetes"); };
+  const lancerRelance = async () => {
+    setRelanceEnCours(true);
+    try {
+      await apiClient.post(`/contenus/${relanceDe}/relance`, { cible: cibleRelance, simuler: false });
+      toast.success("Relance programmée : les messages partent en arrière-plan"); setRelanceDe(null); charger();
+    } catch (e) { toast.error(extractError(e)); } finally { setRelanceEnCours(false); }
   };
   const voirAvancement = (id) => {
     setAvancementDe(id); setAvancement([]);
@@ -136,6 +153,7 @@ export default function AdminContenus() {
                 <span className="text-muted-foreground">{c.publie ? "Publié" : "Brouillon"}{c.type === "formation" ? ` · ${c.gratuit ? "gratuit" : `${c.prix} FCFA · ${c.achats} achat(s)`}` : ""}</span>
                 {c.diffusion && <span className="text-xs text-muted-foreground">WhatsApp : {{ a_envoyer: "programmée", en_cours: "en cours", envoyee: `envoyée (${c.diffusion.nb_envoyes ?? 0})` }[c.diffusion.statut] || c.diffusion.statut}</span>}
                 <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setLeconsDe(c.id)}><ListVideo className="w-4 h-4 mr-1" />Leçons ({c.lecons?.length || 0})</Button>
+                {c.type === "formation" && !c.gratuit && c.publie && <Button variant="ghost" size="sm" onClick={() => ouvrirRelance(c.id)} data-testid="btn-relance"><MessageCircle className="w-4 h-4 mr-1" />Relancer</Button>}
                 {c.type === "formation" && <Button variant="ghost" size="sm" onClick={() => voirAvancement(c.id)} data-testid="btn-avancement"><BarChart3 className="w-4 h-4 mr-1" />Avancement</Button>}
                 {c.type === "formation" && !c.gratuit && <Button variant="ghost" size="sm" onClick={() => ouvrirAcces(c.id)} data-testid="btn-acces"><KeyRound className="w-4 h-4 mr-1" />Accès</Button>}
                 {c.type === "info" && c.publie && <Button variant="ghost" size="sm" onClick={() => diffuser(c)}><Send className="w-4 h-4 mr-1" />Diffuser</Button>}
@@ -173,6 +191,33 @@ export default function AdminContenus() {
               : <input type="file" accept={lecon.format === "pdf" ? ".pdf" : "audio/*"} onChange={(e) => setLeconFichier(e.target.files?.[0] || null)} />}
             <Button type="submit" className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="lecon-ajouter">Ajouter la leçon</Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Relance WhatsApp d'une formation payante */}
+      <Dialog open={!!relanceDe} onOpenChange={(o) => !o && setRelanceDe(null)}>
+        <DialogContent className="max-w-md max-h-[85dvh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Relancer par WhatsApp — {(liste || []).find((c) => c.id === relanceDe)?.titre}</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-sm">
+            <Select value={cibleRelance} onValueChange={(v) => { setCibleRelance(v); compterRelance(relanceDe, v); }}>
+              <SelectTrigger data-testid="relance-cible"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="non_achetes">Clients qui n'ont pas acheté</SelectItem>
+                <SelectItem value="inacheves">Clients qui ont acheté sans terminer (inactifs 7 jours)</SelectItem>
+              </SelectContent>
+            </Select>
+            {apercu === null ? <div className="text-muted-foreground">Calcul des destinataires…</div> : (
+              <div className="rounded-lg bg-slate-50 border p-3 space-y-1" data-testid="relance-apercu">
+                <div><b>{apercu.destinataires}</b> client(s) seront relancés.</div>
+                {apercu.deja_relances > 0 && <div className="text-muted-foreground">{apercu.deja_relances} déjà relancé(s) ces 14 derniers jours (ignorés).</div>}
+                {apercu.sans_numero > 0 && <div className="text-muted-foreground">{apercu.sans_numero} sans numéro WhatsApp valide (ignorés).</div>}
+              </div>
+            )}
+            <Button disabled={!apercu?.destinataires || relanceEnCours} onClick={lancerRelance} className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="relance-envoyer">
+              Envoyer la relance{apercu?.destinataires ? ` à ${apercu.destinataires} client(s)` : ""}
+            </Button>
+            <div className="text-xs text-muted-foreground">Un client n'est relancé qu'une fois tous les 14 jours pour une même formation.</div>
+          </div>
         </DialogContent>
       </Dialog>
 
