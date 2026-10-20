@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from html import escape as _esc
@@ -127,14 +128,35 @@ def _for_client(synthesis: Optional[dict]) -> Optional[dict]:
     return {k: v for k, v in synthesis.items() if k not in _INTERNAL_SYNTHESIS_FIELDS}
 
 
+# Lot 51 — classement des pièces du client : dossier du MOIS (période AAAA-MM) et SECTION (3 au choix) ; « urgent » =
+# demande de traitement express (le cabinet est alerté en priorité).
+SECTIONS_PIECES = ("fournisseurs", "prestataires", "frais_generaux")
+_PERIODE_OK = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def _classement(section: str, periode: str, urgent: bool) -> dict:
+    """Valide le classement saisi : section vide (non classé) ou l'une des 3 ; période AAAA-MM (mois courant par défaut)."""
+    section = (section or "").strip()
+    if section and section not in SECTIONS_PIECES:
+        raise HTTPException(status_code=400, detail=f"section invalide (attendu : {', '.join(SECTIONS_PIECES)})")
+    periode = (periode or "").strip()
+    if periode and not _PERIODE_OK.match(periode):
+        raise HTTPException(status_code=400, detail="période attendue au format AAAA-MM")
+    return {"section": section, "periode": periode or datetime.now(timezone.utc).strftime("%Y-%m"), "urgent": bool(urgent)}
+
+
 @router.post("")
 async def upload_document(
     file: UploadFile = File(...),
     kind: str = Form("piece_comptable"),
     tenant_id: Optional[str] = Form(None),
     model: Optional[str] = Form(None),
+    section: str = Form(""),
+    periode: str = Form(""),
+    urgent: bool = Form(False),
     user: dict = Depends(get_current_user),
 ):
+    classement = _classement(section, periode, urgent)          # lot 51 : dossier du mois, section, urgence
     # Module « Mes pièces » fermé par le cabinet pour ce client : dépôt refusé.
     if is_client(user) and "documents" not in client_modules(user):
         raise HTTPException(status_code=403, detail="Ce module n'est pas ouvert pour votre compte")
@@ -168,6 +190,7 @@ async def upload_document(
         "content_type": content_type,
         "size": stored["size"],
         "status": "en_analyse",
+        **classement,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.documents.insert_one(doc.copy())
@@ -258,6 +281,10 @@ async def list_documents(tenant_id: Optional[str] = None, user: dict = Depends(g
         query["tenant_id"] = tenant_id
     docs = await db.documents.find(query, {"_id": 0}).sort("created_at", -1).to_list(500)
     docs = serialize_many(docs)
+    for d in docs:      # lot 51 : anciennes pièces sans classement → dossier du mois de dépôt, « non classé », non urgent
+        d["periode"] = d.get("periode") or (d.get("created_at") or "")[:7]
+        d["section"] = d.get("section") or ""
+        d["urgent"] = bool(d.get("urgent"))
 
     # Vue staff : résout le propriétaire (client) de chaque pièce en une seule
     # requête groupée, pour affichage dans la colonne "Entreprise" du tableau
@@ -355,6 +382,25 @@ async def _get_owned_document(document_id: str, user: dict) -> dict:
     if is_client(user) and doc["tenant_id"] != tenant_id_of(user):
         raise HTTPException(status_code=403, detail="Accès refusé")
     return doc
+
+
+class ClassementIn(BaseModel):
+    section: str = ""
+    periode: str = ""
+    urgent: bool = False
+
+
+@router.patch("/{document_id}/classement")
+async def reclasser_document(document_id: str, payload: ClassementIn, user: dict = Depends(get_current_user)):
+    """Change le dossier du mois, la section ou l'urgence d'une pièce (le client : ses propres pièces ; le cabinet : toutes)."""
+    doc = await db.documents.find_one({"id": document_id}, {"_id": 0, "tenant_id": 1})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+    if is_client(user) and doc.get("tenant_id") != tenant_id_of(user):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    classement = _classement(payload.section, payload.periode, payload.urgent)
+    await db.documents.update_one({"id": document_id}, {"$set": classement})
+    return {"ok": True, "id": document_id, **classement}
 
 
 @router.get("/{document_id}")
