@@ -16,7 +16,8 @@ Même fonctionnement que sur SAWALI (maintenance_plateforme.py) ; RÉSERVÉ au s
    À la réactivation, les sessions ouvertes avant l'échéance restent invalides : chacun se reconnecte.
    Le super-admin n'est JAMAIS bloqué : lui seul peut se reconnecter et rouvrir la connexion.
 
-Stockage : collection `maintenance_portail`, documents « etat » (maintenance) et « bandeau » (alerte).
+Stockage : collection `settings` déjà existante (le cluster Atlas est plein : AUCUNE nouvelle collection), documents
+`maintenance_portail_etat` (maintenance) et `maintenance_portail_bandeau` (alerte).
 """
 from __future__ import annotations
 
@@ -33,7 +34,7 @@ from albarka_auth import get_current_user
 from albarka_models import is_admin_account
 from db import db
 
-ID_ETAT, ID_BANDEAU = "etat", "bandeau"
+ID_ETAT, ID_BANDEAU = "maintenance_portail_etat", "maintenance_portail_bandeau"
 DUREE_DEFAUT, DUREE_MIN, DUREE_MAX = 5, 1, 120        # minutes avant la déconnexion forcée
 PART_VERROUILLAGE_DEFAUT = 5                          # % de la durée avec écran verrouillé (les derniers 5 %)
 MESSAGE_MAX = 1000
@@ -65,7 +66,7 @@ async def lire_etat(cache: bool = True) -> dict:
     """Document d'état de la maintenance (vide s'il n'existe pas encore)."""
     if cache and _cache["lu_a"] and time.monotonic() - _cache["lu_a"] < 3.0:
         return _cache["doc"] or {}
-    doc = await db.maintenance_portail.find_one({"_id": ID_ETAT}) or {}
+    doc = await db.settings.find_one({"_id": ID_ETAT}) or {}
     _cache.update(lu_a=time.monotonic(), doc=doc)
     return doc
 
@@ -150,7 +151,7 @@ async def _journaliser(action: str, adm: dict, doc: dict, **extra) -> None:
     """Journal des 30 dernières actions, gardé dans le document d'état."""
     ligne = {"id": str(uuid.uuid4()), "action": action, "date": maintenant().isoformat(), "par": _auteur(adm),
              **{k: doc.get(k) for k in ("message", "duree_minutes", "part_verrouillage", "echeance")}, **extra}
-    await db.maintenance_portail.update_one({"_id": ID_ETAT}, {"$push": {"journal": {"$each": [ligne], "$position": 0, "$slice": 30}}},
+    await db.settings.update_one({"_id": ID_ETAT}, {"$push": {"journal": {"$each": [ligne], "$position": 0, "$slice": 30}}},
                                             upsert=True)
 
 
@@ -161,6 +162,8 @@ class AnnonceIn(BaseModel):
 
 
 class BandeauIn(BaseModel):
+    debut: Optional[str] = None                      # lot 46 : début d'affichage (date-heure ISO) ; vide = tout de suite
+    fin: Optional[str] = None                        # lot 46 : fin d'affichage (date-heure ISO) ; vide = jusqu'au retrait
     message: str = Field(..., min_length=1, max_length=MESSAGE_MAX)
     severite: str = "warning"
     image: Optional[str] = None                      # data URI (png / jpeg / webp / gif), 400 Ko au plus
@@ -188,7 +191,7 @@ async def annoncer(p: AnnonceIn, adm: dict = Depends(super_admin)):
     nouveau = {"actif": True, "message": p.message.strip(), "duree_minutes": p.duree_minutes,
                "part_verrouillage": p.part_verrouillage, "annonce_par": _auteur(adm),
                **calendrier(p.duree_minutes, p.part_verrouillage)}
-    await db.maintenance_portail.update_one({"_id": ID_ETAT}, {"$set": nouveau}, upsert=True)
+    await db.settings.update_one({"_id": ID_ETAT}, {"$set": nouveau}, upsert=True)
     vider_cache()
     await _journaliser("ANNONCE", adm, nouveau)
     return etat_public(await lire_etat(cache=False))
@@ -203,7 +206,7 @@ async def annuler(adm: dict = Depends(super_admin)):
         raise HTTPException(status_code=409, detail="Aucune déconnexion programmée")
     if phase == MAINTENANCE:
         raise HTTPException(status_code=409, detail="L'échéance est passée : utilisez « Réactiver les connexions »")
-    await db.maintenance_portail.update_one({"_id": ID_ETAT}, {"$set": {"actif": False}})
+    await db.settings.update_one({"_id": ID_ETAT}, {"$set": {"actif": False}})
     vider_cache()
     await _journaliser("ANNULATION", adm, doc)
     return etat_public(await lire_etat(cache=False))
@@ -216,7 +219,7 @@ async def reactiver(adm: dict = Depends(super_admin)):
     if phase_de(doc) != MAINTENANCE:
         raise HTTPException(status_code=409, detail="Aucune maintenance en cours (avant l'échéance, utilisez « Annuler »)")
     seuil = doc["echeance"]
-    await db.maintenance_portail.update_one({"_id": ID_ETAT}, {"$set": {
+    await db.settings.update_one({"_id": ID_ETAT}, {"$set": {
         "actif": False, "sessions_valides_apres": seuil, "reactive_le": maintenant().isoformat(), "reactive_par": _auteur(adm)}})
     vider_cache()
     await _journaliser("REACTIVATION", adm, doc)
@@ -225,7 +228,7 @@ async def reactiver(adm: dict = Depends(super_admin)):
 
 @router.get("/maintenance/journal")
 async def journal(adm: dict = Depends(super_admin)):
-    doc = await db.maintenance_portail.find_one({"_id": ID_ETAT}, {"_id": 0, "journal": 1}) or {}
+    doc = await db.settings.find_one({"_id": ID_ETAT}, {"_id": 0, "journal": 1}) or {}
     return {"journal": doc.get("journal") or []}
 
 
@@ -240,13 +243,49 @@ def _image_valide(image: Optional[str]) -> Optional[str]:
     return image
 
 
+def _instant(valeur: Optional[str], nom: str) -> Optional[datetime]:
+    """Date-heure ISO → instant UTC (sans fuseau = UTC). Vide → None. Illisible → 422."""
+    if not valeur:
+        return None
+    try:
+        d = datetime.fromisoformat(str(valeur).replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"Date et heure de {nom} illisibles")
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def statut_bandeau(doc: dict, a: Optional[datetime] = None) -> str:
+    """« aucun » | « programme » (début à venir) | « affiche » | « termine » (fin passée), d'après l'heure du serveur."""
+    if not doc.get("actif"):
+        return "aucun"
+    a = a or maintenant()
+    debut, fin = _date(doc.get("debut")), _date(doc.get("fin"))
+    if debut and a < debut:
+        return "programme"
+    if fin and a >= fin:
+        return "termine"
+    return "affiche"
+
+
+_CHAMPS_PUBLICS = ("actif", "severite", "message", "image", "lien_url", "lien_libelle", "maj_le")
+_CHAMPS_ADMIN = _CHAMPS_PUBLICS + ("debut", "fin")
+
+
 @router.get("/bandeau")
 async def lire_bandeau():
-    """Bandeau d'alerte courant — route PUBLIQUE (portail et page de connexion). {actif: false} si aucun."""
-    doc = await db.maintenance_portail.find_one({"_id": ID_BANDEAU}, {"_id": 0}) or {}
-    if not doc.get("actif"):
+    """Bandeau d'alerte à afficher MAINTENANT — route PUBLIQUE (portail et page de connexion).
+    {actif: false} s'il n'y en a pas, s'il est programmé pour plus tard ou si sa période est terminée."""
+    doc = await db.settings.find_one({"_id": ID_BANDEAU}, {"_id": 0}) or {}
+    if statut_bandeau(doc) != "affiche":
         return {"actif": False}
-    return {k: doc.get(k) for k in ("actif", "severite", "message", "image", "lien_url", "lien_libelle", "maj_le")}
+    return {k: doc.get(k) for k in _CHAMPS_PUBLICS}
+
+
+@router.get("/bandeau/admin")
+async def lire_bandeau_admin(adm: dict = Depends(super_admin)):
+    """Bandeau tel que le super-admin l'a saisi (même programmé ou terminé), avec son statut."""
+    doc = await db.settings.find_one({"_id": ID_BANDEAU}, {"_id": 0}) or {}
+    return {**{k: doc.get(k) for k in _CHAMPS_ADMIN}, "statut": statut_bandeau(doc)}
 
 
 @router.put("/bandeau")
@@ -256,14 +295,20 @@ async def publier_bandeau(p: BandeauIn, adm: dict = Depends(super_admin)):
     lien = (p.lien_url or "").strip()
     if lien and not (lien.startswith("https://") or lien.startswith("/")):
         raise HTTPException(status_code=422, detail="Le lien doit commencer par https:// ou /")
+    debut, fin = _instant(p.debut, "début"), _instant(p.fin, "fin")
+    if fin and fin <= maintenant():
+        raise HTTPException(status_code=422, detail="La fin d'affichage est déjà passée")
+    if debut and fin and fin <= debut:
+        raise HTTPException(status_code=422, detail="La fin d'affichage doit être après le début")
     doc = {"actif": True, "severite": p.severite, "message": p.message.strip(), "image": _image_valide(p.image),
+           "debut": debut.isoformat() if debut else None, "fin": fin.isoformat() if fin else None,
            "lien_url": lien or None, "lien_libelle": (p.lien_libelle or "").strip() or None,
            "maj_le": maintenant().isoformat(), "maj_par": _auteur(adm)}
-    await db.maintenance_portail.update_one({"_id": ID_BANDEAU}, {"$set": doc}, upsert=True)
-    return {"ok": True, **{k: doc[k] for k in ("actif", "severite", "message", "image", "lien_url", "lien_libelle", "maj_le")}}
+    await db.settings.update_one({"_id": ID_BANDEAU}, {"$set": doc}, upsert=True)
+    return {"ok": True, **{k: doc[k] for k in _CHAMPS_ADMIN}, "statut": statut_bandeau(doc)}
 
 
 @router.delete("/bandeau")
 async def retirer_bandeau(adm: dict = Depends(super_admin)):
-    await db.maintenance_portail.update_one({"_id": ID_BANDEAU}, {"$set": {"actif": False, "maj_le": maintenant().isoformat()}}, upsert=True)
+    await db.settings.update_one({"_id": ID_BANDEAU}, {"$set": {"actif": False, "maj_le": maintenant().isoformat()}}, upsert=True)
     return {"ok": True, "actif": False}

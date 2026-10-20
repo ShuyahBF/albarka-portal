@@ -21,10 +21,15 @@ const GRAVITES = [
 ];
 const FOND = { info: "bg-sky-600 text-white", warning: "bg-amber-500 text-slate-900", critical: "bg-rose-600 text-white" };
 const PHASES = { aucune: "Aucune déconnexion programmée", annonce: "Annoncée — les utilisateurs sont prévenus", verrouillage: "Écran verrouillé — décompte en cours", maintenance: "En maintenance — connexions suspendues" };
+// Lot 46 : ISO (serveur) <-> valeur d'un champ « datetime-local » (heure locale du navigateur)
+const versChamp = (iso) => { if (!iso) return ""; const d = new Date(iso); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; };
+const versIso = (champ) => (champ ? new Date(champ).toISOString() : null);
+const STATUTS = { programme: "⏳ Programmé : pas encore affiché", affiche: "✅ Affiché en ce moment", termine: "⏹ Terminé : plus affiché" };
 const dateFr = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
 
 export default function AlerteMaintenanceCard() {
-  const [b, setB] = useState({ message: "", severite: "warning", image: "", lien_url: "", lien_libelle: "" });
+  const [b, setB] = useState({ message: "", severite: "warning", image: "", lien_url: "", lien_libelle: "", debut: "", fin: "" });
+  const [statutB, setStatutB] = useState("aucun");
   const [actif, setActif] = useState(false);
   const [etat, setEtat] = useState(null);
   const [m, setM] = useState({ message: "", duree_minutes: 5, part_verrouillage: 5 });
@@ -33,9 +38,9 @@ export default function AlerteMaintenanceCard() {
 
   const charger = useCallback(async () => {
     try {
-      const [bd, et, jr] = await Promise.all([apiClient.get("/bandeau"), apiClient.get("/maintenance/etat"), apiClient.get("/maintenance/journal")]);
-      setActif(!!bd.data?.actif);
-      if (bd.data?.actif) setB({ message: bd.data.message || "", severite: bd.data.severite || "warning", image: bd.data.image || "", lien_url: bd.data.lien_url || "", lien_libelle: bd.data.lien_libelle || "" });
+      const [bd, et, jr] = await Promise.all([apiClient.get("/bandeau/admin"), apiClient.get("/maintenance/etat"), apiClient.get("/maintenance/journal")]);
+      setActif(!!bd.data?.actif); setStatutB(bd.data?.statut || "aucun");
+      if (bd.data?.actif) setB({ message: bd.data.message || "", severite: bd.data.severite || "warning", image: bd.data.image || "", lien_url: bd.data.lien_url || "", lien_libelle: bd.data.lien_libelle || "", debut: versChamp(bd.data.debut), fin: versChamp(bd.data.fin) });
       setEtat(et.data); setJournal(jr.data?.journal || []);
     } catch (e) { toast.error(extractError(e, "Lecture impossible")); }
   }, []);
@@ -81,6 +86,14 @@ export default function AlerteMaintenanceCard() {
           <div><Label>Texte du lien</Label>
             <Input value={b.lien_libelle} placeholder="En savoir plus" onChange={(e) => setB({ ...b, lien_libelle: e.target.value })} /></div>
         </div>
+        {/* Lot 46 : programmation — jour et heure d'affichage (vide = tout de suite / jusqu'au retrait) */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div><Label>Afficher à partir du (facultatif)</Label>
+            <Input type="datetime-local" value={b.debut} onChange={(e) => setB({ ...b, debut: e.target.value })} data-testid="bandeau-debut" /></div>
+          <div><Label>Jusqu'au (facultatif)</Label>
+            <Input type="datetime-local" value={b.fin} onChange={(e) => setB({ ...b, fin: e.target.value })} data-testid="bandeau-fin" /></div>
+        </div>
+        {actif && <div className="text-sm" data-testid="bandeau-statut">{STATUTS[statutB]}{b.debut && statutB === "programme" ? ` — début le ${dateFr(versIso(b.debut))}` : ""}</div>}
         {/* Aperçu fidèle du bandeau */}
         {b.message.trim() && (
           <div className={`rounded-md px-3 py-2 flex items-center gap-3 text-sm font-medium ${FOND[b.severite]}`} data-testid="bandeau-apercu">
@@ -90,9 +103,9 @@ export default function AlerteMaintenanceCard() {
         )}
         <div className="flex flex-wrap gap-2">
           <Button disabled={occupe || !b.message.trim()} data-testid="bandeau-publier"
-            onClick={() => agir(() => apiClient.put("/bandeau", { ...b, image: b.image || null, lien_url: b.lien_url || null, lien_libelle: b.lien_libelle || null }), "Bandeau publié")}>
-            {actif ? "Mettre à jour le bandeau" : "Publier le bandeau"}</Button>
-          {actif && <Button variant="outline" disabled={occupe} data-testid="bandeau-retirer" onClick={() => agir(async () => { await apiClient.delete("/bandeau"); setB({ message: "", severite: "warning", image: "", lien_url: "", lien_libelle: "" }); }, "Bandeau retiré")}>
+            onClick={() => agir(() => apiClient.put("/bandeau", { ...b, image: b.image || null, lien_url: b.lien_url || null, lien_libelle: b.lien_libelle || null, debut: versIso(b.debut), fin: versIso(b.fin) }), "Bandeau publié")}>
+            {b.debut ? "Programmer le bandeau" : actif ? "Mettre à jour le bandeau" : "Publier le bandeau"}</Button>
+          {actif && <Button variant="outline" disabled={occupe} data-testid="bandeau-retirer" onClick={() => agir(async () => { await apiClient.delete("/bandeau"); setB({ message: "", severite: "warning", image: "", lien_url: "", lien_libelle: "", debut: "", fin: "" }); }, "Bandeau retiré")}>
             <Trash2 className="h-4 w-4 mr-1" /> Retirer le bandeau</Button>}
         </div>
       </div>

@@ -60,7 +60,7 @@ def test_apres_l_echeance_seuls_les_non_super_admin_sont_bloques_jusqu_a_la_reac
     c, db = _client(ADMIN)
     c.post("/api/maintenance/annoncer", json={"message": "Maintenance", "duree_minutes": 1})
     passe = (mt.maintenant() - timedelta(minutes=2)).isoformat()
-    asyncio.run(db.maintenance_portail.update_one({"_id": "etat"}, {"$set": {"echeance": passe, "debut_verrouillage": passe}}))
+    asyncio.run(db.settings.update_one({"_id": "maintenance_portail_etat"}, {"$set": {"echeance": passe, "debut_verrouillage": passe}}))
     mt.vider_cache()
     assert c.get("/api/maintenance/etat").json()["phase"] == "maintenance"
     # Autre utilisateur : 503 (requête) et connexion refusée ; super-admin : jamais bloqué
@@ -94,3 +94,27 @@ def test_bandeau_avec_image_en_coin_publie_par_le_super_admin():
     assert c.put("/api/bandeau", json={"message": "x", "severite": "rose"}).status_code == 422
     assert c.put("/api/bandeau", json={"message": "x", "lien_url": "javascript:alert(1)"}).status_code == 422
     assert c.delete("/api/bandeau").json()["actif"] is False and c.get("/api/bandeau").json() == {"actif": False}
+
+
+def test_bandeau_programme_affiche_seulement_dans_sa_periode():
+    from datetime import timedelta
+    c, db = _client(ADMIN)
+    futur = (mt.maintenant() + timedelta(hours=2)).isoformat()
+    fin = (mt.maintenant() + timedelta(hours=5)).isoformat()
+    r = c.put("/api/bandeau", json={"message": "Coupure ce soir", "debut": futur, "fin": fin})
+    assert r.status_code == 200 and r.json()["statut"] == "programme"
+    assert c.get("/api/bandeau").json() == {"actif": False}                       # pas encore affiché au public
+    admin = c.get("/api/bandeau/admin").json()
+    assert admin["statut"] == "programme" and admin["message"] == "Coupure ce soir" and admin["debut"] == futur
+    # Le début arrive : affiché ; la fin passe : plus affiché
+    avant = (mt.maintenant() - timedelta(minutes=1)).isoformat()
+    asyncio.run(db.settings.update_one({"_id": "maintenance_portail_bandeau"}, {"$set": {"debut": avant}}))
+    assert c.get("/api/bandeau").json()["message"] == "Coupure ce soir"
+    asyncio.run(db.settings.update_one({"_id": "maintenance_portail_bandeau"}, {"$set": {"fin": avant}}))
+    assert c.get("/api/bandeau").json() == {"actif": False} and c.get("/api/bandeau/admin").json()["statut"] == "termine"
+    # Refus : fin passée, fin avant le début, date illisible
+    assert c.put("/api/bandeau", json={"message": "x", "fin": avant}).status_code == 422
+    assert c.put("/api/bandeau", json={"message": "x", "debut": fin, "fin": futur}).status_code == 422
+    assert c.put("/api/bandeau", json={"message": "x", "debut": "demain"}).status_code == 422
+    # Aucune nouvelle collection : tout est dans `settings`
+    assert asyncio.run(db.list_collection_names()) == ["settings"]
