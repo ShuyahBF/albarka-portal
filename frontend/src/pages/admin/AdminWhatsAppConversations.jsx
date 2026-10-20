@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import SelecteurEmojis from "@/components/wa/SelecteurEmojis";   // lot 45
+import PieceJointeMessage from "@/components/wa/PieceJointeMessage";   // lot 45
 import {
   MessageCircle, Reply, Send, Loader2, Search, RefreshCw, ArrowLeft,
   Image as ImageIcon, Mic, FileText, MapPin, Video, Check, CheckCheck, AlertTriangle,
-  Zap, Plus, Trash2, Pencil, Tag, BellRing, BellOff, BarChart3, UserPlus,
+  Zap, Plus, Trash2, Pencil, Tag, BellRing, BellOff, BarChart3, UserPlus, Paperclip,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient, extractError } from "@/lib/api";
@@ -115,7 +117,10 @@ export default function AdminWhatsAppConversations() {
   const [notifEnabled, setNotifEnabled] = useState(() => localStorage.getItem(LS_NOTIF) !== "0");
   const [quickReplies, setQuickReplies] = useState([]);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
-  const [horsFenetre, setHorsFenetre] = useState(false);   // lot 39 : confirmation d'envoi hors fenêtre de 24 h
+  const [horsFenetre, setHorsFenetre] = useState(false);
+  const [fichier, setFichier] = useState(null);           // lot 45 : document ou image à joindre (File)
+  const champFichier = useRef(null);
+  const zoneTexte = useRef(null);   // lot 39 : confirmation d'envoi hors fenêtre de 24 h
   const [qrEditing, setQrEditing] = useState(null); // {id?, label, body}
   const [qrSaving, setQrSaving] = useState(false);
   const [newConvOpen, setNewConvOpen] = useState(false);
@@ -354,18 +359,50 @@ export default function AdminWhatsAppConversations() {
   );
 
   // Lot 39 : `confirmer` = true quand le cabinet a accepté l'envoi hors fenêtre de 24 h (modèle Meta facturé)
+  // Lot 45 : insère un emoji à la position du curseur de la zone de saisie
+  const insererEmoji = (emoji) => {
+    const el = zoneTexte.current;
+    const debut = el?.selectionStart ?? reply.length;
+    const fin = el?.selectionEnd ?? reply.length;
+    setReply(reply.slice(0, debut) + emoji + reply.slice(fin));
+    requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(debut + emoji.length, debut + emoji.length); } });
+  };
+
+  // Lot 45 : choix du fichier — PDF, Word ou image JPEG / PNG (pas de vidéo)
+  const choisirFichier = (e) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    const ext = (f.name.split(".").pop() || "").toLowerCase();
+    if (!["pdf", "doc", "docx", "jpg", "jpeg", "png"].includes(ext)) { toast.error("Fichier refusé : PDF, Word ou image (JPEG, PNG) uniquement — pas de vidéo."); return; }
+    const maxMo = ["jpg", "jpeg", "png"].includes(ext) ? 5 : 10;
+    if (f.size > maxMo * 1024 * 1024) { toast.error(`Fichier trop lourd (${maxMo} Mo au plus)`); return; }
+    setFichier(f);
+  };
+
+  // Lot 39 / 45 : `confirmer` = true quand le cabinet a accepté l'envoi hors fenêtre de 24 h (modèle Meta facturé)
   const send = async (confirmer = false) => {
-    if (!reply.trim() || !selectedPhone) return;
+    if ((!reply.trim() && !fichier) || !selectedPhone) return;
     setSending(true);
     try {
-      const { data } = await apiClient.post(
-        `/whatsapp/conversations/${encodeURIComponent(selectedPhone)}/reply`,
-        { body: reply.trim(), ...(citation ? { reply_to_id: citation.id } : {}), ...(confirmer ? { confirmer_modele: true } : {}) },
-      );
+      let data;
+      if (fichier) {
+        // Document / image : envoi en multipart ; le texte saisi sert de légende
+        const form = new FormData();
+        form.append("fichier", fichier);
+        form.append("legende", reply.trim());
+        if (confirmer) form.append("confirmer_modele", "true");
+        ({ data } = await apiClient.post(`/whatsapp/conversations/${encodeURIComponent(selectedPhone)}/send-file`, form));
+      } else {
+        ({ data } = await apiClient.post(
+          `/whatsapp/conversations/${encodeURIComponent(selectedPhone)}/reply`,
+          { body: reply.trim(), ...(citation ? { reply_to_id: citation.id } : {}), ...(confirmer ? { confirmer_modele: true } : {}) },
+        ));
+      }
       if (data?.result?.outside_24h_window) toast.warning("Message envoyé hors fenêtre 24h — Meta peut le refuser.");
       else if (!data?.ok) toast.error(data?.result?.error || "Envoi refusé par Meta");
-      else toast.success("Réponse envoyée");
-      setReply(""); setCitation(null); setHorsFenetre(false);
+      else toast.success(fichier ? "Fichier envoyé" : "Réponse envoyée");
+      setReply(""); setCitation(null); setFichier(null); setHorsFenetre(false);
       await Promise.all([loadMessages(selectedPhone, { silent: true }), loadConversations({ notify: false })]);
     } catch (err) {
       // 409 « hors_fenetre_24h » : on demande d'abord l'accord du cabinet (facturation du modèle Meta)
@@ -733,6 +770,8 @@ export default function AdminWhatsAppConversations() {
                             Ouvrir le fichier{m.media_filename ? ` (${m.media_filename})` : ""}
                           </a>
                         )}
+                        {/* Lot 45 : document ou image envoyé depuis la conversation */}
+                        {outbound && m.media_filename && <PieceJointeMessage message={m} />}
                         {m.voice_note_transcript && (
                           <div className={`italic ${outbound ? "text-white/90" : "text-slate-600"} mb-1`}>🎙️ {m.voice_note_transcript}</div>
                         )}
@@ -824,7 +863,23 @@ export default function AdminWhatsAppConversations() {
                     <button type="button" onClick={() => setCitation(null)} aria-label="Annuler la citation" className="text-slate-500 hover:text-slate-800">✕</button>
                   </div>
                 )}
+                {/* Lot 45 : fichier joint (puce avec le nom, retirable) */}
+                {fichier && (
+                  <div className="order-first flex w-full items-center gap-2 rounded-md border bg-slate-50 px-2 py-1 text-xs" data-testid="wa-inbox-fichier-joint">
+                    <Paperclip className="w-3 h-3 shrink-0 text-[#0F6B4A]" />
+                    <span className="min-w-0 flex-1 truncate">{fichier.name} · {(fichier.size / 1024).toFixed(0)} Ko</span>
+                    <button type="button" onClick={() => setFichier(null)} aria-label="Retirer le fichier" className="text-slate-500 hover:text-slate-800">✕</button>
+                  </div>
+                )}
+                <input ref={champFichier} type="file" className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                       onChange={choisirFichier} data-testid="wa-inbox-fichier-input" />
+                <SelecteurEmojis onChoisir={insererEmoji} />
+                <Button type="button" variant="outline" size="icon" onClick={() => champFichier.current?.click()} title="Joindre un document (PDF, Word) ou une image"
+                        aria-label="Joindre un fichier" data-testid="wa-inbox-joindre-btn">
+                  <Paperclip className="w-4 h-4" />
+                </Button>
                 <Textarea
+                  ref={zoneTexte}
                   rows={2}
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
@@ -835,7 +890,7 @@ export default function AdminWhatsAppConversations() {
                 />
                 <Button
                   onClick={() => send(false)}
-                  disabled={!reply.trim() || sending}
+                  disabled={(!reply.trim() && !fichier) || sending}
                   className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white self-stretch px-3"
                   data-testid="wa-inbox-send-btn"
                 >

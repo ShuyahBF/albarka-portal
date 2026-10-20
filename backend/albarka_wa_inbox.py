@@ -15,8 +15,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from albarka_admin_settings import get_settings_doc
@@ -263,6 +263,8 @@ async def conversation_messages(
         {"phone": phone, "direction": "inbound", "read_by_staff_at": None},
         {"$set": {"read_by_staff_at": datetime.now(timezone.utc).isoformat()}},
     )
+    for m in items:                               # lot 45 : le chemin de stockage reste interne ; l'écran sait juste qu'un fichier existe
+        m["fichier_disponible"] = bool(m.pop("media_path", None))
     return serialize_many(items)
 
 
@@ -355,6 +357,89 @@ async def send_reply(
     await db.wa_messages.insert_one(dict(doc))
     return {"ok": bool(result.get("ok")), "message": serialize(doc), "result": result}
 
+
+
+# =====================================================================
+# Lot 45 — envoi d'un DOCUMENT (PDF, Word) ou d'une IMAGE (JPEG, PNG) depuis une conversation. Pas de vidéo.
+# =====================================================================
+# type de fichier accepté : extension → (type MIME, famille WhatsApp, taille maximale en octets)
+FICHIERS_ACCEPTES = {
+    "pdf": ("application/pdf", "document", 10 * 1024 * 1024),
+    "doc": ("application/msword", "document", 10 * 1024 * 1024),
+    "docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "document", 10 * 1024 * 1024),
+    "jpg": ("image/jpeg", "image", 5 * 1024 * 1024),
+    "jpeg": ("image/jpeg", "image", 5 * 1024 * 1024),
+    "png": ("image/png", "image", 5 * 1024 * 1024),
+}
+
+
+@router.post("/conversations/{phone}/send-file")
+async def send_file(
+    phone: str,
+    fichier: UploadFile = File(...),
+    legende: str = Form(""),
+    reply_to_id: Optional[str] = Form(None),
+    confirmer_modele: bool = Form(False),
+    user: dict = Depends(require_roles(_INBOX_ROLES)),
+):
+    """Envoie un document (PDF / Word) ou une image (JPEG / PNG) au contact, avec une légende facultative.
+    Mêmes règles que la réponse texte : contact connu, accord du cabinet hors fenêtre de 24 h (409), mode test du super-admin.
+    Les vidéos et tout autre type sont refusés."""
+    if not phone.startswith("+"):
+        raise HTTPException(status_code=400, detail="Numéro attendu au format international (+226…)")
+    nom = (fichier.filename or "fichier").replace("\\", "/").rsplit("/", 1)[-1][:120] or "fichier"
+    ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
+    if ext not in FICHIERS_ACCEPTES:
+        raise HTTPException(status_code=415, detail="Fichier refusé : PDF, Word (DOC, DOCX) ou image (JPEG, PNG) uniquement — pas de vidéo.")
+    mime, famille, maxi = FICHIERS_ACCEPTES[ext]
+    donnees = await fichier.read()
+    if not donnees:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    if len(donnees) > maxi:
+        raise HTTPException(status_code=413, detail=f"Fichier trop lourd ({maxi // (1024 * 1024)} Mo au plus pour {'une image' if famille == 'image' else 'un document'})")
+    contact_id, contact_name = await _resolve_contact(phone)
+    if not contact_id:
+        raise HTTPException(status_code=404, detail="Ce numéro ne correspond à aucun contact ni client enregistré — "
+                                                    "ajoutez-le d'abord dans le module Contacts avant de lui écrire.")
+    await refus_hors_fenetre(phone, confirmer_modele)
+    legende = (legende or "").strip()[:1000]
+    from albarka_notifications import send_whatsapp_fichier
+    result = await send_whatsapp_fichier(to_phone=phone, data=donnees, filename=nom, content_type=mime, caption=legende)
+    # Copie du fichier dans le stockage du portail : le cabinet peut le rouvrir depuis la conversation
+    chemin = None
+    try:
+        from albarka_storage import build_path, put_object
+        chemin = build_path("whatsapp", "cabinet", ext)
+        await put_object(chemin, donnees, mime)
+    except Exception:  # noqa: BLE001 — l'envoi a eu lieu ; sans copie, le message s'affiche sans aperçu
+        logger.warning("Copie du fichier envoyé non enregistrée", exc_info=True)
+        chemin = None
+    doc = {
+        "id": secrets.token_urlsafe(12), "direction": "outbound", "phone": phone,
+        "wa_message_id": result.get("message_id"), "message_type": famille, "body": legende,
+        "media_url": None, "media_mime": mime, "media_kind": famille, "media_filename": nom, "media_path": chemin,
+        "voice_note_transcript": None, "contact_id": contact_id, "contact_name": contact_name,
+        "created_at": datetime.now(timezone.utc).isoformat(), "read_by_staff_at": datetime.now(timezone.utc).isoformat(),
+        "sent_by": user["id"], "sent_by_name": user.get("full_name") or user.get("email"),
+        "wa_kind": result.get("kind"), "wa_error": result.get("error"), "outside_24h_window": result.get("outside_24h_window"),
+        "reply_to": None,
+    }
+    await db.wa_messages.insert_one(dict(doc))
+    doc.pop("media_path", None)
+    return {"ok": bool(result.get("ok")), "message": serialize(doc), "result": result}
+
+
+@router.get("/messages/{message_id}/fichier")
+async def fichier_du_message(message_id: str, user: dict = Depends(require_roles(_INBOX_ROLES))):
+    """Fichier (document ou image) envoyé depuis la conversation — pour l'aperçu et l'ouverture."""
+    m = await db.wa_messages.find_one({"id": message_id}, {"_id": 0, "media_path": 1, "media_mime": 1, "media_filename": 1})
+    if not m or not m.get("media_path"):
+        raise HTTPException(status_code=404, detail="Fichier introuvable")
+    from albarka_storage import get_object
+    donnees, ct = await get_object(m["media_path"])
+    nom = (m.get("media_filename") or "fichier").replace('"', "")
+    return Response(donnees, media_type=m.get("media_mime") or ct or "application/octet-stream",
+                    headers={"Content-Disposition": f'inline; filename="{nom}"'})
 
 
 # =====================================================================

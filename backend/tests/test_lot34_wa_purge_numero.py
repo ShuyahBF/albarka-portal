@@ -187,3 +187,70 @@ def test_reponse_a_une_citation_du_telephone_affiche_le_message_cite(monkeypatch
     asyncio.run(tw._poser_reponse_dans_boite(c.db, retour2, "reponse:test2"))
     sans = c.portal.call(c.db.wa_messages.find_one, {"wa_message_id": "liluvine:reponse:test2"})
     assert sans["body"] == "Merci" and "reply_to" not in sans
+
+
+# ---- Lot 45 : envoi d'un document (PDF / Word) ou d'une image ; pas de vidéo ----
+
+def _app_fichier(monkeypatch):
+    import albarka_notifications as notif
+    import albarka_storage as stor
+    envois, stockes = [], []
+
+    async def faux_fichier(**kw):
+        envois.append((kw["to_phone"], kw["filename"], kw["content_type"], kw["caption"]))
+        return {"ok": True, "message_id": "wamid.F1"}
+
+    async def faux_put(chemin, donnees, ct):
+        stockes.append(chemin)
+        return {}
+
+    async def faux_get(chemin):
+        return b"%PDF-contenu", "application/pdf"
+
+    async def faux_contact(phone):
+        return "c1", "Mr OUOBA"
+    monkeypatch.setattr(notif, "send_whatsapp_fichier", faux_fichier)
+    monkeypatch.setattr(stor, "put_object", faux_put)
+    monkeypatch.setattr(stor, "get_object", faux_get)
+    monkeypatch.setattr(inbox, "_resolve_contact", faux_contact)
+    c = _appli(ADMIN_ACCOUNT_EMAIL)
+    c.portal.call(c.db.wa_messages.insert_one, {"id": "r1", "phone": "+22670000004", "direction": "inbound",
+                                                "created_at": datetime.now(timezone.utc).isoformat()})   # fenêtre de 24 h ouverte
+    return c, envois, stockes
+
+
+def test_envoi_d_un_pdf_word_ou_image_et_refus_des_videos(monkeypatch):
+    c, envois, stockes = _app_fichier(monkeypatch)
+    url = "/api/whatsapp/conversations/+22670000004/send-file"
+    r = c.post(url, files={"fichier": ("bulletin.pdf", b"%PDF-1.4 x", "application/pdf")}, data={"legende": "Votre bulletin 📎"})
+    assert r.status_code == 200 and r.json()["ok"]
+    assert envois[-1] == ("+22670000004", "bulletin.pdf", "application/pdf", "Votre bulletin 📎") and len(stockes) == 1
+    m = r.json()["message"]
+    assert m["message_type"] == "document" and m["media_filename"] == "bulletin.pdf" and "media_path" not in m
+    assert c.post(url, files={"fichier": ("lettre.docx", b"PK", "application/octet-stream")}).status_code == 200
+    assert envois[-1][2].endswith("wordprocessingml.document")
+    assert c.post(url, files={"fichier": ("photo.PNG", b"\x89PNG", "image/png")}).status_code == 200
+    assert envois[-1][2] == "image/png"
+    # Refus : vidéo, autre type, fichier vide, image trop lourde
+    assert c.post(url, files={"fichier": ("film.mp4", b"xx", "video/mp4")}).status_code == 415
+    assert c.post(url, files={"fichier": ("macro.exe", b"xx", "application/octet-stream")}).status_code == 415
+    assert c.post(url, files={"fichier": ("vide.pdf", b"", "application/pdf")}).status_code == 400
+    assert c.post(url, files={"fichier": ("grosse.jpg", b"x" * (5 * 1024 * 1024 + 1), "image/jpeg")}).status_code == 413
+    # L'écran relit la conversation : le fichier est annoncé disponible, le chemin interne n'est pas exposé
+    liste = c.get("/api/whatsapp/conversations/+22670000004/messages").json()
+    envoyes = [x for x in liste if x.get("media_filename")]
+    assert envoyes and all(x["fichier_disponible"] and "media_path" not in x for x in envoyes)
+    # Ouverture du fichier depuis la conversation
+    assert c.get(f"/api/whatsapp/messages/{envoyes[0]['id']}/fichier").content == b"%PDF-contenu"
+
+
+def test_envoi_de_fichier_hors_fenetre_demande_l_accord(monkeypatch):
+    c, envois, _ = _app_fichier(monkeypatch)
+    c.portal.call(c.db.wa_messages.delete_many, {})
+    ancien = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
+    c.portal.call(c.db.wa_messages.insert_one, {"id": "v9", "phone": "+22670000004", "direction": "inbound", "created_at": ancien})
+    url = "/api/whatsapp/conversations/+22670000004/send-file"
+    r = c.post(url, files={"fichier": ("a.pdf", b"%PDF", "application/pdf")})
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "hors_fenetre_24h" and envois == []
+    r = c.post(url, files={"fichier": ("a.pdf", b"%PDF", "application/pdf")}, data={"confirmer_modele": "true"})
+    assert r.status_code == 200 and len(envois) == 1
