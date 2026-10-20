@@ -7,6 +7,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import AdminTraitement from "@/pages/admin/AdminTraitement";   // lot 18 : menu « Traitements »
 import ProtectedRoute from "@/components/ProtectedRoute";
 import PortalLayout from "@/components/PortalLayout";
+import NouvelleVersionBandeau from "@/components/NouvelleVersionBandeau";   // lot 63 : « nouvelle version disponible »
 
 // Public
 import Home from "@/pages/public/Home";
@@ -88,6 +89,7 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Toaster richColors position="top-right" />
+        <NouvelleVersionBandeau />
         <Routes>
           {/* Public */}
           <Route path="/" element={<RootRedirect />} />

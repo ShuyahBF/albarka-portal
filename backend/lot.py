@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "62"
-LOT_LIBELLE = "Alertes WhatsApp : bip sur toutes les pages du portail et notification sur téléphone / ordinateur (même portail fermé) à chaque nouveau message reçu"
+LOT = "63"
+LOT_LIBELLE = "Bandeau « Une nouvelle version d'ALBARKA est disponible — Actualiser » affiché automatiquement après chaque mise en ligne"
