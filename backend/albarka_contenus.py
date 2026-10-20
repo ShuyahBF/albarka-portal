@@ -1,0 +1,382 @@
+"""Lot 54 — « Infos » (contenu utile hebdomadaire) et « Formations » (gratuites ou payantes via PawaPay).
+
+Un contenu = un titre, une description, un thème, un format (vidéo en lien externe, audio, PDF ou lien) et
+une vignette. Le stockage est économe : les vidéos restent chez YouTube / Vimeo (lien « non répertorié »),
+seuls les PDF (10 Mo au plus), les audios (15 Mo au plus) et de petites vignettes (1 Mo au plus) sont gardés.
+Aucune nouvelle collection MongoDB (cluster Atlas plein) :
+  - chaque contenu est un document de `settings` dont l'_id est « contenu:<id> » ;
+  - chaque achat de formation est un document de `payment_links` (kind « formation »), ce qui réutilise le
+    webhook PawaPay existant pour passer le statut à « completed ».
+"""
+from __future__ import annotations
+
+import logging
+import re
+import secrets
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
+from urllib.parse import parse_qs, urlparse
+
+import httpx
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import Response
+from pydantic import BaseModel
+
+from albarka_admin_settings import get_settings_doc
+from albarka_auth import get_current_user, require_roles
+from albarka_models import is_client, tenant_id_of, whatsapp_number_of
+from albarka_payments import PAWAPAY_HOSTS, _active_token, _currency_for_country, _pawapay_str
+from albarka_storage import delete_object, get_object, save_and_log
+from db import db
+
+logger = logging.getLogger("albarka.contenus")
+router = APIRouter(prefix="/contenus", tags=["Infos et formations"])
+
+# Listes finies -> menus déroulants côté écran.
+TYPES = ["info", "formation"]
+THEMES = [("comptabilite", "Comptabilité"), ("fiscalite", "Fiscalité"), ("rh", "Ressources humaines"),
+          ("cnss", "CNSS"), ("autre", "Autre")]
+FORMATS = [("video", "Vidéo (lien YouTube / Vimeo)"), ("audio", "Audio"), ("pdf", "Document PDF"), ("lien", "Lien web")]
+CODES_THEMES = {c for c, _ in THEMES}
+CODES_FORMATS = {c for c, _ in FORMATS}
+GESTION = ["direction", "secretariat", "administrateur"]    # + superviseur (toujours admis)
+GESTION_DEP = require_roles(GESTION)                          # dépendance unique (réutilisée par toutes les routes de gestion)
+
+MAX_PDF = 10 * 1024 * 1024
+MAX_AUDIO = 15 * 1024 * 1024
+MAX_VIGNETTE = 1 * 1024 * 1024
+EXT_AUDIO = {"mp3", "m4a", "ogg", "wav", "aac", "webm"}
+EXT_IMAGE = {"jpg", "jpeg", "png", "webp"}
+PREFIXE = "contenu:"
+
+
+def _ext(nom: str) -> str:
+    return nom.rsplit(".", 1)[-1].lower() if "." in (nom or "") else ""
+
+
+def _id_video(url: str) -> Dict[str, str]:
+    """Reconnaît YouTube / Vimeo : renvoie {fournisseur, id} ou {}."""
+    u = urlparse(url or "")
+    h = (u.hostname or "").lower().removeprefix("www.")
+    if h == "youtu.be":
+        return {"fournisseur": "youtube", "id": u.path.strip("/")}
+    if h in ("youtube.com", "m.youtube.com"):
+        if u.path == "/watch":
+            return {"fournisseur": "youtube", "id": (parse_qs(u.query).get("v") or [""])[0]}
+        m = re.match(r"^/(embed|shorts)/([\w-]+)", u.path)
+        if m:
+            return {"fournisseur": "youtube", "id": m.group(2)}
+    if h in ("vimeo.com", "player.vimeo.com"):
+        m = re.search(r"(\d{6,})", u.path)
+        if m:
+            return {"fournisseur": "vimeo", "id": m.group(1)}
+    return {}
+
+
+def _url_ok(url: str) -> str:
+    url = (url or "").strip()
+    if not url.lower().startswith("https://"):
+        raise HTTPException(status_code=400, detail="Le lien doit commencer par https://")
+    return url
+
+
+def _vue(doc: dict, *, acces: bool, gestion: bool = False) -> dict:
+    """Vue d'un contenu : le lien / fichier n'est révélé qu'à qui y a accès ; jamais de chemin de stockage."""
+    v = {k: doc.get(k) for k in ("id", "type", "titre", "description", "theme", "format", "prix", "publie_le", "publie", "created_at")}
+    v["gratuit"] = float(doc.get("prix") or 0) <= 0
+    v["acces"] = acces
+    v["a_vignette"] = bool(doc.get("vignette") or _id_video(doc.get("url") or "").get("fournisseur") == "youtube")
+    vid = _id_video(doc.get("url") or "")
+    if vid.get("fournisseur") == "youtube":
+        v["vignette_externe"] = f"https://img.youtube.com/vi/{vid['id']}/hqdefault.jpg"   # aperçu fourni par YouTube
+    if acces:
+        v["a_fichier"] = bool(doc.get("fichier"))
+        if doc.get("format") in ("video", "lien"):
+            v["url"] = doc.get("url")
+            if vid.get("fournisseur") == "youtube":
+                v["embed_url"] = f"https://www.youtube-nocookie.com/embed/{vid['id']}"
+            elif vid.get("fournisseur") == "vimeo":
+                v["embed_url"] = f"https://player.vimeo.com/video/{vid['id']}"
+    if gestion:
+        v["url"] = doc.get("url")
+        v["a_fichier"] = bool(doc.get("fichier"))
+    return v
+
+
+async def _lire(contenu_id: str) -> dict:
+    doc = await db.settings.find_one({"_id": PREFIXE + contenu_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+    return doc
+
+
+async def _a_acces(doc: dict, user: dict) -> bool:
+    """Gratuit, cabinet, ou achat terminé (paiement PawaPay confirmé ou accès accordé par le cabinet)."""
+    if float(doc.get("prix") or 0) <= 0 or not is_client(user):
+        return True
+    achat = await db.payment_links.find_one({"kind": "formation", "contenu_id": doc["id"],
+                                             "tenant_id": tenant_id_of(user), "status": "completed"})
+    return bool(achat)
+
+
+async def _stocker(f: UploadFile, *, extensions: set, limite: int, kind: str) -> Dict[str, Any]:
+    ext = _ext(f.filename or "")
+    if ext not in extensions:
+        raise HTTPException(status_code=400, detail=f"Type de fichier non autorisé : .{ext or '?'}")
+    data = await f.read()
+    if not data or len(data) > limite:
+        raise HTTPException(status_code=413, detail=f"Fichier vide ou trop volumineux (max {limite // (1024 * 1024)} Mo)")
+    st = await save_and_log(db, data=data, kind=kind, tenant_id="contenus", ext=ext,
+                            content_type=f.content_type or None, original_filename=f.filename, user_id=None)
+    return {"path": st["path"], "nom": f.filename, "content_type": st["content_type"], "size": st["size"]}
+
+
+@router.get("/options")
+async def options():
+    """Listes finies pour les menus déroulants."""
+    return {"types": TYPES, "themes": [{"code": c, "libelle": l} for c, l in THEMES],
+            "formats": [{"code": c, "libelle": l} for c, l in FORMATS]}
+
+
+@router.get("")
+async def lister(type: str = "info", user: dict = Depends(get_current_user)):
+    """Contenus publiés (les plus récents d'abord) ; le cabinet voit aussi les brouillons."""
+    if type not in TYPES:
+        raise HTTPException(status_code=400, detail="Type inconnu")
+    q: Dict[str, Any] = {"_id": {"$regex": f"^{PREFIXE}"}, "type": type}
+    if is_client(user):
+        q["publie"] = True
+    docs = await db.settings.find(q).to_list(500)
+    docs.sort(key=lambda d: (d.get("publie_le") or "", d.get("created_at") or ""), reverse=True)
+    sortie = []
+    for d in docs:
+        sortie.append(_vue(d, acces=await _a_acces(d, user)))
+    return sortie
+
+
+@router.get("/{contenu_id}/vignette")
+async def vignette(contenu_id: str):
+    """Image d'aperçu (publique : identifiant imprévisible, aucune donnée sensible)."""
+    doc = await _lire(contenu_id)
+    if not doc.get("vignette"):
+        raise HTTPException(status_code=404, detail="Pas de vignette")
+    data, ct = await get_object(doc["vignette"]["path"])
+    return Response(content=data, media_type=doc["vignette"].get("content_type") or ct,
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/{contenu_id}/fichier")
+async def fichier(contenu_id: str, user: dict = Depends(get_current_user)):
+    """PDF ou audio du contenu — réservé à qui y a accès."""
+    doc = await _lire(contenu_id)
+    if is_client(user) and not doc.get("publie"):
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+    if not await _a_acces(doc, user):
+        raise HTTPException(status_code=402, detail="Formation payante : réglez-la pour y accéder")
+    if not doc.get("fichier"):
+        raise HTTPException(status_code=404, detail="Aucun fichier")
+    data, ct = await get_object(doc["fichier"]["path"])
+    return Response(content=data, media_type=doc["fichier"].get("content_type") or ct,
+                    headers={"Content-Disposition": f'inline; filename="{doc["fichier"].get("nom") or "contenu"}"'})
+
+
+# ----------------------------------------------------------------- achat (PawaPay)
+class AchatIn(BaseModel):
+    msisdn: Optional[str] = None
+
+
+@router.post("/{contenu_id}/acheter")
+async def acheter(contenu_id: str, request: Request, payload: AchatIn = AchatIn(), user: dict = Depends(get_current_user)):
+    """Crée la page de paiement PawaPay d'une formation payante ; renvoie l'adresse où envoyer le client."""
+    doc = await _lire(contenu_id)
+    prix = float(doc.get("prix") or 0)
+    if doc.get("type") != "formation" or prix <= 0 or not doc.get("publie"):
+        raise HTTPException(status_code=400, detail="Cette formation est gratuite ou indisponible")
+    tenant = tenant_id_of(user)
+    if await db.payment_links.find_one({"kind": "formation", "contenu_id": contenu_id, "tenant_id": tenant, "status": "completed"}):
+        return {"ok": True, "deja_achete": True}
+    s = await get_settings_doc()
+    token = _active_token(s)
+    if not s.get("pawapay_enabled") or not token:
+        raise HTTPException(status_code=503, detail="Le paiement en ligne n'est pas encore activé. Contactez le cabinet.")
+    country = (s.get("pawapay_country") or "BFA").upper()
+    env = (s.get("pawapay_environment") or "sandbox").lower()
+    deposit_id = secrets.token_urlsafe(16)
+    origin = (request.headers.get("origin") or "https://albarka-bf.com").rstrip("/")
+    retour = f"{origin}/portal/formations?depositId={deposit_id}&formation={contenu_id}"
+    msisdn = "".join(c for c in (payload.msisdn or whatsapp_number_of(user) or "") if c.isdigit())
+    corps: Dict[str, Any] = {"depositId": deposit_id, "returnUrl": retour, "country": country,
+                             "amountDetails": {"amount": str(int(prix)), "currency": _currency_for_country(country)},
+                             "reason": f"Formation {doc.get('titre', '')}"[:50]}
+    if len(msisdn) >= 8:
+        corps["phoneNumber"] = msisdn
+    now = datetime.now(timezone.utc).isoformat()
+    # Enregistré AVANT l'appel PawaPay (bonne pratique) : l'achat reste traçable même en cas d'erreur réseau.
+    await db.payment_links.insert_one({
+        "id": secrets.token_urlsafe(12), "deposit_id": deposit_id, "kind": "formation", "contenu_id": contenu_id,
+        "tenant_id": tenant, "client_label": user.get("company") or user.get("full_name"), "created_by": user["id"],
+        "amount": prix, "currency": _currency_for_country(country), "country": country, "reason": corps["reason"],
+        "environment": env, "status": "initiated", "created_at": now, "updated_at": now,
+    })
+    try:
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.post(f"{PAWAPAY_HOSTS.get(env, PAWAPAY_HOSTS['sandbox'])}/v2/paymentpage",
+                                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=corps)
+            rep = r.json() if r.content else {}
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel à PawaPay")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Erreur PawaPay : {str(exc)[:200]}") from exc
+    url = (rep or {}).get("redirectUrl")
+    if not url:
+        await db.payment_links.update_one({"deposit_id": deposit_id}, {"$set": {"status": "failed", "api_message": _pawapay_str(rep)}})
+        raise HTTPException(status_code=502, detail="PawaPay n'a pas renvoyé de page de paiement.")
+    await db.payment_links.update_one({"deposit_id": deposit_id}, {"$set": {"redirect_url": url}})
+    return {"ok": True, "redirect_url": url, "deposit_id": deposit_id}
+
+
+@router.get("/{contenu_id}/statut-achat")
+async def statut_achat(contenu_id: str, user: dict = Depends(get_current_user)):
+    """Dernier achat du client pour cette formation. Si le webhook est en retard, interroge PawaPay."""
+    doc = await _lire(contenu_id)
+    achat = await db.payment_links.find_one({"kind": "formation", "contenu_id": contenu_id, "tenant_id": tenant_id_of(user)},
+                                            sort=[("created_at", -1)])
+    if not achat:
+        return {"statut": "aucun", "acces": float(doc.get("prix") or 0) <= 0}
+    if achat["status"] in ("initiated", "pending"):
+        s = await get_settings_doc()
+        token = _active_token(s)
+        if token:
+            try:
+                host = PAWAPAY_HOSTS.get((s.get("pawapay_environment") or "sandbox").lower(), PAWAPAY_HOSTS["sandbox"])
+                async with httpx.AsyncClient(timeout=10) as http:
+                    r = await http.get(f"{host}/v2/deposits/{achat['deposit_id']}", headers={"Authorization": f"Bearer {token}"})
+                rep = r.json() if r.content else {}
+                st = ((rep.get("data") or rep).get("status") or "").upper()
+                nouveau = {"COMPLETED": "completed", "FAILED": "failed", "REJECTED": "failed"}.get(st)
+                if nouveau:
+                    await db.payment_links.update_one({"deposit_id": achat["deposit_id"]}, {"$set": {"status": nouveau, "api_status": st}})
+                    achat["status"] = nouveau
+            except Exception:  # noqa: BLE001
+                logger.warning("Vérification PawaPay impossible pour %s", achat.get("deposit_id"))
+    return {"statut": achat["status"], "acces": achat["status"] == "completed"}
+
+
+# ----------------------------------------------------------------- gestion (cabinet)
+@router.get("/admin/tout")
+async def admin_liste(user: dict = Depends(GESTION_DEP)):
+    """Tous les contenus (brouillons compris) avec le nombre d'achats confirmés."""
+    docs = await db.settings.find({"_id": {"$regex": f"^{PREFIXE}"}}).to_list(1000)
+    docs.sort(key=lambda d: (d.get("publie_le") or "", d.get("created_at") or ""), reverse=True)
+    sortie = []
+    for d in docs:
+        v = _vue(d, acces=True, gestion=True)
+        v["achats"] = await db.payment_links.count_documents({"kind": "formation", "contenu_id": d["id"], "status": "completed"})
+        sortie.append(v)
+    return sortie
+
+
+def _champs(type_: str, titre: str, description: str, theme: str, format_: str, url: str, prix: float, publie_le: str) -> dict:
+    """Valide les champs communs (listes finies) d'un contenu."""
+    if type_ not in TYPES:
+        raise HTTPException(status_code=400, detail="Type inconnu")
+    if theme not in CODES_THEMES or format_ not in CODES_FORMATS:
+        raise HTTPException(status_code=400, detail="Thème ou format inconnu : choisissez dans la liste")
+    if not titre.strip():
+        raise HTTPException(status_code=400, detail="Titre obligatoire")
+    if format_ in ("video", "lien"):
+        url = _url_ok(url)
+    if prix < 0:
+        raise HTTPException(status_code=400, detail="Prix invalide")
+    if type_ == "info":
+        prix = 0                                   # les infos sont toujours gratuites
+    if publie_le and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", publie_le):
+        raise HTTPException(status_code=400, detail="Date de publication invalide (AAAA-MM-JJ)")
+    return {"type": type_, "titre": titre.strip()[:150], "description": description.strip()[:3000], "theme": theme,
+            "format": format_, "url": url.strip() if format_ in ("video", "lien") else "", "prix": prix,
+            "publie_le": publie_le or datetime.now(timezone.utc).strftime("%Y-%m-%d")}
+
+
+@router.post("")
+async def creer(
+    type: str = Form(...), titre: str = Form(...), description: str = Form(""), theme: str = Form("autre"),
+    format: str = Form(...), url: str = Form(""), prix: float = Form(0), publie_le: str = Form(""), publie: bool = Form(True),
+    fichier: Optional[UploadFile] = File(None), vignette: Optional[UploadFile] = File(None),
+    user: dict = Depends(GESTION_DEP),
+):
+    """Ajoute une info ou une formation (fichier PDF / audio et vignette facultative)."""
+    champs = _champs(type, titre, description, theme, format, url, prix, publie_le)
+    doc: Dict[str, Any] = {"_id": "", "id": secrets.token_urlsafe(10), **champs, "publie": bool(publie),
+                           "fichier": None, "vignette": None, "created_by": user["id"],
+                           "created_at": datetime.now(timezone.utc).isoformat()}
+    doc["_id"] = PREFIXE + doc["id"]
+    if format in ("pdf", "audio"):
+        if fichier is None or not fichier.filename:
+            raise HTTPException(status_code=400, detail="Joignez le fichier du contenu")
+        doc["fichier"] = await _stocker(fichier, extensions={"pdf"} if format == "pdf" else EXT_AUDIO,
+                                        limite=MAX_PDF if format == "pdf" else MAX_AUDIO, kind="contenu")
+    if vignette is not None and vignette.filename:
+        doc["vignette"] = await _stocker(vignette, extensions=EXT_IMAGE, limite=MAX_VIGNETTE, kind="contenu_vignette")
+    await db.settings.insert_one(doc.copy())
+    return _vue(doc, acces=True, gestion=True)
+
+
+class MajIn(BaseModel):
+    titre: Optional[str] = None
+    description: Optional[str] = None
+    theme: Optional[str] = None
+    url: Optional[str] = None
+    prix: Optional[float] = None
+    publie_le: Optional[str] = None
+    publie: Optional[bool] = None
+
+
+@router.patch("/{contenu_id}")
+async def modifier(contenu_id: str, p: MajIn, user: dict = Depends(GESTION_DEP)):
+    """Modifie les textes, le prix, la date ou la publication d'un contenu."""
+    doc = await _lire(contenu_id)
+    maj = {k: v for k, v in p.model_dump(exclude_none=True).items()}
+    fusion = {**doc, **maj}
+    if "prix" in maj or "theme" in maj or "titre" in maj or "url" in maj or "publie_le" in maj:
+        _champs(fusion["type"], fusion["titre"], fusion.get("description") or "", fusion["theme"], fusion["format"],
+                fusion.get("url") or "", float(fusion.get("prix") or 0), fusion.get("publie_le") or "")
+    if fusion["type"] == "info":
+        maj.pop("prix", None)
+    if not maj:
+        raise HTTPException(status_code=400, detail="Rien à modifier")
+    await db.settings.update_one({"_id": PREFIXE + contenu_id}, {"$set": maj})
+    return _vue(await _lire(contenu_id), acces=True, gestion=True)
+
+
+@router.delete("/{contenu_id}")
+async def supprimer(contenu_id: str, user: dict = Depends(GESTION_DEP)):
+    """Supprime le contenu et libère son espace de stockage."""
+    doc = await _lire(contenu_id)
+    for cle in ("fichier", "vignette"):
+        if doc.get(cle):
+            try:
+                await delete_object(doc[cle]["path"])
+            except Exception:  # noqa: BLE001
+                logger.warning("Fichier %s non supprimé", doc[cle].get("path"))
+    await db.settings.delete_one({"_id": PREFIXE + contenu_id})
+    return {"ok": True}
+
+
+class AccesIn(BaseModel):
+    tenant_id: str
+
+
+@router.post("/{contenu_id}/acces")
+async def accorder_acces(contenu_id: str, p: AccesIn, user: dict = Depends(GESTION_DEP)):
+    """Accorde l'accès à une formation payante à un client (paiement reçu hors PawaPay, geste commercial…)."""
+    doc = await _lire(contenu_id)
+    client = await db.users.find_one({"id": p.tenant_id, "roles": "client"}, {"_id": 0, "company": 1, "full_name": 1})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.payment_links.insert_one({
+        "id": secrets.token_urlsafe(12), "deposit_id": "manuel-" + secrets.token_urlsafe(8), "kind": "formation",
+        "contenu_id": doc["id"], "tenant_id": p.tenant_id, "client_label": client.get("company") or client.get("full_name"),
+        "created_by": user["id"], "amount": 0, "status": "completed", "api_status": "MANUEL", "created_at": now, "updated_at": now,
+    })
+    return {"ok": True}

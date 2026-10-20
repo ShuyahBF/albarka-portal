@@ -195,6 +195,9 @@ api_router.include_router(paie_router)
 from albarka_demandes import router as demandes_router, public_router as demandes_public_router  # noqa: E402
 api_router.include_router(demandes_router)
 api_router.include_router(demandes_public_router)
+# Lot 54 : « Infos » hebdomadaires et « Formations » (gratuites ou payantes via PawaPay)
+from albarka_contenus import router as contenus_router  # noqa: E402
+api_router.include_router(contenus_router)
 # Lot 9 : espace « Outils Numériques » (téléchargements, historique réservé au super-admin)
 from albarka_outils import router as outils_router, ensure_outils_indexes  # noqa: E402
 api_router.include_router(outils_router)

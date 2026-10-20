@@ -45,7 +45,7 @@ def _app(monkeypatch, user):
     app.include_router(dm.router, prefix="/api")
     app.include_router(dm.public_router, prefix="/api")
     app.dependency_overrides[dm.get_current_user] = lambda: user
-    app.dependency_overrides[dm.require_staff()] = lambda: STAFF
+    app.dependency_overrides[dm.STAFF_DEP] = lambda: STAFF
     c = TestClient(app)
     c.db = db
     c.envois = envois
@@ -91,3 +91,12 @@ def test_isolation_client_et_traitement_cabinet(monkeypatch):
     assert c.get("/api/demandes/mes").json() == []                                                  # l'autre client ne voit rien
     assert c.get(f"/api/demandes/{did}/fichier/vocal").status_code in (403, 404)
     assert c.get("/api/demandes/services").json()["services"][0]["code"] == "fiscalite"
+
+
+def test_cabinet_liste_et_change_le_statut(monkeypatch):
+    c = _app(monkeypatch, CLIENT)
+    did = c.post("/api/demandes", data={"service": "rh", "message": "Contrat"}).json()["id"]
+    assert c.get("/api/demandes/admin?statut=nouvelle").json()[0]["id"] == did
+    assert c.patch(f"/api/demandes/admin/{did}", json={"status": "traitee"}).json()["status"] == "traitee"
+    assert c.patch(f"/api/demandes/admin/{did}", json={"status": "bizarre"}).status_code == 400
+    assert c.get("/api/demandes/admin?statut=nouvelle").json() == []
