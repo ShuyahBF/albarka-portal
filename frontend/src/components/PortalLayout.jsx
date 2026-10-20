@@ -70,14 +70,14 @@ const FORMS_ROLES = ["formulaires"];
 const CLIENT_LINKS = [
   { to: "/portal", label: "Tableau de bord", icon: LayoutDashboard, end: true },
   // Lot 51 : « Documents » = ce que le client envoie au cabinet, rangé par mois et par section
-  { to: "/portal/documents", label: "Documents", icon: FileText, module: "documents" },
+  { to: "/portal/documents", label: "Documents", icon: FileText, module: "documents", depuis: "2026-10-19" },
   // Lot 51 : « Factures » = factures, proformas et reçus envoyés par le cabinet (les autres documents : onglet de la page)
-  { to: "/portal/documents-cabinet", label: "Factures", icon: FolderOpen, module: "cabinet_documents" },
+  { to: "/portal/documents-cabinet", label: "Factures", icon: FolderOpen, depuis: "2026-10-19", module: "cabinet_documents" },
   // Lot 53 : demander un service au cabinet (texte, voix, pièces jointes)
-  { to: "/portal/demandes", label: "Demander un service", icon: MessageCircle },
+  { to: "/portal/demandes", label: "Demander un service", depuis: "2026-10-20", icon: MessageCircle },
   // Lot 54 : contenu utile de la semaine et formations (gratuites ou payantes)
-  { to: "/portal/infos", label: "Infos", icon: Newspaper },
-  { to: "/portal/formations", label: "Formations", icon: GraduationCap },
+  { to: "/portal/infos", label: "Infos", icon: Newspaper, depuis: "2026-10-20" },
+  { to: "/portal/formations", label: "Formations", icon: GraduationCap , depuis: "2026-10-20" },
   { to: "/portal/missions", label: "Mes missions", icon: Briefcase, module: "missions" },
   { to: "/portal/echeances", label: "Échéances", icon: CalendarClock, module: "echeances" },
   { to: "/portal/historique", label: "Historique", icon: History, module: "historique" },
@@ -106,10 +106,10 @@ const STAFF_MENU = [
   { to: "/admin/documents", label: "Pièces", icon: FileText,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   // Lot 53 : demandes de services reçues (clients et visiteurs)
-  { to: "/admin/demandes", label: "Demandes de services", icon: Inbox,
+  { to: "/admin/demandes", label: "Demandes de services", depuis: "2026-10-20", icon: Inbox,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   // Lot 54 : publier les infos de la semaine et les formations
-  { to: "/admin/contenus", label: "Infos & formations", icon: GraduationCap,
+  { to: "/admin/contenus", label: "Infos & formations", depuis: "2026-10-20", icon: GraduationCap,
     roles: ["superviseur", "direction", "secretariat", "administrateur"] },
   { to: "/admin/missions", label: "Missions", icon: Briefcase,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable"] },
@@ -176,6 +176,15 @@ const SERVICE_DU_LIEN = {
   "/admin/espace-client": "espace_client", "/admin/comptabilite": "compta",
   "/portal/formulaires": "formulaires", "/portal/documents-cabinet": "espace_client",
 };
+
+// Menu « nouveau » : un lien porte `depuis: "AAAA-MM-JJ"` (date de sa mise en ligne). Pendant 7 jours il affiche
+// une petite étoile ; ensuite elle disparaît toute seule. À renseigner pour chaque nouveau menu.
+const JOURS_NOUVEAU = 7;
+function estNouveau(link) {
+  if (!link.depuis) return false;
+  const age = Date.now() - new Date(`${link.depuis}T00:00:00`).getTime();
+  return age >= 0 && age < JOURS_NOUVEAU * 24 * 3600 * 1000;
+}
 
 function allowedFor(link, roles, email = "") {
   // Réservé au compte admin du portail, quel que soit le rôle
@@ -375,6 +384,7 @@ export default function PortalLayout({ admin = false }) {
             >
               <link.icon className="w-4 h-4" />
               <span className="flex-1">{link.label}</span>
+              {estNouveau(link) && <span className="text-[11px] leading-none" title="Nouveau (moins d'une semaine)" aria-label="Nouveau" data-testid="sidebar-nouveau">🌟</span>}
               {suspendu && <span className="text-[10px]" aria-label="suspendu">⛔</span>}
               {!!count && (
                 <span
