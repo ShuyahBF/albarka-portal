@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "44"
-LOT_LIBELLE = "Super-admin : bandeau d'alerte / incident avec image, déconnexion programmée des utilisateurs (message, durée, verrouillage) ; réponse à une citation du téléphone affichée côté cabinet"
+LOT = "45"
+LOT_LIBELLE = "Conversations WhatsApp : emojis, envoi de documents (PDF, Word) et d'images (JPEG, PNG) ; pas de vidéo"
