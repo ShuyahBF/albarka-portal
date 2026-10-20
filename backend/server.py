@@ -191,6 +191,10 @@ api_router.include_router(payroll_router)
 # Lot 8 : paie (modèles de configuration, bulletins, livre de paie)
 from albarka_paie import router as paie_router, ensure_paie_setup  # noqa: E402
 api_router.include_router(paie_router)
+# Lot 53 : demandes de services (fiscalité, RH, comptable, autres) — client, visiteur public et cabinet
+from albarka_demandes import router as demandes_router, public_router as demandes_public_router  # noqa: E402
+api_router.include_router(demandes_router)
+api_router.include_router(demandes_public_router)
 # Lot 9 : espace « Outils Numériques » (téléchargements, historique réservé au super-admin)
 from albarka_outils import router as outils_router, ensure_outils_indexes  # noqa: E402
 api_router.include_router(outils_router)

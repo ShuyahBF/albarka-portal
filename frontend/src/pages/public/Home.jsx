@@ -76,6 +76,16 @@ export default function Home() {
                     <ArrowRight className="w-4 h-4 ml-2" />
                   </Button>
                 </Link>
+                {/* Lot 53 : demande de service sans connexion */}
+                <Link to="/demande-service">
+                  <Button
+                    variant="outline"
+                    className="border-[#E5A24B]/60 bg-transparent text-[#E5A24B] hover:bg-[#E5A24B]/10 hover:text-[#E5A24B] h-12 px-6 text-base"
+                    data-testid="hero-cta-demande"
+                  >
+                    Demander un service
+                  </Button>
+                </Link>
                 <Link to="/contact">
                   <Button
                     variant="outline"

@@ -5,6 +5,7 @@ import {
   FileText,
   CalendarClock,
   Briefcase,
+  Inbox,
   Users,
   UserCog,
   Contact,
@@ -70,6 +71,8 @@ const CLIENT_LINKS = [
   { to: "/portal/documents", label: "Documents", icon: FileText, module: "documents" },
   // Lot 51 : « Factures » = factures, proformas et reçus envoyés par le cabinet (les autres documents : onglet de la page)
   { to: "/portal/documents-cabinet", label: "Factures", icon: FolderOpen, module: "cabinet_documents" },
+  // Lot 53 : demander un service au cabinet (texte, voix, pièces jointes)
+  { to: "/portal/demandes", label: "Demander un service", icon: MessageCircle },
   { to: "/portal/missions", label: "Mes missions", icon: Briefcase, module: "missions" },
   { to: "/portal/echeances", label: "Échéances", icon: CalendarClock, module: "echeances" },
   { to: "/portal/historique", label: "Historique", icon: History, module: "historique" },
@@ -96,6 +99,9 @@ const STAFF_MENU = [
   { to: "/admin/staff", label: "Personnels", icon: UserCog,
     roles: ["superviseur", "direction", "administrateur"] },
   { to: "/admin/documents", label: "Pièces", icon: FileText,
+    roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
+  // Lot 53 : demandes de services reçues (clients et visiteurs)
+  { to: "/admin/demandes", label: "Demandes de services", icon: Inbox,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   { to: "/admin/missions", label: "Missions", icon: Briefcase,
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable"] },
