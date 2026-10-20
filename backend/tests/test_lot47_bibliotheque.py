@@ -45,14 +45,17 @@ def test_chargement_partageable_et_liste_filtree(monkeypatch):
     assert r2.status_code == 200 and r2.json()["partageable"] is False
     # Refus : autre type, fichier vide
     assert c.post("/api/archives/fichier", files={"fichier": ("film.mp4", b"x", "video/mp4")}, data={"title": "x"}).status_code == 415
+    # Lot 50 : les images JPEG / PNG sont acceptées (5 Mo au plus)
+    assert c.post("/api/archives/fichier", files={"fichier": ("plan.png", b"\x89PNG", "image/png")}, data={"title": "Plan", "partageable": "true"}).status_code == 200
+    assert c.post("/api/archives/fichier", files={"fichier": ("grosse.jpg", b"x" * (5 * 1024 * 1024 + 1), "image/jpeg")}, data={"title": "G"}).status_code == 413
     assert c.post("/api/archives/fichier", files={"fichier": ("v.pdf", b"", "application/pdf")}, data={"title": "x"}).status_code == 400
     # Liste « partageables » : seulement le contrat ; le chemin de stockage n'est jamais exposé
     liste = c.get("/api/archives", params={"partageable": "true"}).json()
-    assert [a["title"] for a in liste] == ["Contrat type"] and liste[0]["a_fichier"] is True and "storage_path" not in liste[0]
+    assert sorted(a["title"] for a in liste) == ["Contrat type", "Plan"] and liste[0]["a_fichier"] is True and "storage_path" not in liste[0]
     # On marque la note comme partageable, puis on la démarque
     note_id = r2.json()["id"]
     assert c.patch(f"/api/archives/{note_id}/partageable", json={"partageable": True}).json()["partageable"] is True
-    assert len(c.get("/api/archives", params={"partageable": "true"}).json()) == 2
+    assert len(c.get("/api/archives", params={"partageable": "true"}).json()) == 3
     assert c.patch(f"/api/archives/{note_id}/partageable", json={"partageable": False}).status_code == 200
     # Un élément sans fichier (événement archivé automatiquement) ne peut pas être marqué partageable
     sf = c.post("/api/archives", json={"title": "Facture émise", "category": "autre"}).json()["id"]

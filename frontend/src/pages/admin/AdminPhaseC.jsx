@@ -31,7 +31,7 @@ export function AdminArchives() {
     if (!form.title) { toast.error("Titre requis"); return; }
     try {
       if (fichierBiblio) {
-        // Lot 47 : document chargé dans la bibliothèque (PDF, Word), éventuellement « partageable » en conversation WhatsApp
+        // Lots 47 / 50 : fichier chargé dans la bibliothèque (PDF, Word, image JPEG / PNG), éventuellement « partageable » en conversation WhatsApp
         const corps = new FormData();
         corps.append("fichier", fichierBiblio);
         corps.append("title", form.title); corps.append("category", form.category);
@@ -84,8 +84,8 @@ export function AdminArchives() {
               <div><Label>Description</Label><Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="archive-desc-input" /></div>
               <div><Label>Tags (virgules)</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} data-testid="archive-tags-input" /></div>
               {/* Lot 47 : document de la bibliothèque (PDF / Word) et case « partageable » */}
-              <div><Label>Document (PDF ou Word, facultatif)</Label>
-                <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setFichierBiblio(e.target.files?.[0] || null)} className="block w-full text-sm" data-testid="archive-fichier-input" /></div>
+              <div><Label>Fichier (PDF, Word ou image JPEG / PNG, facultatif)</Label>
+                <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" onChange={(e) => setFichierBiblio(e.target.files?.[0] || null)} className="block w-full text-sm" data-testid="archive-fichier-input" /></div>
               <label className="flex items-center gap-2 text-sm">
                 <Switch checked={form.partageable && !!fichierBiblio} disabled={!fichierBiblio} onCheckedChange={(v) => setForm({ ...form, partageable: v })} data-testid="archive-partageable-input" />
                 Partageable : proposé dans les conversations WhatsApp
@@ -111,7 +111,7 @@ export function AdminArchives() {
                 <TableCell>
                   {a.a_fichier
                     ? <Switch checked={!!a.partageable} onCheckedChange={(v) => basculerPartageable(a, v)} aria-label="Partageable" data-testid={`archive-partageable-${a.id}`} />
-                    : <span className="text-xs text-muted-foreground" title="Chargez un document (PDF ou Word) pour pouvoir le partager">pas de fichier</span>}
+                    : <span className="text-xs text-muted-foreground" title="Chargez un document (PDF, Word) ou une image pour pouvoir le partager">pas de fichier</span>}
                 </TableCell>
                 <TableCell className="text-xs">{a.created_at?.slice(0, 10)}</TableCell>
                 <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => remove(a)} data-testid={`delete-archive-${a.id}`}><Trash2 className="w-4 h-4 text-red-600" /></Button></TableCell>

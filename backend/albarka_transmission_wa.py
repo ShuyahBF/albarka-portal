@@ -628,6 +628,11 @@ async def _poser_reponse_dans_boite(base, retour: Dict[str, Any], cle: str) -> N
     doc["contact_id"] = contact_id
     doc["contact_name"] = contact_name
     await base.wa_messages.insert_one(dict(doc))
+    # Lot 50 : image / document relayé → copie conservée en arrière-plan (lien temporaire de SAWALI, 7 jours)
+    if media_kind in ("image", "document") and str(doc.get("media_url") or "").startswith("https://"):
+        import asyncio
+        from albarka_wa_inbox import rapatrier_media_url
+        asyncio.create_task(rapatrier_media_url(doc["id"], doc["media_url"], doc.get("media_mime"), doc.get("media_filename")))
     # Comme pour le webhook Meta : une conversation « résolue » repasse « à traiter ».
     etiquette = await base.wa_conversation_labels.find_one({"phone": phone}, {"_id": 0, "label": 1})
     if etiquette and etiquette.get("label") == "resolved":

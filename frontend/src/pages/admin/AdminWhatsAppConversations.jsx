@@ -118,12 +118,10 @@ export default function AdminWhatsAppConversations() {
   const [quickReplies, setQuickReplies] = useState([]);
   const [qrDialogOpen, setQrDialogOpen] = useState(false);
   const [horsFenetre, setHorsFenetre] = useState(false);
-  const [fichier, setFichier] = useState(null);           // lot 45 : image à joindre (File JPEG / PNG)
-  const [docBiblio, setDocBiblio] = useState(null);         // lot 47 : document de la bibliothèque à joindre {id, title, original_filename}
+  const [docBiblio, setDocBiblio] = useState(null);         // lots 47 / 50 : fichier de la bibliothèque (document ou image) à joindre {id, title, original_filename}
   const [biblioOuverte, setBiblioOuverte] = useState(false);
   const [biblio, setBiblio] = useState(null);               // documents « partageables » (null = en lecture)
   const [rechercheBiblio, setRechercheBiblio] = useState("");
-  const champFichier = useRef(null);
   const zoneTexte = useRef(null);   // lot 39 : confirmation d'envoi hors fenêtre de 24 h
   const [qrEditing, setQrEditing] = useState(null); // {id?, label, body}
   const [qrSaving, setQrSaving] = useState(false);
@@ -372,18 +370,7 @@ export default function AdminWhatsAppConversations() {
     requestAnimationFrame(() => { if (el) { el.focus(); el.setSelectionRange(debut + emoji.length, debut + emoji.length); } });
   };
 
-  // Lot 45 / 47 : image JPEG ou PNG choisie sur l'appareil (les documents viennent de la bibliothèque ; pas de vidéo)
-  const choisirFichier = (e) => {
-    const f = e.target.files?.[0];
-    e.target.value = "";
-    if (!f) return;
-    const ext = (f.name.split(".").pop() || "").toLowerCase();
-    if (!["jpg", "jpeg", "png"].includes(ext)) { toast.error("Image JPEG ou PNG uniquement. Les documents (PDF, Word) se joignent depuis la bibliothèque."); return; }
-    if (f.size > 5 * 1024 * 1024) { toast.error("Image trop lourde (5 Mo au plus)"); return; }
-    setFichier(f); setDocBiblio(null);
-  };
-
-  // Lot 47 : ouvre la liste des documents de la bibliothèque marqués « partageable »
+  // Lots 47 / 50 : ouvre la liste des fichiers de la bibliothèque marqués « partageable » (documents et images)
   const ouvrirBiblio = async () => {
     setBiblioOuverte(true); setBiblio(null); setRechercheBiblio("");
     try { const { data } = await apiClient.get("/archives", { params: { partageable: true } }); setBiblio(data); }
@@ -392,7 +379,7 @@ export default function AdminWhatsAppConversations() {
 
   // Lot 39 / 45 : `confirmer` = true quand le cabinet a accepté l'envoi hors fenêtre de 24 h (modèle Meta facturé)
   const send = async (confirmer = false) => {
-    if ((!reply.trim() && !fichier && !docBiblio) || !selectedPhone) return;
+    if ((!reply.trim() && !docBiblio) || !selectedPhone) return;
     setSending(true);
     try {
       let data;
@@ -400,13 +387,6 @@ export default function AdminWhatsAppConversations() {
         // Lot 47 : document de la bibliothèque ; le texte saisi sert de légende
         ({ data } = await apiClient.post(`/whatsapp/conversations/${encodeURIComponent(selectedPhone)}/send-archive`,
           { archive_id: docBiblio.id, legende: reply.trim(), ...(confirmer ? { confirmer_modele: true } : {}) }));
-      } else if (fichier) {
-        // Image : envoi en multipart ; le texte saisi sert de légende
-        const form = new FormData();
-        form.append("fichier", fichier);
-        form.append("legende", reply.trim());
-        if (confirmer) form.append("confirmer_modele", "true");
-        ({ data } = await apiClient.post(`/whatsapp/conversations/${encodeURIComponent(selectedPhone)}/send-file`, form));
       } else {
         ({ data } = await apiClient.post(
           `/whatsapp/conversations/${encodeURIComponent(selectedPhone)}/reply`,
@@ -415,8 +395,8 @@ export default function AdminWhatsAppConversations() {
       }
       if (data?.result?.outside_24h_window) toast.warning("Message envoyé hors fenêtre 24h — Meta peut le refuser.");
       else if (!data?.ok) toast.error(data?.result?.error || "Envoi refusé par Meta");
-      else toast.success(fichier || docBiblio ? "Fichier envoyé" : "Réponse envoyée");
-      setReply(""); setCitation(null); setFichier(null); setDocBiblio(null); setHorsFenetre(false);
+      else toast.success(docBiblio ? "Fichier envoyé" : "Réponse envoyée");
+      setReply(""); setCitation(null); setDocBiblio(null); setHorsFenetre(false);
       await Promise.all([loadMessages(selectedPhone, { silent: true }), loadConversations({ notify: false })]);
     } catch (err) {
       // 409 « hors_fenetre_24h » : on demande d'abord l'accord du cabinet (facturation du modèle Meta)
@@ -773,19 +753,19 @@ export default function AdminWhatsAppConversations() {
                           </div>
                         )}
                         {m.message_type === "location" && <div className="italic opacity-80">📍 Localisation partagée</div>}
-                        {["image", "video", "audio", "document"].includes(m.message_type) && !m.body && !m.voice_note_transcript && (
+                        {["image", "video", "audio", "document"].includes(m.message_type) && !m.body && !m.voice_note_transcript && !m.fichier_disponible && (
                           <div className="italic opacity-80">
                             [{m.message_type}{m.media_mime ? ` · ${m.media_mime}` : ""}]
                           </div>
                         )}
                         {/* Lot 13.9 : média d'une réponse via Liluvine (lien temporaire fourni par SAWALI) */}
-                        {m.via_liluvine && m.media_url?.startsWith("https://") && (
+                        {m.via_liluvine && !m.fichier_disponible && m.media_url?.startsWith("https://") && (
                           <a href={m.media_url} target="_blank" rel="noopener noreferrer" className="underline text-xs block mb-1">
                             Ouvrir le fichier{m.media_filename ? ` (${m.media_filename})` : ""}
                           </a>
                         )}
-                        {/* Lot 45 : document ou image envoyé depuis la conversation */}
-                        {outbound && m.media_filename && <PieceJointeMessage message={m} />}
+                        {/* Lots 45 / 50 : document ou image, envoyé OU reçu, ouvrable depuis la conversation */}
+                        {m.fichier_disponible && <PieceJointeMessage message={m} />}
                         {m.voice_note_transcript && (
                           <div className={`italic ${outbound ? "text-white/90" : "text-slate-600"} mb-1`}>🎙️ {m.voice_note_transcript}</div>
                         )}
@@ -878,30 +858,21 @@ export default function AdminWhatsAppConversations() {
                   </div>
                 )}
                 {/* Lot 45 : fichier joint (puce avec le nom, retirable) */}
-                {(fichier || docBiblio) && (
+                {docBiblio && (
                   <div className="order-first flex w-full items-center gap-2 rounded-md border bg-slate-50 px-2 py-1 text-xs" data-testid="wa-inbox-fichier-joint">
                     <Paperclip className="w-3 h-3 shrink-0 text-[#0F6B4A]" />
                     <span className="min-w-0 flex-1 truncate">
-                      {docBiblio ? `${docBiblio.title}${docBiblio.original_filename ? ` (${docBiblio.original_filename})` : ""} · bibliothèque` : `${fichier.name} · ${(fichier.size / 1024).toFixed(0)} Ko`}
+                      {`${docBiblio.title}${docBiblio.original_filename ? ` (${docBiblio.original_filename})` : ""} · bibliothèque`}
                     </span>
-                    <button type="button" onClick={() => { setFichier(null); setDocBiblio(null); }} aria-label="Retirer le fichier" className="text-slate-500 hover:text-slate-800">✕</button>
+                    <button type="button" onClick={() => setDocBiblio(null)} aria-label="Retirer le fichier" className="text-slate-500 hover:text-slate-800">✕</button>
                   </div>
                 )}
-                <input ref={champFichier} type="file" className="hidden" accept=".jpg,.jpeg,.png,image/jpeg,image/png"
-                       onChange={choisirFichier} data-testid="wa-inbox-fichier-input" />
                 <SelecteurEmojis onChoisir={insererEmoji} />
-                {/* Lot 47 : joindre un DOCUMENT de la bibliothèque (partageable) ou une IMAGE de l'appareil */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button type="button" variant="outline" size="icon" title="Joindre un document ou une image" aria-label="Joindre un fichier" data-testid="wa-inbox-joindre-btn">
-                      <Paperclip className="w-4 h-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start">
-                    <DropdownMenuItem onClick={ouvrirBiblio} data-testid="wa-inbox-joindre-biblio"><FileText className="w-4 h-4 mr-2" /> Document de la bibliothèque</DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => champFichier.current?.click()} data-testid="wa-inbox-joindre-image"><ImageIcon className="w-4 h-4 mr-2" /> Image (JPEG, PNG)</DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                {/* Lots 47 / 50 : joindre un fichier de la bibliothèque (document ou image marqué « partageable ») */}
+                <Button type="button" variant="outline" size="icon" onClick={ouvrirBiblio} title="Joindre un document ou une image de la bibliothèque"
+                        aria-label="Joindre un fichier de la bibliothèque" data-testid="wa-inbox-joindre-btn">
+                  <Paperclip className="w-4 h-4" />
+                </Button>
                 <Textarea
                   ref={zoneTexte}
                   rows={2}
@@ -914,7 +885,7 @@ export default function AdminWhatsAppConversations() {
                 />
                 <Button
                   onClick={() => send(false)}
-                  disabled={(!reply.trim() && !fichier && !docBiblio) || sending}
+                  disabled={(!reply.trim() && !docBiblio) || sending}
                   className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white self-stretch px-3"
                   data-testid="wa-inbox-send-btn"
                 >
@@ -930,17 +901,17 @@ export default function AdminWhatsAppConversations() {
       <Dialog open={biblioOuverte} onOpenChange={setBiblioOuverte}>
         <DialogContent data-testid="wa-inbox-biblio-dialog">
           <DialogHeader>
-            <DialogTitle>Document de la bibliothèque</DialogTitle>
-            <DialogDescription className="text-xs">Seuls les documents marqués « partageable » dans la bibliothèque (Archives cabinet) sont proposés.</DialogDescription>
+            <DialogTitle>Fichier de la bibliothèque</DialogTitle>
+            <DialogDescription className="text-xs">Seuls les documents et images marqués « partageable » dans la bibliothèque (Archives cabinet) sont proposés.</DialogDescription>
           </DialogHeader>
           <Input value={rechercheBiblio} onChange={(e) => setRechercheBiblio(e.target.value)} placeholder="Rechercher un titre…" data-testid="wa-inbox-biblio-recherche" />
           <div className="max-h-64 overflow-y-auto space-y-1">
             {biblio === null && <div className="text-sm text-muted-foreground">Lecture…</div>}
             {biblio && biblio.length === 0 && (
-              <div className="text-sm text-muted-foreground" data-testid="wa-inbox-biblio-vide">Aucun document partageable. Chargez un document dans la bibliothèque (Archives cabinet) et activez « Partageable ».</div>
+              <div className="text-sm text-muted-foreground" data-testid="wa-inbox-biblio-vide">Aucun fichier partageable. Chargez un document ou une image dans la bibliothèque (Archives cabinet) et activez « Partageable ».</div>
             )}
             {(biblio || []).filter((a) => !rechercheBiblio.trim() || (a.title || "").toLowerCase().includes(rechercheBiblio.trim().toLowerCase())).map((a) => (
-              <button key={a.id} type="button" onClick={() => { setDocBiblio(a); setFichier(null); setBiblioOuverte(false); }}
+              <button key={a.id} type="button" onClick={() => { setDocBiblio(a); setBiblioOuverte(false); }}
                       className="flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-sm hover:bg-slate-50" data-testid={`wa-inbox-biblio-${a.id}`}>
                 <FileText className="w-4 h-4 shrink-0 text-[#0F6B4A]" />
                 <span className="min-w-0 flex-1 truncate">{a.title}</span>
