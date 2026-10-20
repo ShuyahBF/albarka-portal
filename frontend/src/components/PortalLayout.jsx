@@ -36,6 +36,8 @@ import {
   DatabaseBackup,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import BandeauAlerte from "@/components/BandeauAlerte";   // lot 44
+import MaintenancePortail from "@/components/MaintenancePortail";   // lot 44
 import EtatServeur from "@/components/EtatServeur";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/lib/api";
@@ -420,6 +422,9 @@ export default function PortalLayout({ admin = false }) {
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-[hsl(var(--border))]">
+          {/* Lot 44 : alerte / incident du super-admin (image à gauche) et déconnexion programmée */}
+          <BandeauAlerte />
+          <MaintenancePortail />
           {/* Lot 22.1 : bandeau du contrat SAWALI pour le DG, tout en haut de la zone de droite (hors barre latérale),
               dans l'en-tête fixe : il reste visible même quand on fait défiler la page */}
           {admin && <BandeauContrat />}

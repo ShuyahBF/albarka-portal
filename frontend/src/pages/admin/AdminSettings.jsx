@@ -20,6 +20,7 @@ import DocSettingsPanel from "@/pages/admin/DocSettingsPanel";
 // Lot 14 : encaissement PI-SPI (QR de la banque imprimé sur les factures)
 import PispiPanel from "@/pages/admin/PispiPanel";
 import { useAuth } from "@/contexts/AuthContext";
+import AlerteMaintenanceCard from "@/pages/admin/AlerteMaintenanceCard";   // lot 44
 
 const FIELDS_TABS = ["cabinet", "whatsapp", "notifications", "rapports"];
 
@@ -209,6 +210,10 @@ export default function AdminSettings() {
           </TabsTrigger>
           {/* Liste blanche du personnel (appareils, IP) et accès temporaires */}
           <TabsTrigger value="acces" data-testid="tab-acces">Accès du personnel</TabsTrigger>
+          {/* Lot 44 : alerte / incident et déconnexion programmée — super-admin seul */}
+          {(user?.email || "").toLowerCase() === "admin@sawalismartsystems.com" && (
+            <TabsTrigger value="alerte" data-testid="tab-alerte">Alerte et maintenance</TabsTrigger>
+          )}
         </TabsList>
 
         {/* --- CABINET --- */}
@@ -419,6 +424,10 @@ export default function AdminSettings() {
             </div>
           </div>
         </TabsContent>
+
+        {(user?.email || "").toLowerCase() === "admin@sawalismartsystems.com" && (
+          <TabsContent value="alerte" className="pt-6"><AlerteMaintenanceCard /></TabsContent>
+        )}
 
         {/* --- WHATSAPP --- */}
         <TabsContent value="whatsapp" className="pt-6">

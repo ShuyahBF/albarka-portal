@@ -608,6 +608,19 @@ async def _poser_reponse_dans_boite(base, retour: Dict[str, Any], cle: str) -> N
         "liluvine_id_origine": retour.get("id_origine"),
         "wa_real_id": retour.get("wa_id"),          # lot 38 : identifiant WhatsApp réel du message reçu
     }
+    # Lot 44 : réponse à une citation faite depuis le téléphone → on retrouve le message cité dans la conversation
+    # (envoyé par le cabinet ou reçu du contact) pour l'afficher au-dessus de la réponse, comme le fait « Répondre ».
+    cite_id = retour.get("cite_message_id")
+    if cite_id:
+        origine = await base.wa_messages.find_one(
+            {"phone": phone, "$or": [{"wa_message_id": cite_id}, {"wa_real_id": cite_id}]}, {"_id": 0})
+        if origine:
+            entrant = origine.get("direction") == "inbound"
+            doc["reply_to"] = {"id": origine["id"], "direction": origine.get("direction"),
+                               "auteur": (origine.get("contact_name") or origine.get("profile_name") or phone) if entrant
+                               else (origine.get("sent_by_name") or "Cabinet"),
+                               "texte": (origine.get("body") or origine.get("voice_note_transcript")
+                                         or f"[{origine.get('message_type') or 'message'}]")[:200]}
     try:
         contact_id, contact_name = await _resolve_contact(phone)
     except Exception:  # noqa: BLE001
@@ -674,6 +687,7 @@ async def traiter_retour(corps: Dict[str, Any]) -> Dict[str, Any]:
         cle = f"reponse:{de}:{date}"
         retour = {"type": "reponse", "id_origine": corps.get("id_origine"), "numero": de, "statut": None,
                   "wa_id": str(corps.get("message_id") or "")[:200] or None,      # lot 38 : wamid du message reçu (pour le citer)
+                  "cite_message_id": str(corps.get("cite_message_id") or "")[:200] or None,   # lot 44 : message auquel il répond
                   "texte": str(corps.get("texte") or "")[:8000], "date": date,
                   "media": corps.get("media") if isinstance(corps.get("media"), dict) else None}
     elif type_retour == "desinscription":

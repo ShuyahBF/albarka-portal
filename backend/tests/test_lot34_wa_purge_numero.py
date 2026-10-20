@@ -162,3 +162,28 @@ def test_refus_hors_fenetre_commun_aux_envois_de_pieces():
     c.portal.call(c.db.wa_messages.insert_one, {"id": "o2", "phone": "+22670000006", "direction": "inbound",
                                                 "created_at": datetime.now(timezone.utc).isoformat()})
     asyncio.run(inbox.refus_hors_fenetre("+22670000006", False))
+
+
+# ---- Lot 44 : réponse à une citation faite depuis le téléphone → la citation apparaît côté cabinet ----
+
+def test_reponse_a_une_citation_du_telephone_affiche_le_message_cite(monkeypatch):
+    import asyncio
+    import albarka_transmission_wa as tw
+
+    async def faux_contact(phone):
+        return "c1", "Mr OUOBA"
+    monkeypatch.setattr(inbox, "_resolve_contact", faux_contact)
+    c = _appli(ADMIN_ACCOUNT_EMAIL)
+    c.portal.call(c.db.wa_messages.insert_one, {
+        "id": "out1", "phone": "+22670000005", "direction": "outbound", "body": "Votre bulletin est prêt",
+        "wa_message_id": "wamid.CITE1", "sent_by_name": "Cabinet ALBARKA"})
+    retour = {"type": "reponse", "numero": "+22670000005", "texte": "Merci", "date": datetime.now(timezone.utc).isoformat(),
+              "cite_message_id": "wamid.CITE1", "id_origine": None, "media": None}
+    asyncio.run(tw._poser_reponse_dans_boite(c.db, retour, "reponse:test"))
+    recu = c.portal.call(c.db.wa_messages.find_one, {"direction": "inbound", "phone": "+22670000005"})
+    assert recu["reply_to"]["texte"] == "Votre bulletin est prêt" and recu["reply_to"]["auteur"] == "Cabinet ALBARKA"
+    # Message cité inconnu : la réponse est quand même posée, sans citation
+    retour2 = {**retour, "cite_message_id": "wamid.INCONNU", "date": "2026-10-20T00:00:00+00:00"}
+    asyncio.run(tw._poser_reponse_dans_boite(c.db, retour2, "reponse:test2"))
+    sans = c.portal.call(c.db.wa_messages.find_one, {"wa_message_id": "liluvine:reponse:test2"})
+    assert sans["body"] == "Merci" and "reply_to" not in sans

@@ -20,6 +20,14 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (r) => r,
   (err) => {
+    // Lot 44 : maintenance du portail — connexion suspendue (503) ou session fermée : retour à la page de connexion
+    const detail = err?.response?.data?.detail;
+    const maintenance = err?.response?.status === 503 && detail?.code === "maintenance_portail";
+    const sessionFermee = err?.response?.status === 401 && typeof detail === "string" && detail.includes("maintenance du portail");
+    if ((maintenance || sessionFermee) && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      localStorage.removeItem("albarka_token");
+      window.location.href = "/login";
+    }
     if (err?.response?.status === 401 && typeof window !== "undefined") {
       const path = window.location.pathname;
       if (!path.startsWith("/login") && !path.startsWith("/")) {
