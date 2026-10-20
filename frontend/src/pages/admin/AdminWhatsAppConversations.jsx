@@ -25,6 +25,8 @@ import {
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
+import { jouerBip, CLE_ALERTES_WA } from "@/lib/sonNotification";   // lot 62
+import PushOptIn from "@/components/PushOptIn";                          // lot 62 : notifications push de l'équipe
 
 /**
  * Partie 2.D + 2.E — Centre de conversations WhatsApp.
@@ -47,7 +49,7 @@ const LABELS = {
   resolved: { text: "Résolu", bg: "bg-emerald-100", fg: "text-emerald-800", dot: "bg-emerald-500" },
 };
 const LABEL_ORDER = ["todo", "waiting", "resolved"];
-const LS_NOTIF = "albarka:wa:notif";
+const LS_NOTIF = CLE_ALERTES_WA;   // même réglage que le son des autres pages (lot 62)
 
 const kindIcon = (mt) => {
   switch (mt) {
@@ -79,21 +81,8 @@ const fmtDate = (iso) => {
   } catch { return iso.slice(0, 10); }
 };
 
-// Petit bip 440Hz 180ms via WebAudio (aucun asset à charger)
-function playBeep() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain); gain.connect(ctx.destination);
-    osc.type = "sine"; osc.frequency.value = 660;
-    gain.gain.setValueAtTime(0.001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-    osc.start(); osc.stop(ctx.currentTime + 0.3);
-    setTimeout(() => ctx.close && ctx.close(), 500);
-  } catch { /* silent */ }
-}
+// Lot 62 : le bip est maintenant partagé par toutes les pages du portail (lib/sonNotification.js)
+const playBeep = jouerBip;
 
 export default function AdminWhatsAppConversations() {
   const navigate = useNavigate();
@@ -494,6 +483,11 @@ export default function AdminWhatsAppConversations() {
           </Button>
         </div>
       </div>
+      {/* Lot 62 — alerte sur cet appareil (téléphone ou ordinateur), même portail fermé, à chaque nouveau message reçu */}
+      <details className="mb-2 rounded-lg border border-border bg-white px-3 py-2 text-sm" data-testid="wa-inbox-push">
+        <summary className="cursor-pointer font-medium">📱 Être alerté sur cet appareil, même portail fermé</summary>
+        <div className="mt-2"><PushOptIn contexte="whatsapp" /></div>
+      </details>
 
       <div className="flex-1 min-h-0 border border-border rounded-lg overflow-hidden bg-white grid grid-cols-1 md:grid-cols-[340px_1fr]">
         <div

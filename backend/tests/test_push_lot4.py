@@ -163,3 +163,21 @@ def test_platform_log_records_ip(env):
     entry = next(l for l in logs if l["action"] == "test.action")
     assert entry["ip"] == "197.239.10.42" and entry["user_agent"] == "Mozilla/5.0 Test"
     assert ap2  # module chargé
+
+
+def test_nouveau_message_wa_previent_l_equipe_abonnee(env):
+    """Lot 62 — un message WhatsApp reçu prévient (push) l'équipe abonnée qui a accès à la boîte, pas les autres,
+    et une rafale de la même conversation ne sonne qu'une fois par minute."""
+    ap._dernier_push_wa.clear()
+    for cle in ("c1", "compta", "sup"):
+        _, _, keys = _browser_keys()
+        env.c.post("/api/push/subscribe", headers=_h(cle), json={"subscription": {"endpoint": f"https://push.example/{cle}", "keys": keys}})
+    # Superviseur : accès à la boîte WhatsApp → prévenu. Client et comptable (sans accès) : jamais
+    assert asyncio.run(ap.prevenir_equipe_message_wa("+22670000009", "Awa", "Bonjour, je voudrais un rendez-vous")) == 1
+    assert len(env.pushed) == 1
+    # Même conversation dans la minute : pas de nouvelle alerte ; autre conversation : alerte
+    assert asyncio.run(ap.prevenir_equipe_message_wa("+22670000009", "Awa", "Merci")) == 0
+    assert asyncio.run(ap.prevenir_equipe_message_wa("+22670000010", None, "")) == 1
+    assert len(env.pushed) == 2
+    # Essai depuis la page WhatsApp (contexte « whatsapp »)
+    assert env.c.post("/api/push/test", headers=_h("sup"), json={"contexte": "whatsapp"}).json()["sent"] == 1

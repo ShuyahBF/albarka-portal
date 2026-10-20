@@ -231,6 +231,11 @@ async def receive_webhook(request: Request):
 
                 await db.wa_messages.insert_one(dict(doc))
                 inserted += 1
+                # Lot 62 : l'équipe abonnée est prévenue par notification push, en arrière-plan (jamais dans la réponse à Meta)
+                import asyncio as _asyncio
+                from albarka_push import prevenir_equipe_message_wa
+                _asyncio.create_task(prevenir_equipe_message_wa(
+                    phone, doc.get("contact_name"), doc.get("body") or doc.get("voice_note_transcript") or f"[{mtype}]"))
                 # Lot 50 : image ou document reçu → copie conservée en arrière-plan (la réponse à Meta n'attend pas)
                 if mtype in ("image", "document") and (msg.get(mtype) or {}).get("id"):
                     import asyncio

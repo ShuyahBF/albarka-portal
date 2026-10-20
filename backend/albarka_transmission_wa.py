@@ -628,6 +628,10 @@ async def _poser_reponse_dans_boite(base, retour: Dict[str, Any], cle: str) -> N
     doc["contact_id"] = contact_id
     doc["contact_name"] = contact_name
     await base.wa_messages.insert_one(dict(doc))
+    # Lot 62 : réponse reçue par le relais SAWALI → l'équipe abonnée est prévenue (push), en arrière-plan
+    import asyncio as _asyncio
+    from albarka_push import prevenir_equipe_message_wa
+    _asyncio.create_task(prevenir_equipe_message_wa(phone, contact_name, doc.get("body") or f"[{media_kind or 'message'}]"))
     # Lot 50 : image / document relayé → copie conservée en arrière-plan (lien temporaire de SAWALI, 7 jours)
     if media_kind in ("image", "document") and str(doc.get("media_url") or "").startswith("https://"):
         import asyncio

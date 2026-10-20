@@ -54,6 +54,7 @@ import BandeauContrat from "@/components/BandeauContrat";   // lot 21 : contrat 
 import SupportSawali from "@/components/SupportSawali";   // lot 23 : pictogramme « Assistance » (support SAWALI)
 import { ChevronDown, Layers, Landmark, Calculator, UsersRound } from "lucide-react";   // lot 18 : menu « Traitements »
 import { TRAITEMENTS } from "@/lib/traitements";
+import { jouerBip, sonActif } from "@/lib/sonNotification";   // lot 62 : bip sur toutes les pages
 
 // Actualisation des badges non-lus (WhatsApp/Diffusion) par polling — pas de
 // WebSocket/SSE dans l'application, même convention que ChatBubble.jsx.
@@ -266,6 +267,18 @@ export default function PortalLayout({ admin = false }) {
     const id = setInterval(refresh, BADGES_POLL_MS);
     return () => { cancelled = true; clearInterval(id); };
   }, [admin]);
+
+  // Lot 62 — SON sur toutes les pages du portail : quand le nombre de messages WhatsApp non lus augmente (relevé toutes les
+  // 15 s), un bip est joué — sauf sur la page WhatsApp, qui joue déjà son propre bip + notification. Réglage commun avec le
+  // bouton « Alertes activées / désactivées » de la page WhatsApp. Le tout premier relevé ne sonne jamais.
+  const nonLusWaRef = React.useRef(null);
+  useEffect(() => {
+    if (!admin || typeof badges.wa_unread !== "number") return;
+    const avant = nonLusWaRef.current;
+    nonLusWaRef.current = badges.wa_unread;
+    if (avant !== null && badges.wa_unread > avant && sonActif() && !location.pathname.startsWith("/admin/whatsapp")) jouerBip();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [badges.wa_unread]);
 
   const markSeen = (page) => {
     apiClient.post("/me/badges/mark-seen", { page }).catch(() => {});
