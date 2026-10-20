@@ -32,6 +32,9 @@ import Historique from "@/pages/portal/Historique";
 import MyAccount from "@/pages/portal/MyAccount";
 import MyForms from "@/pages/portal/MyForms";
 import CabinetDocuments from "@/pages/portal/CabinetDocuments";
+import Demandes from "@/pages/portal/Demandes";                       // lot 53
+import AdminDemandes from "@/pages/admin/AdminDemandes";               // lot 53
+import DemandeService from "@/pages/public/DemandeService";           // lot 53
 // Lot 9 : Outils Numériques (clients et personnel)
 import OutilsNumeriques from "@/pages/portal/OutilsNumeriques";
 
@@ -88,6 +91,8 @@ function App() {
           <Route path="/missions" element={<Missions />} />
           <Route path="/services" element={<Missions />} />
           <Route path="/contact" element={<Contact />} />
+          {/* Lot 53 : demande de service sans connexion (accueil ou lien WhatsApp) */}
+          <Route path="/demande-service" element={<DemandeService />} />
           {/* Politique de confidentialité : page publique (adresse demandée par Meta pour l'application WhatsApp) */}
           <Route path="/confidentialite" element={<Confidentialite />} />
           <Route path="/politique-de-confidentialite" element={<Confidentialite />} />
@@ -112,6 +117,7 @@ function App() {
             <Route path="historique" element={<Historique />} />
             <Route path="formulaires" element={<MyForms />} />
             <Route path="documents-cabinet" element={<CabinetDocuments />} />
+            <Route path="demandes" element={<Demandes />} />
             <Route path="outils-numeriques" element={<OutilsNumeriques />} />
             <Route path="mon-compte" element={<MyAccount />} />
           </Route>
@@ -125,6 +131,7 @@ function App() {
             <Route path="staff" element={<AdminStaff />} />
             <Route path="documents" element={<AdminDocuments />} />
             <Route path="missions" element={<AdminMissions />} />
+            <Route path="demandes" element={<AdminDemandes />} />
             <Route path="modeles" element={<AdminTemplates />} />
             <Route path="traitements/:domaine" element={<AdminTraitement />} />   {/* lot 18 : Fiscal, Comptable, RH */}
             <Route path="echeances" element={<AdminEcheances />} />

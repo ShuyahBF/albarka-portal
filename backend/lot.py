@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "52"
-LOT_LIBELLE = "Tableau de bord client : cartes de synthèse mensuelles (Rapport RH, CNSS, Fiscal, Comptable) ; thème et mois au dépôt du cabinet"
+LOT = "53"
+LOT_LIBELLE = "Demandes de services (fiscalité, RH, comptabilité, autres) : texte, note vocale et pièces jointes — espace client, page publique et cabinet"
