@@ -1,5 +1,5 @@
 /*
-  Lot 45 — pièce jointe d'un message envoyé par le cabinet (document ou image) dans la conversation.
+  Lots 45 / 50 — pièce jointe d'un message (document ou image), ENVOYÉ par le cabinet ou REÇU du contact.
   Image : aperçu ; document : puce avec le nom. Un clic ouvre le fichier dans un nouvel onglet.
   Le fichier est lu avec la session (GET /whatsapp/messages/<id>/fichier), jamais par un lien public.
 */
@@ -33,12 +33,12 @@ export default function PieceJointeMessage({ message }) {
 
   return (
     <button type="button" onClick={ouvrir} disabled={!message.fichier_disponible}
-            className="mb-1 flex max-w-full items-center gap-2 rounded-md bg-white/15 px-2 py-1.5 text-left text-xs"
+            className={`mb-1 flex max-w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs ${message.direction === "inbound" ? "bg-slate-100 text-slate-800" : "bg-white/15"}`}
             data-testid={`wa-msg-fichier-${message.id}`}>
       {estImage && apercu
         ? <img src={apercu} alt={message.media_filename || "image"} className="max-h-40 max-w-full rounded object-cover" />
         : <>{estImage ? <ImageIcon className="h-4 w-4 shrink-0" /> : <FileText className="h-4 w-4 shrink-0" />}
-            <span className="min-w-0 break-all underline">{message.media_filename || "Fichier"}</span></>}
+            <span className="min-w-0 break-all underline">{message.media_filename || (estImage ? "Image reçue" : "Document reçu")}</span></>}
     </button>
   );
 }

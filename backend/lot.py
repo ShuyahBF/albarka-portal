@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "49.1"
-LOT_LIBELLE = "Test automatique : le formulaire Alerte et maintenance se remplit avec le bandeau enregistré (aucun changement de fonctionnement)"
+LOT = "50"
+LOT_LIBELLE = "Conversations WhatsApp : documents ET images joints viennent de la bibliothèque (partageable) ; les fichiers reçus (images, documents) sont conservés et visibles dans le fil"

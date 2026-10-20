@@ -189,7 +189,7 @@ def test_reponse_a_une_citation_du_telephone_affiche_le_message_cite(monkeypatch
     assert sans["body"] == "Merci" and "reply_to" not in sans
 
 
-# ---- Lot 45 : envoi d'un document (PDF / Word) ou d'une image ; pas de vidéo ----
+# ---- Lots 45 / 47 / 50 : fichiers joints = bibliothèque seulement (documents ET images, partageables) ; fichiers reçus visibles ----
 
 def _app_fichier(monkeypatch):
     import albarka_notifications as notif
@@ -201,7 +201,7 @@ def _app_fichier(monkeypatch):
         return {"ok": True, "message_id": "wamid.F1"}
 
     async def faux_put(chemin, donnees, ct):
-        stockes.append(chemin)
+        stockes.append((chemin, ct))
         return {}
 
     async def faux_get(chemin):
@@ -219,35 +219,19 @@ def _app_fichier(monkeypatch):
     return c, envois, stockes
 
 
-def test_envoi_d_une_image_et_refus_des_documents_libres_et_des_videos(monkeypatch):
-    c, envois, stockes = _app_fichier(monkeypatch)
-    url = "/api/whatsapp/conversations/+22670000004/send-file"
-    r = c.post(url, files={"fichier": ("photo.PNG", b"\x89PNG", "image/png")}, data={"legende": "Voici le plan 📎"})
-    assert r.status_code == 200 and r.json()["ok"]
-    assert envois[-1] == ("+22670000004", "photo.PNG", "image/png", "Voici le plan 📎") and len(stockes) == 1
-    m = r.json()["message"]
-    assert m["message_type"] == "image" and m["media_filename"] == "photo.PNG" and "media_path" not in m
-    assert c.post(url, files={"fichier": ("p.jpg", b"\xff\xd8", "image/jpeg")}).status_code == 200
-    # Refus : un document libre (il faut la bibliothèque), une vidéo, un autre type, un fichier vide, une image trop lourde
-    r = c.post(url, files={"fichier": ("bulletin.pdf", b"%PDF", "application/pdf")})
-    assert r.status_code == 415 and "bibliothèque" in r.json()["detail"]
-    assert c.post(url, files={"fichier": ("lettre.docx", b"PK", "application/octet-stream")}).status_code == 415
-    assert c.post(url, files={"fichier": ("film.mp4", b"xx", "video/mp4")}).status_code == 415
-    assert c.post(url, files={"fichier": ("macro.exe", b"xx", "application/octet-stream")}).status_code == 415
-    assert c.post(url, files={"fichier": ("vide.png", b"", "image/png")}).status_code == 400
-    assert c.post(url, files={"fichier": ("grosse.jpg", b"x" * (5 * 1024 * 1024 + 1), "image/jpeg")}).status_code == 413
-    # L'écran relit la conversation : le fichier est annoncé disponible, le chemin interne n'est pas exposé
-    liste = c.get("/api/whatsapp/conversations/+22670000004/messages").json()
-    envoyes = [x for x in liste if x.get("media_filename")]
-    assert envoyes and all(x["fichier_disponible"] and "media_path" not in x for x in envoyes)
-    assert c.get(f"/api/whatsapp/messages/{envoyes[0]['id']}/fichier").content == b"%PDF-contenu"
+def test_plus_aucun_envoi_libre_de_fichier_depuis_l_appareil(monkeypatch):
+    c, envois, _ = _app_fichier(monkeypatch)
+    r = c.post("/api/whatsapp/conversations/+22670000004/send-file", files={"fichier": ("photo.png", b"\x89PNG", "image/png")})
+    assert r.status_code in (404, 405) and envois == []          # la route n'existe plus : tout vient de la bibliothèque
 
 
-def test_document_de_la_bibliotheque_envoye_seulement_s_il_est_partageable(monkeypatch):
+def test_document_et_image_de_la_bibliotheque_envoyes_seulement_s_ils_sont_partageables(monkeypatch):
     c, envois, _ = _app_fichier(monkeypatch)
     c.portal.call(c.db.archives.insert_many, [
         {"id": "A1", "title": "Contrat type", "storage_path": "bibliotheque/a1.pdf", "original_filename": "contrat.pdf",
          "content_type": "application/pdf", "partageable": True},
+        {"id": "A4", "title": "Plan d'accès", "storage_path": "bibliotheque/a4.png", "original_filename": "plan.png",
+         "content_type": "image/png", "partageable": True},
         {"id": "A2", "title": "Note interne", "storage_path": "bibliotheque/a2.pdf", "original_filename": "note.pdf",
          "content_type": "application/pdf", "partageable": False},
         {"id": "A3", "title": "Événement sans fichier", "partageable": True}])
@@ -257,19 +241,57 @@ def test_document_de_la_bibliotheque_envoye_seulement_s_il_est_partageable(monke
     assert envois[-1] == ("+22670000004", "contrat.pdf", "application/pdf", "Pour signature ✍️")
     m = r.json()["message"]
     assert m["message_type"] == "document" and m["archive_id"] == "A1" and "media_path" not in m
+    r = c.post(url, json={"archive_id": "A4"})                               # lot 50 : image de la bibliothèque
+    assert r.status_code == 200 and envois[-1][2] == "image/png" and r.json()["message"]["message_type"] == "image"
     assert c.post(url, json={"archive_id": "A2"}).status_code == 403          # non partageable
     assert c.post(url, json={"archive_id": "A3"}).status_code == 404          # pas de fichier dans la bibliothèque
     assert c.post(url, json={"archive_id": "inconnu"}).status_code == 404
-    assert len(envois) == 1                                                    # rien d'autre n'est parti
+    assert len(envois) == 2
+    # L'écran relit la conversation : le fichier est annoncé disponible, le chemin interne n'est pas exposé
+    liste = c.get("/api/whatsapp/conversations/+22670000004/messages").json()
+    envoyes = [x for x in liste if x.get("media_filename")]
+    assert envoyes and all(x["fichier_disponible"] and "media_path" not in x for x in envoyes)
+    assert c.get(f"/api/whatsapp/messages/{envoyes[0]['id']}/fichier").content == b"%PDF-contenu"
 
 
-def test_envoi_de_fichier_hors_fenetre_demande_l_accord(monkeypatch):
+def test_envoi_d_un_fichier_de_la_bibliotheque_hors_fenetre_demande_l_accord(monkeypatch):
     c, envois, _ = _app_fichier(monkeypatch)
     c.portal.call(c.db.wa_messages.delete_many, {})
     ancien = (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()
     c.portal.call(c.db.wa_messages.insert_one, {"id": "v9", "phone": "+22670000004", "direction": "inbound", "created_at": ancien})
-    url = "/api/whatsapp/conversations/+22670000004/send-file"
-    r = c.post(url, files={"fichier": ("a.png", b"\x89PNG", "image/png")})
+    c.portal.call(c.db.archives.insert_one, {"id": "A1", "title": "Contrat", "storage_path": "b/a1.pdf", "original_filename": "c.pdf",
+                                             "content_type": "application/pdf", "partageable": True})
+    url = "/api/whatsapp/conversations/+22670000004/send-archive"
+    r = c.post(url, json={"archive_id": "A1"})
     assert r.status_code == 409 and r.json()["detail"]["code"] == "hors_fenetre_24h" and envois == []
-    r = c.post(url, files={"fichier": ("a.png", b"\x89PNG", "image/png")}, data={"confirmer_modele": "true"})
-    assert r.status_code == 200 and len(envois) == 1
+    assert c.post(url, json={"archive_id": "A1", "confirmer_modele": True}).status_code == 200 and len(envois) == 1
+
+
+def test_fichiers_recus_conserves_et_visibles_dans_le_fil(monkeypatch):
+    import asyncio
+    import albarka_transmission_wa as tw
+    c, _, stockes = _app_fichier(monkeypatch)
+    c.portal.call(c.db.wa_messages.insert_one, {"id": "img1", "phone": "+22670000004", "direction": "inbound", "message_type": "image",
+                                                "media_kind": "image", "created_at": datetime.now(timezone.utc).isoformat()})
+    # Image reçue par le webhook Meta : conservée ; vidéo et type inconnu : jamais conservés
+    assert asyncio.run(inbox.conserver_fichier_recu("img1", b"\xff\xd8jpeg", "image/jpeg", None)) is True
+    assert asyncio.run(inbox.conserver_fichier_recu("img1", b"x", "video/mp4", None)) is False
+    assert asyncio.run(inbox.conserver_fichier_recu("img1", b"x" * (10 * 1024 * 1024 + 1), "image/png", None)) is False
+    assert stockes[0][1] == "image/jpeg" and stockes[0][0].endswith(".jpg") and len(stockes) == 1
+    liste = c.get("/api/whatsapp/conversations/+22670000004/messages").json()
+    recu = [x for x in liste if x["id"] == "img1"][0]
+    assert recu["fichier_disponible"] is True and "media_path" not in recu
+    # Réponse relayée par la Transmission universelle avec un document : copie lancée en arrière-plan
+    lances = []
+
+    async def faux_rapatrier(doc_id, url, mime, nom):
+        lances.append((url, mime, nom))
+    monkeypatch.setattr(inbox, "rapatrier_media_url", faux_rapatrier)
+
+    async def principal():
+        retour = {"type": "reponse", "numero": "+22670000004", "texte": "", "date": datetime.now(timezone.utc).isoformat(),
+                  "media": {"type": "document", "url_temporaire": "https://sawali.test/f/abc", "mime": "application/pdf", "nom_fichier": "recu.pdf"}}
+        await tw._poser_reponse_dans_boite(c.db, retour, "reponse:doc")
+        await asyncio.sleep(0)
+    asyncio.run(principal())
+    assert lances == [("https://sawali.test/f/abc", "application/pdf", "recu.pdf")]

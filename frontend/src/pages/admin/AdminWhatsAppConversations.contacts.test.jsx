@@ -114,10 +114,15 @@ test("lot 38 : répondre en citant un message envoie reply_to_id ; l'état Lu es
 });
 
 
-test("lot 45 / 47 : emoji inséré ; image envoyée en multipart ; document pris dans la bibliothèque (send-archive) ; vidéo et PDF libre refusés", async () => {
-  mockGet.mockImplementation((url, cfg) => {
-    if (url === "/archives") return Promise.resolve({ data: [{ id: "A1", title: "Contrat type", original_filename: "contrat.pdf", partageable: true, a_fichier: true }] });
+test("lots 45 / 47 / 50 : emoji inséré ; fichier (document ou image) pris dans la bibliothèque et envoyé par send-archive ; fichier reçu visible", async () => {
+  mockGet.mockImplementation((url) => {
+    if (url === "/archives") return Promise.resolve({ data: [
+      { id: "A1", title: "Contrat type", original_filename: "contrat.pdf", partageable: true, a_fichier: true },
+      { id: "A4", title: "Plan d'accès", original_filename: "plan.png", partageable: true, a_fichier: true }] });
     if (url === "/contacts") return Promise.resolve({ data: [{ id: "c1", scope: "cabinet", full_name: "Awa Cabinet", phone: "+22670000001", channels: ["whatsapp"] }] });
+    if (url.startsWith("/whatsapp/conversations/") && url.endsWith("/messages")) return Promise.resolve({ data: [
+      { id: "r1", direction: "inbound", phone: "+22670000001", message_type: "image", media_kind: "image", media_filename: "photo-recue.jpg",
+        fichier_disponible: true, contact_name: "Awa Cabinet", created_at: "2026-10-19T22:34:00Z" }] });
     return Promise.resolve({ data: [] });
   });
   const conteneur = document.createElement("div"); document.body.appendChild(conteneur);
@@ -126,34 +131,23 @@ test("lot 45 / 47 : emoji inséré ; image envoyée en multipart ; document pris
   await attendre(30);
   await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-contact-c1"]').click(); });
   await attendre(80);
+  // Fichier REÇU : affiché dans le fil (pas seulement un texte « [image] »)
+  expect(conteneur.querySelector('[data-testid="wa-msg-fichier-r1"]').textContent).toContain("photo-recue.jpg");
+  // Emoji inséré
   await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-emoji-btn"]').click(); });
   expect(conteneur.querySelector('[data-testid="wa-inbox-reply-input"]').value).toContain("😀");
-  // Vidéo et PDF libre : refusés côté écran, aucune puce
-  const entree = conteneur.querySelector('[data-testid="wa-inbox-fichier-input"]');
-  const choisir = async (f) => { Object.defineProperty(entree, "files", { value: [f], configurable: true }); await act(async () => { entree.dispatchEvent(new Event("change", { bubbles: true })); }); };
-  await choisir(new File(["x"], "film.mp4", { type: "video/mp4" }));
-  await choisir(new File(["%PDF"], "bulletin.pdf", { type: "application/pdf" }));
-  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]')).toBeNull();
-  // Image : puce puis envoi en multipart
-  await choisir(new File(["\x89PNG"], "plan.png", { type: "image/png" }));
-  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]').textContent).toContain("plan.png");
+  // Plus d'envoi libre depuis l'appareil
+  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-input"]')).toBeNull();
+  // Image de la bibliothèque : choisie puis envoyée par send-archive, avec l'emoji en légende
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-joindre-btn"]').click(); });
+  await attendre(30);
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-biblio-A4"]').click(); });
+  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]').textContent).toContain("Plan d'accès");
   mockPost.mockClear();
   mockPost.mockResolvedValueOnce({ data: { ok: true, result: {} } });
   await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-send-btn"]').click(); });
   await attendre(30);
-  const [url, corps] = mockPost.mock.calls[0];
-  expect(url).toBe("/whatsapp/conversations/%2B22670000001/send-file");
-  expect(corps.get("fichier").name).toBe("plan.png");
-  // Document : choisi dans la bibliothèque (partageable) puis envoyé par send-archive
-  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-joindre-biblio"]').click(); });
-  await attendre(30);
-  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-biblio-A1"]').click(); });
-  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]').textContent).toContain("Contrat type");
-  mockPost.mockClear();
-  mockPost.mockResolvedValueOnce({ data: { ok: true, result: {} } });
-  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-send-btn"]').click(); });
-  await attendre(30);
-  expect(mockPost).toHaveBeenCalledWith("/whatsapp/conversations/%2B22670000001/send-archive", { archive_id: "A1", legende: "" });
+  expect(mockPost).toHaveBeenCalledWith("/whatsapp/conversations/%2B22670000001/send-archive", { archive_id: "A4", legende: "😀" });
   expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]')).toBeNull();
   act(() => racine.unmount());
 });

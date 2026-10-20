@@ -94,6 +94,52 @@ async def _download_wa_media(media_id: str) -> tuple[Optional[bytes], Optional[s
         return None, None
 
 
+# Lot 50 — fichiers REÇUS (images, documents) conservés dans le stockage du portail pour être affichés dans le fil.
+# Les vidéos et les notes vocales ne sont pas conservées ici. 10 Mo au plus.
+EXT_PAR_MIME = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "application/pdf": "pdf",
+                "application/msword": "doc",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+                "application/vnd.ms-excel": "xls",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx", "text/plain": "txt"}
+TAILLE_MAX_RECU = 10 * 1024 * 1024
+
+
+async def conserver_fichier_recu(doc_id: str, octets: Optional[bytes], mime: Optional[str], nom: Optional[str]) -> bool:
+    """Copie un fichier reçu dans le stockage et le rattache au message `doc_id`. Ne lève jamais d'exception."""
+    try:
+        mime = (mime or "").split(";")[0].strip().lower()
+        if not octets or len(octets) > TAILLE_MAX_RECU or mime not in EXT_PAR_MIME:
+            return False
+        from albarka_storage import build_path, put_object
+        chemin = build_path("whatsapp-recu", "cabinet", EXT_PAR_MIME[mime])
+        await put_object(chemin, octets, mime)
+        maj = {"media_path": chemin, "media_mime": mime}
+        if nom:
+            maj["media_filename"] = nom[:120]
+        await db.wa_messages.update_one({"id": doc_id}, {"$set": maj})
+        return True
+    except Exception:  # noqa: BLE001 — le message reste affiché sans aperçu
+        logger.warning("Fichier reçu non conservé (message %s)", doc_id, exc_info=True)
+        return False
+
+
+async def rapatrier_media_meta(doc_id: str, media_id: str, nom: Optional[str]) -> None:
+    """Arrière-plan : télécharge le média chez Meta (l'adresse expire vite) puis le conserve."""
+    octets, mime = await _download_wa_media(media_id)
+    await conserver_fichier_recu(doc_id, octets, mime, nom)
+
+
+async def rapatrier_media_url(doc_id: str, url: str, mime: Optional[str], nom: Optional[str]) -> None:
+    """Arrière-plan : télécharge le fichier d'une réponse relayée par la Transmission universelle (lien temporaire de SAWALI)."""
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            r = await client.get(url)
+        if r.status_code < 300:
+            await conserver_fichier_recu(doc_id, r.content, mime or r.headers.get("content-type"), nom)
+    except httpx.HTTPError:
+        logger.warning("Fichier relayé non téléchargé (message %s)", doc_id)
+
+
 async def _transcribe_wa_audio(audio_bytes: bytes, mime: Optional[str]) -> Optional[str]:
     """Transcription silencieuse d'une note vocale entrante (best-effort).
 
@@ -185,6 +231,10 @@ async def receive_webhook(request: Request):
 
                 await db.wa_messages.insert_one(dict(doc))
                 inserted += 1
+                # Lot 50 : image ou document reçu → copie conservée en arrière-plan (la réponse à Meta n'attend pas)
+                if mtype in ("image", "document") and (msg.get(mtype) or {}).get("id"):
+                    import asyncio
+                    asyncio.create_task(rapatrier_media_meta(doc["id"], msg[mtype]["id"], (msg.get(mtype) or {}).get("filename")))
 
                 # Auto-étiquette : si la conversation était "resolved",
                 # la remettre à "todo" pour que le staff la retraite.
@@ -360,75 +410,9 @@ async def send_reply(
 
 
 # =====================================================================
-# Lot 45 — envoi d'un DOCUMENT (PDF, Word) ou d'une IMAGE (JPEG, PNG) depuis une conversation. Pas de vidéo.
+# Lots 45 / 47 / 49 — documents ET images joints à une conversation : TOUJOURS issus de la bibliothèque (Archives cabinet),
+# marqués « partageable ». Aucun fichier n'est envoyé directement depuis l'appareil. Pas de vidéo.
 # =====================================================================
-# Lot 47 : un fichier choisi sur l'appareil ne peut être qu'une IMAGE ; les DOCUMENTS (PDF, Word) viennent de la
-# bibliothèque, marqués « partageable » (voir send-archive).
-FICHIERS_ACCEPTES = {
-    "jpg": ("image/jpeg", "image", 5 * 1024 * 1024),
-    "jpeg": ("image/jpeg", "image", 5 * 1024 * 1024),
-    "png": ("image/png", "image", 5 * 1024 * 1024),
-}
-
-
-@router.post("/conversations/{phone}/send-file")
-async def send_file(
-    phone: str,
-    fichier: UploadFile = File(...),
-    legende: str = Form(""),
-    reply_to_id: Optional[str] = Form(None),
-    confirmer_modele: bool = Form(False),
-    user: dict = Depends(require_roles(_INBOX_ROLES)),
-):
-    """Envoie une image (JPEG / PNG) choisie sur l'appareil au contact, avec une légende facultative.
-    Mêmes règles que la réponse texte : contact connu, accord du cabinet hors fenêtre de 24 h (409), mode test du super-admin.
-    Les vidéos et tout autre type sont refusés."""
-    if not phone.startswith("+"):
-        raise HTTPException(status_code=400, detail="Numéro attendu au format international (+226…)")
-    nom = (fichier.filename or "fichier").replace("\\", "/").rsplit("/", 1)[-1][:120] or "fichier"
-    ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
-    if ext not in FICHIERS_ACCEPTES:
-        if ext in ("pdf", "doc", "docx"):
-            raise HTTPException(status_code=415, detail="Les documents (PDF, Word) se joignent depuis la bibliothèque : chargez-les-y d'abord et marquez-les « partageable ».")
-        raise HTTPException(status_code=415, detail="Fichier refusé : image JPEG ou PNG uniquement (documents depuis la bibliothèque) — pas de vidéo.")
-    mime, famille, maxi = FICHIERS_ACCEPTES[ext]
-    donnees = await fichier.read()
-    if not donnees:
-        raise HTTPException(status_code=400, detail="Fichier vide")
-    if len(donnees) > maxi:
-        raise HTTPException(status_code=413, detail=f"Fichier trop lourd ({maxi // (1024 * 1024)} Mo au plus pour {'une image' if famille == 'image' else 'un document'})")
-    contact_id, contact_name = await _resolve_contact(phone)
-    if not contact_id:
-        raise HTTPException(status_code=404, detail="Ce numéro ne correspond à aucun contact ni client enregistré — "
-                                                    "ajoutez-le d'abord dans le module Contacts avant de lui écrire.")
-    await refus_hors_fenetre(phone, confirmer_modele)
-    legende = (legende or "").strip()[:1000]
-    from albarka_notifications import send_whatsapp_fichier
-    result = await send_whatsapp_fichier(to_phone=phone, data=donnees, filename=nom, content_type=mime, caption=legende)
-    # Copie du fichier dans le stockage du portail : le cabinet peut le rouvrir depuis la conversation
-    chemin = None
-    try:
-        from albarka_storage import build_path, put_object
-        chemin = build_path("whatsapp", "cabinet", ext)
-        await put_object(chemin, donnees, mime)
-    except Exception:  # noqa: BLE001 — l'envoi a eu lieu ; sans copie, le message s'affiche sans aperçu
-        logger.warning("Copie du fichier envoyé non enregistrée", exc_info=True)
-        chemin = None
-    doc = {
-        "id": secrets.token_urlsafe(12), "direction": "outbound", "phone": phone,
-        "wa_message_id": result.get("message_id"), "message_type": famille, "body": legende,
-        "media_url": None, "media_mime": mime, "media_kind": famille, "media_filename": nom, "media_path": chemin,
-        "voice_note_transcript": None, "contact_id": contact_id, "contact_name": contact_name,
-        "created_at": datetime.now(timezone.utc).isoformat(), "read_by_staff_at": datetime.now(timezone.utc).isoformat(),
-        "sent_by": user["id"], "sent_by_name": user.get("full_name") or user.get("email"),
-        "wa_kind": result.get("kind"), "wa_error": result.get("error"), "outside_24h_window": result.get("outside_24h_window"),
-        "reply_to": None,
-    }
-    await db.wa_messages.insert_one(dict(doc))
-    doc.pop("media_path", None)
-    return {"ok": bool(result.get("ok")), "message": serialize(doc), "result": result}
-
-
 class ArchiveSendPayload(BaseModel):
     archive_id: str = Field(..., max_length=64)
     legende: str = Field("", max_length=1000)
@@ -437,7 +421,7 @@ class ArchiveSendPayload(BaseModel):
 
 @router.post("/conversations/{phone}/send-archive")
 async def send_archive(phone: str, payload: ArchiveSendPayload, user: dict = Depends(require_roles(_INBOX_ROLES))):
-    """Lot 47 — envoie un document de la BIBLIOTHÈQUE (PDF, Word) marqué « partageable » au contact.
+    """Lot 47 / 50 — envoie un document ou une image de la BIBLIOTHÈQUE (PDF, Word, JPEG, PNG) marqué « partageable » au contact.
     Mêmes règles que le texte : contact connu, accord du cabinet hors fenêtre de 24 h (409), mode test du super-admin."""
     if not phone.startswith("+"):
         raise HTTPException(status_code=400, detail="Numéro attendu au format international (+226…)")
@@ -457,11 +441,12 @@ async def send_archive(phone: str, payload: ArchiveSendPayload, user: dict = Dep
     nom = a.get("original_filename") or f"{a.get('title') or 'document'}.pdf"
     mime = a.get("content_type") or ct or "application/octet-stream"
     legende = payload.legende.strip()
+    famille = "image" if mime.startswith("image/") else "document"          # lot 50 : la bibliothèque contient aussi des images
     result = await send_whatsapp_fichier(to_phone=phone, data=donnees, filename=nom, content_type=mime, caption=legende)
     doc = {
         "id": secrets.token_urlsafe(12), "direction": "outbound", "phone": phone,
-        "wa_message_id": result.get("message_id"), "message_type": "document", "body": legende,
-        "media_url": None, "media_mime": mime, "media_kind": "document", "media_filename": nom,
+        "wa_message_id": result.get("message_id"), "message_type": famille, "body": legende,
+        "media_url": None, "media_mime": mime, "media_kind": famille, "media_filename": nom,
         "media_path": a["storage_path"], "archive_id": a["id"],      # le fichier reste celui de la bibliothèque
         "voice_note_transcript": None, "contact_id": contact_id, "contact_name": contact_name,
         "created_at": datetime.now(timezone.utc).isoformat(), "read_by_staff_at": datetime.now(timezone.utc).isoformat(),

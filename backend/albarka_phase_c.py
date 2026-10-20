@@ -1035,14 +1035,19 @@ class ArchiveItemCreate(BaseModel):
     original_filename: Optional[str] = None
 
 
-# Lot 47 — documents de la bibliothèque joignables à une conversation WhatsApp : PDF et Word, 10 Mo au plus.
+# Lot 47 / 50 — fichiers de la bibliothèque joignables à une conversation WhatsApp : PDF, Word (10 Mo au plus) et
+# images JPEG / PNG (5 Mo au plus). Pas de vidéo.
 # Un document n'est proposé dans les conversations que s'il est marqué « partageable ».
 TYPES_BIBLIOTHEQUE = {
     "pdf": "application/pdf",
     "doc": "application/msword",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
 }
 TAILLE_MAX_BIBLIOTHEQUE = 10 * 1024 * 1024
+TAILLE_MAX_IMAGE_BIBLIOTHEQUE = 5 * 1024 * 1024
 
 
 @archives_router.post("/fichier")
@@ -1055,16 +1060,17 @@ async def create_archive_with_file(
     partageable: bool = Form(False),
     user: dict = Depends(require_staff()),
 ):
-    """Charge un document (PDF, DOC, DOCX) dans la bibliothèque, avec la case « partageable » (envoi en conversation)."""
+    """Charge un document (PDF, DOC, DOCX) ou une image (JPEG, PNG) dans la bibliothèque, avec la case « partageable » (envoi en conversation)."""
     nom = (fichier.filename or "document").replace("\\", "/").rsplit("/", 1)[-1][:120] or "document"
     ext = nom.rsplit(".", 1)[-1].lower() if "." in nom else ""
     if ext not in TYPES_BIBLIOTHEQUE:
-        raise HTTPException(status_code=415, detail="Document refusé : PDF ou Word (DOC, DOCX) uniquement")
+        raise HTTPException(status_code=415, detail="Fichier refusé : PDF, Word (DOC, DOCX) ou image (JPEG, PNG) uniquement — pas de vidéo")
     donnees = await fichier.read()
     if not donnees:
         raise HTTPException(status_code=400, detail="Fichier vide")
-    if len(donnees) > TAILLE_MAX_BIBLIOTHEQUE:
-        raise HTTPException(status_code=413, detail="Document trop lourd (10 Mo au plus)")
+    maxi = TAILLE_MAX_IMAGE_BIBLIOTHEQUE if TYPES_BIBLIOTHEQUE[ext].startswith("image/") else TAILLE_MAX_BIBLIOTHEQUE
+    if len(donnees) > maxi:
+        raise HTTPException(status_code=413, detail=f"Fichier trop lourd ({maxi // (1024 * 1024)} Mo au plus)")
     from albarka_storage import build_path, put_object
     chemin = build_path("bibliotheque", "cabinet", ext)
     await put_object(chemin, donnees, TYPES_BIBLIOTHEQUE[ext])
@@ -1092,7 +1098,7 @@ async def set_archive_shareable(archive_id: str, payload: PartageableIn, user: d
     if not a:
         raise HTTPException(status_code=404, detail="Élément introuvable")
     if payload.partageable and not a.get("storage_path"):
-        raise HTTPException(status_code=400, detail="Aucun fichier dans cet élément : chargez d'abord un document (PDF ou Word)")
+        raise HTTPException(status_code=400, detail="Aucun fichier dans cet élément : chargez d'abord un document (PDF, Word) ou une image (JPEG, PNG)")
     await db.archives.update_one({"id": archive_id}, {"$set": {"partageable": payload.partageable}})
     return {"ok": True, "id": archive_id, "partageable": payload.partageable}
 
