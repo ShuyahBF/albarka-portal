@@ -46,6 +46,25 @@ MESSAGE_BLOCAGE = ("Portail en maintenance : les connexions sont suspendues. "
 MESSAGE_SESSION_EXPIREE = "Session fermée par la maintenance du portail : reconnectez-vous."
 SEVERITES = ("info", "warning", "critical")
 
+# Lot 48 — REPRISE de l'ancien emplacement. Les lots 44 et 45 rangeaient le bandeau et la maintenance dans une collection
+# `maintenance_portail` (documents « bandeau » et « etat ») ; le lot 46 les a déplacés dans `settings` (cluster plein, pas de
+# nouvelle collection) SANS reprendre l'existant : le réglage du bandeau semblait perdu. Le document est donc d'abord cherché dans
+# `settings` ; à défaut, dans l'ancienne collection (lecture seule, jamais créée), puis RECOPIÉ dans `settings`.
+ANCIENS_ID = {ID_ETAT: "etat", ID_BANDEAU: "bandeau"}
+
+
+async def lire_doc(id_doc: str, projection: Optional[dict] = None) -> dict:
+    """Document `id_doc` de `settings`, repris de l'ancienne collection `maintenance_portail` s'il n'y est pas encore."""
+    doc = await db.settings.find_one({"_id": id_doc}, projection)
+    if doc:
+        return doc
+    ancien = await db.maintenance_portail.find_one({"_id": ANCIENS_ID[id_doc]})
+    if not ancien:
+        return {}
+    await db.settings.update_one({"_id": id_doc}, {"$setOnInsert": {k: v for k, v in ancien.items() if k != "_id"}}, upsert=True)
+    return await db.settings.find_one({"_id": id_doc}, projection) or {}
+
+
 # Petit cache mémoire : l'état est lu à CHAQUE requête authentifiée ; les écritures le vident aussitôt.
 _cache: dict = {"lu_a": 0.0, "doc": None}
 
@@ -66,7 +85,7 @@ async def lire_etat(cache: bool = True) -> dict:
     """Document d'état de la maintenance (vide s'il n'existe pas encore)."""
     if cache and _cache["lu_a"] and time.monotonic() - _cache["lu_a"] < 3.0:
         return _cache["doc"] or {}
-    doc = await db.settings.find_one({"_id": ID_ETAT}) or {}
+    doc = await lire_doc(ID_ETAT)
     _cache.update(lu_a=time.monotonic(), doc=doc)
     return doc
 
@@ -151,6 +170,7 @@ async def _journaliser(action: str, adm: dict, doc: dict, **extra) -> None:
     """Journal des 30 dernières actions, gardé dans le document d'état."""
     ligne = {"id": str(uuid.uuid4()), "action": action, "date": maintenant().isoformat(), "par": _auteur(adm),
              **{k: doc.get(k) for k in ("message", "duree_minutes", "part_verrouillage", "echeance")}, **extra}
+    await lire_doc(ID_ETAT)                               # lot 48 : reprise éventuelle de l'ancien emplacement
     await db.settings.update_one({"_id": ID_ETAT}, {"$push": {"journal": {"$each": [ligne], "$position": 0, "$slice": 30}}},
                                             upsert=True)
 
@@ -191,6 +211,7 @@ async def annoncer(p: AnnonceIn, adm: dict = Depends(super_admin)):
     nouveau = {"actif": True, "message": p.message.strip(), "duree_minutes": p.duree_minutes,
                "part_verrouillage": p.part_verrouillage, "annonce_par": _auteur(adm),
                **calendrier(p.duree_minutes, p.part_verrouillage)}
+    await lire_doc(ID_ETAT)
     await db.settings.update_one({"_id": ID_ETAT}, {"$set": nouveau}, upsert=True)
     vider_cache()
     await _journaliser("ANNONCE", adm, nouveau)
@@ -228,7 +249,7 @@ async def reactiver(adm: dict = Depends(super_admin)):
 
 @router.get("/maintenance/journal")
 async def journal(adm: dict = Depends(super_admin)):
-    doc = await db.settings.find_one({"_id": ID_ETAT}, {"_id": 0, "journal": 1}) or {}
+    doc = await lire_doc(ID_ETAT, {"_id": 0, "journal": 1})
     return {"journal": doc.get("journal") or []}
 
 
@@ -275,7 +296,7 @@ _CHAMPS_ADMIN = _CHAMPS_PUBLICS + ("debut", "fin")
 async def lire_bandeau():
     """Bandeau d'alerte à afficher MAINTENANT — route PUBLIQUE (portail et page de connexion).
     {actif: false} s'il n'y en a pas, s'il est programmé pour plus tard ou si sa période est terminée."""
-    doc = await db.settings.find_one({"_id": ID_BANDEAU}, {"_id": 0}) or {}
+    doc = await lire_doc(ID_BANDEAU, {"_id": 0})
     if statut_bandeau(doc) != "affiche":
         return {"actif": False}
     return {k: doc.get(k) for k in _CHAMPS_PUBLICS}
@@ -284,7 +305,7 @@ async def lire_bandeau():
 @router.get("/bandeau/admin")
 async def lire_bandeau_admin(adm: dict = Depends(super_admin)):
     """Bandeau tel que le super-admin l'a saisi (même programmé ou terminé), avec son statut."""
-    doc = await db.settings.find_one({"_id": ID_BANDEAU}, {"_id": 0}) or {}
+    doc = await lire_doc(ID_BANDEAU, {"_id": 0})
     return {**{k: doc.get(k) for k in _CHAMPS_ADMIN}, "statut": statut_bandeau(doc)}
 
 

@@ -118,3 +118,22 @@ def test_bandeau_programme_affiche_seulement_dans_sa_periode():
     assert c.put("/api/bandeau", json={"message": "x", "debut": "demain"}).status_code == 422
     # Aucune nouvelle collection : tout est dans `settings`
     assert asyncio.run(db.list_collection_names()) == ["settings"]
+
+
+def test_lot48_reprise_du_bandeau_range_dans_l_ancienne_collection():
+    """Les lots 44-45 rangeaient le bandeau dans `maintenance_portail` ; le lot 46 l'a cherché dans `settings` : réglage « perdu ».
+    Il doit être repris (et recopié dans `settings`) sans rien perdre."""
+    c, db = _client(ADMIN)
+    asyncio.run(db.maintenance_portail.insert_one({"_id": "bandeau", "actif": True, "severite": "critical", "message": "Incident en cours",
+                                                   "image": "data:image/png;base64,iVBORw0KGgo=", "maj_le": "2026-10-19T22:00:00+00:00"}))
+    b = c.get("/api/bandeau").json()
+    assert b["actif"] and b["message"] == "Incident en cours" and b["severite"] == "critical" and b["image"]
+    copie = asyncio.run(db.settings.find_one({"_id": "maintenance_portail_bandeau"}))
+    assert copie and copie["message"] == "Incident en cours"                          # recopié : l'ancien emplacement n'est plus lu
+    # La maintenance annoncée avant le changement est reprise aussi
+    asyncio.run(db.maintenance_portail.insert_one({"_id": "etat", "actif": True, "message": "Maintenance 22 h", "duree_minutes": 5,
+                                                   "part_verrouillage": 5, **mt.calendrier(5, 5)}))
+    mt.vider_cache()
+    assert c.get("/api/maintenance/etat").json()["message"] == "Maintenance 22 h"
+    # Aucune nouvelle collection n'est créée par la lecture ; l'ancienne n'est jamais modifiée
+    assert asyncio.run(db.maintenance_portail.count_documents({})) == 2
