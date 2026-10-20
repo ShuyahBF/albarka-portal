@@ -29,20 +29,34 @@ function Apercu({ c }) {
   );
 }
 
+// Lecteur d'un média (contenu ou leçon) : vidéo intégrée, audio, PDF ou lien. `chemin` = route du fichier éventuel.
+function Lecteur({ item, chemin }) {
+  const [media, setMedia] = useState(null);
+  React.useEffect(() => {
+    setMedia(null);
+    if (!item.a_fichier) return undefined;
+    let url;
+    apiClient.get(chemin, { responseType: "blob" }).then((r) => { url = URL.createObjectURL(r.data); setMedia(url); })
+      .catch((e) => toast.error(extractError(e, "Ouverture impossible")));
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [item.id, item.a_fichier, chemin]);
+  if (item.embed_url) {
+    return (
+      <div className="aspect-video"><iframe title={item.titre} src={item.embed_url} className="w-full h-full rounded-lg" allowFullScreen
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" /></div>
+    );
+  }
+  if (item.format === "audio") return media ? <audio controls src={media} className="w-full" /> : <div className="text-muted-foreground">Chargement…</div>;
+  if (item.format === "pdf") return media ? <Button onClick={() => window.open(media, "_blank")}><FileText className="w-4 h-4 mr-2" />Ouvrir le document</Button> : <div className="text-muted-foreground">Chargement…</div>;
+  return item.url ? <a href={item.url} target="_blank" rel="noopener noreferrer" className="text-[#0F6B4A] underline">Ouvrir le lien</a> : null;
+}
+
 export default function GrilleContenus({ contenus, onAcheter, vide = "Rien à afficher pour le moment." }) {
   const [ouvert, setOuvert] = useState(null);
-  const [media, setMedia] = useState(null);             // URL locale du PDF / de l'audio chargé
+  const [lecon, setLecon] = useState(null);             // leçon choisie dans une série
   const [attente, setAttente] = useState(false);
 
-  const ouvrir = async (c) => {
-    setOuvert(c); setMedia(null);
-    if (c.acces && c.a_fichier) {
-      try {
-        const r = await apiClient.get(`/contenus/${c.id}/fichier`, { responseType: "blob" });
-        setMedia(URL.createObjectURL(r.data));
-      } catch (e) { toast.error(extractError(e, "Ouverture impossible")); }
-    }
-  };
+  const ouvrir = (c) => { setOuvert(c); setLecon(c.lecons?.length ? c.lecons[0] : null); };
   const acheter = async (c) => {
     setAttente(true);
     try { await onAcheter(c); } catch (e) { toast.error(extractError(e, "Paiement impossible")); } finally { setAttente(false); }
@@ -72,7 +86,7 @@ export default function GrilleContenus({ contenus, onAcheter, vide = "Rien à af
         ))}
       </div>
 
-      <Dialog open={!!ouvert} onOpenChange={(o) => { if (!o) { setOuvert(null); setMedia(null); } }}>
+      <Dialog open={!!ouvert} onOpenChange={(o) => { if (!o) { setOuvert(null); setLecon(null); } }}>
         <DialogContent className="max-w-xl">
           {ouvert && (<>
             <DialogHeader><DialogTitle>{ouvert.titre}</DialogTitle></DialogHeader>
@@ -84,13 +98,21 @@ export default function GrilleContenus({ contenus, onAcheter, vide = "Rien à af
                   <Button disabled={attente} onClick={() => acheter(ouvert)} className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="btn-acheter">
                     {attente && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}Acheter cette formation
                   </Button>
+                  {!!ouvert.lecons?.length && (
+                    <ol className="list-decimal pl-5 text-slate-700">{ouvert.lecons.map((l) => <li key={l.id}>{l.titre}</li>)}</ol>
+                  )}
                 </div>
-              ) : ouvert.embed_url ? (
-                <div className="aspect-video"><iframe title={ouvert.titre} src={ouvert.embed_url} className="w-full h-full rounded-lg" allowFullScreen
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" /></div>
-              ) : ouvert.format === "audio" ? (media ? <audio controls src={media} className="w-full" /> : <div className="text-muted-foreground">Chargement…</div>)
-              : ouvert.format === "pdf" ? (media ? <Button onClick={() => window.open(media, "_blank")}><FileText className="w-4 h-4 mr-2" />Ouvrir le document</Button> : <div className="text-muted-foreground">Chargement…</div>)
-              : ouvert.url ? <a href={ouvert.url} target="_blank" rel="noopener noreferrer" className="text-[#0F6B4A] underline">Ouvrir le lien</a> : null}
+              ) : ouvert.lecons?.length ? (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {ouvert.lecons.map((l, i) => (
+                      <button key={l.id} type="button" onClick={() => setLecon(l)} data-testid="lecon-onglet"
+                        className={`px-3 py-1.5 rounded-full border text-xs ${lecon?.id === l.id ? "bg-[#0F6B4A] text-white border-[#0F6B4A]" : "bg-white"}`}>{i + 1}. {l.titre}</button>
+                    ))}
+                  </div>
+                  {lecon && <Lecteur item={lecon} chemin={`/contenus/${ouvert.id}/lecons/${lecon.id}/fichier`} />}
+                </div>
+              ) : <Lecteur item={ouvert} chemin={`/contenus/${ouvert.id}/fichier`} />}
             </div>
           </>)}
         </DialogContent>

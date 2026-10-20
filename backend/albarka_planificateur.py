@@ -97,6 +97,14 @@ async def lancer_envois_wa_planifies() -> None:
     await cron_dispatch_scheduled_wa(authorization=_autorisation(), x_webhook_id=None)
 
 
+async def lancer_diffusion_infos() -> None:
+    """Lot 55 : diffusion WhatsApp de l'info de la semaine dès qu'elle est disponible (jamais de nuit)."""
+    from albarka_contenus import diffuser_infos_dues
+    bilan = await diffuser_infos_dues()
+    if bilan["infos"]:
+        logger.info("Diffusion de l'info de la semaine : %s", bilan)
+
+
 async def boucle_planificateur() -> None:
     """Boucle de fond : chaque minute, rappels du jour si dus ; toutes les 5 minutes, envois WA ;
     sauvegarde nocturne. Les envois et la sauvegarde sont réglés séparément (voir plus haut)."""
@@ -126,4 +134,8 @@ async def boucle_planificateur() -> None:
                 await lancer_envois_wa_planifies()
             except Exception:  # noqa: BLE001
                 logger.exception("Planificateur : envois WhatsApp planifiés en erreur")
+            try:
+                await lancer_diffusion_infos()
+            except Exception:  # noqa: BLE001
+                logger.exception("Planificateur : diffusion de l'info de la semaine en erreur")
         await asyncio.sleep(PAS_SECONDES)
