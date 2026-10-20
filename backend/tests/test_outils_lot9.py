@@ -189,6 +189,21 @@ def test_visibility_by_audience(env):
     assert c.get(f"/api/outils-numeriques/{both['id']}/telecharger", follow_redirects=False).status_code == 401
 
 
+def test_super_admin_voit_tous_les_outils_visibles_avec_leur_public(env):
+    """Lot 60 : l'administrateur du portail voit tous les outils visibles (public affiché) ; le Superviseur reste filtré."""
+    c = env.c
+    _create(c, caption="Pour tous")
+    _create(c, caption="Clients seulement", audience="clients")
+    _create(c, caption="Personnel seulement", audience="personnel")
+    _create(c, caption="Masqué", visible=False)
+    vus = c.get("/api/outils-numeriques", headers=H("admin")).json()["items"]
+    assert [(t["caption"], t["audience"]) for t in vus] == [
+        ("Pour tous", "tous"), ("Clients seulement", "clients"), ("Personnel seulement", "personnel")]
+    sup = [t["caption"] for t in c.get("/api/outils-numeriques", headers=H("sup")).json()["items"]]
+    assert sup == ["Pour tous", "Personnel seulement"]                       # le Superviseur n'a pas ce privilège
+    assert all("audience" not in t for t in c.get("/api/outils-numeriques", headers=H("c1")).json()["items"])
+
+
 def test_http_redirect_and_logging_with_real_ip(env):
     c = env.c
     t = _create(c, caption="Guide", link="https://cdn.exemple.bf/guide.pdf", version="3.0")
