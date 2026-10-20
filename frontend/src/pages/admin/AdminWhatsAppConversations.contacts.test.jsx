@@ -20,7 +20,7 @@ jest.mock("@/components/ui/button", () => ({ Button: ({ children, onClick, type,
 jest.mock("@/components/ui/input", () => ({ Input: (p) => <input {...p} /> }), { virtual: true });
 jest.mock("@/components/ui/textarea", () => ({ Textarea: (p) => <textarea {...p} /> }), { virtual: true });
 jest.mock("@/components/ui/badge", () => ({ Badge: ({ children }) => <span>{children}</span> }), { virtual: true });
-jest.mock("@/components/ui/dropdown-menu", () => { const P = ({ children }) => <div>{children}</div>; return { DropdownMenu: P, DropdownMenuTrigger: P, DropdownMenuContent: P, DropdownMenuItem: P, DropdownMenuLabel: P, DropdownMenuSeparator: P }; }, { virtual: true });
+jest.mock("@/components/ui/dropdown-menu", () => { const P = ({ children }) => <div>{children}</div>; return { DropdownMenu: P, DropdownMenuTrigger: P, DropdownMenuContent: P, DropdownMenuItem: ({ children, onClick, ...p }) => <div onClick={onClick} data-testid={p["data-testid"]}>{children}</div>, DropdownMenuLabel: P, DropdownMenuSeparator: P }; }, { virtual: true });
 jest.mock("@/components/ui/dialog", () => { const P = ({ children }) => <div>{children}</div>; return { Dialog: ({ open, children }) => (open ? <div>{children}</div> : null), DialogContent: P, DialogHeader: P, DialogTitle: P, DialogFooter: P, DialogDescription: P }; }, { virtual: true });
 jest.mock("@/components/ui/command", () => { const P = ({ children }) => <div>{children}</div>; return { Command: P, CommandEmpty: P, CommandGroup: P, CommandInput: P, CommandItem: P, CommandList: P }; }, { virtual: true });
 jest.mock("sonner", () => ({ toast: { success: jest.fn(), error: jest.fn(), info: jest.fn(), warning: jest.fn() } }), { virtual: true });
@@ -114,32 +114,46 @@ test("lot 38 : répondre en citant un message envoie reply_to_id ; l'état Lu es
 });
 
 
-test("lot 45 : emoji inséré, document joint envoyé en multipart avec la légende ; vidéo refusée", async () => {
+test("lot 45 / 47 : emoji inséré ; image envoyée en multipart ; document pris dans la bibliothèque (send-archive) ; vidéo et PDF libre refusés", async () => {
+  mockGet.mockImplementation((url, cfg) => {
+    if (url === "/archives") return Promise.resolve({ data: [{ id: "A1", title: "Contrat type", original_filename: "contrat.pdf", partageable: true, a_fichier: true }] });
+    if (url === "/contacts") return Promise.resolve({ data: [{ id: "c1", scope: "cabinet", full_name: "Awa Cabinet", phone: "+22670000001", channels: ["whatsapp"] }] });
+    return Promise.resolve({ data: [] });
+  });
   const conteneur = document.createElement("div"); document.body.appendChild(conteneur);
   const racine = createRoot(conteneur);
   await act(async () => { racine.render(<AdminWhatsAppConversations />); });
   await attendre(30);
   await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-contact-c1"]').click(); });
   await attendre(80);
-  // Emoji : inséré dans la zone de saisie
   await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-emoji-btn"]').click(); });
   expect(conteneur.querySelector('[data-testid="wa-inbox-reply-input"]').value).toContain("😀");
-  // Vidéo : refusée, aucun fichier joint
+  // Vidéo et PDF libre : refusés côté écran, aucune puce
   const entree = conteneur.querySelector('[data-testid="wa-inbox-fichier-input"]');
   const choisir = async (f) => { Object.defineProperty(entree, "files", { value: [f], configurable: true }); await act(async () => { entree.dispatchEvent(new Event("change", { bubbles: true })); }); };
   await choisir(new File(["x"], "film.mp4", { type: "video/mp4" }));
-  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]')).toBeNull();
-  // PDF : puce affichée puis envoi en multipart
   await choisir(new File(["%PDF"], "bulletin.pdf", { type: "application/pdf" }));
-  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]').textContent).toContain("bulletin.pdf");
+  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]')).toBeNull();
+  // Image : puce puis envoi en multipart
+  await choisir(new File(["\x89PNG"], "plan.png", { type: "image/png" }));
+  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]').textContent).toContain("plan.png");
   mockPost.mockClear();
   mockPost.mockResolvedValueOnce({ data: { ok: true, result: {} } });
   await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-send-btn"]').click(); });
   await attendre(30);
   const [url, corps] = mockPost.mock.calls[0];
   expect(url).toBe("/whatsapp/conversations/%2B22670000001/send-file");
-  expect(corps.get("fichier").name).toBe("bulletin.pdf");
-  expect(corps.get("legende")).toContain("😀");
-  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]')).toBeNull();        // puce retirée après l'envoi
+  expect(corps.get("fichier").name).toBe("plan.png");
+  // Document : choisi dans la bibliothèque (partageable) puis envoyé par send-archive
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-joindre-biblio"]').click(); });
+  await attendre(30);
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-biblio-A1"]').click(); });
+  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]').textContent).toContain("Contrat type");
+  mockPost.mockClear();
+  mockPost.mockResolvedValueOnce({ data: { ok: true, result: {} } });
+  await act(async () => { conteneur.querySelector('[data-testid="wa-inbox-send-btn"]').click(); });
+  await attendre(30);
+  expect(mockPost).toHaveBeenCalledWith("/whatsapp/conversations/%2B22670000001/send-archive", { archive_id: "A1", legende: "" });
+  expect(conteneur.querySelector('[data-testid="wa-inbox-fichier-joint"]')).toBeNull();
   act(() => racine.unmount());
 });

@@ -7,6 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,8 @@ import { Badge } from "@/components/ui/badge";
 export function AdminArchives() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", category: "autre", description: "", tags: "" });
+  const [form, setForm] = useState({ title: "", category: "autre", description: "", tags: "", partageable: false });
+  const [fichierBiblio, setFichierBiblio] = useState(null);   // lot 47 : document (PDF / Word) chargé dans la bibliothèque
 
   const load = async () => {
     try { const { data } = await apiClient.get("/archives"); setItems(data); }
@@ -28,15 +30,32 @@ export function AdminArchives() {
   const submit = async () => {
     if (!form.title) { toast.error("Titre requis"); return; }
     try {
-      await apiClient.post("/archives", {
-        title: form.title, category: form.category, description: form.description || null,
-        tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
-      });
+      if (fichierBiblio) {
+        // Lot 47 : document chargé dans la bibliothèque (PDF, Word), éventuellement « partageable » en conversation WhatsApp
+        const corps = new FormData();
+        corps.append("fichier", fichierBiblio);
+        corps.append("title", form.title); corps.append("category", form.category);
+        corps.append("description", form.description || ""); corps.append("tags", form.tags || "");
+        corps.append("partageable", form.partageable ? "true" : "false");
+        await apiClient.post("/archives/fichier", corps);
+      } else {
+        await apiClient.post("/archives", {
+          title: form.title, category: form.category, description: form.description || null,
+          tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+        });
+      }
       toast.success("Archive ajoutée");
       setOpen(false);
-      setForm({ title: "", category: "autre", description: "", tags: "" });
+      setForm({ title: "", category: "autre", description: "", tags: "", partageable: false });
+      setFichierBiblio(null);
       await load();
     } catch (err) { toast.error(extractError(err)); }
+  };
+
+  // Lot 47 : marquer / démarquer un document « partageable » (joignable aux conversations WhatsApp)
+  const basculerPartageable = async (a, valeur) => {
+    try { await apiClient.patch(`/archives/${a.id}/partageable`, { partageable: valeur }); await load(); }
+    catch (err) { toast.error(extractError(err)); }
   };
 
   const remove = async (a) => {
@@ -64,6 +83,13 @@ export function AdminArchives() {
               <div><Label>Catégorie</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} data-testid="archive-category-input" /></div>
               <div><Label>Description</Label><Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="archive-desc-input" /></div>
               <div><Label>Tags (virgules)</Label><Input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} data-testid="archive-tags-input" /></div>
+              {/* Lot 47 : document de la bibliothèque (PDF / Word) et case « partageable » */}
+              <div><Label>Document (PDF ou Word, facultatif)</Label>
+                <input type="file" accept=".pdf,.doc,.docx" onChange={(e) => setFichierBiblio(e.target.files?.[0] || null)} className="block w-full text-sm" data-testid="archive-fichier-input" /></div>
+              <label className="flex items-center gap-2 text-sm">
+                <Switch checked={form.partageable && !!fichierBiblio} disabled={!fichierBiblio} onCheckedChange={(v) => setForm({ ...form, partageable: v })} data-testid="archive-partageable-input" />
+                Partageable : proposé dans les conversations WhatsApp
+              </label>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
@@ -74,14 +100,19 @@ export function AdminArchives() {
       </div>
       <div className="albarka-card overflow-hidden">
         <Table>
-          <TableHeader><TableRow><TableHead>Titre</TableHead><TableHead>Catégorie</TableHead><TableHead>Tags</TableHead><TableHead>Créé</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Titre</TableHead><TableHead>Catégorie</TableHead><TableHead>Tags</TableHead><TableHead>Partageable</TableHead><TableHead>Créé</TableHead><TableHead className="text-right">Action</TableHead></TableRow></TableHeader>
           <TableBody>
-            {items.length === 0 && <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">Aucun document archivé.</TableCell></TableRow>}
+            {items.length === 0 && <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">Aucun document archivé.</TableCell></TableRow>}
             {items.map((a) => (
               <TableRow key={a.id}>
                 <TableCell className="font-medium flex items-center gap-2"><Archive className="w-4 h-4 text-[#0F6B4A]" />{a.title}</TableCell>
                 <TableCell><span className="albarka-chip bg-slate-100 text-slate-700">{a.category}</span></TableCell>
                 <TableCell className="text-xs">{(a.tags || []).join(", ")}</TableCell>
+                <TableCell>
+                  {a.a_fichier
+                    ? <Switch checked={!!a.partageable} onCheckedChange={(v) => basculerPartageable(a, v)} aria-label="Partageable" data-testid={`archive-partageable-${a.id}`} />
+                    : <span className="text-xs text-muted-foreground" title="Chargez un document (PDF ou Word) pour pouvoir le partager">pas de fichier</span>}
+                </TableCell>
                 <TableCell className="text-xs">{a.created_at?.slice(0, 10)}</TableCell>
                 <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={() => remove(a)} data-testid={`delete-archive-${a.id}`}><Trash2 className="w-4 h-4 text-red-600" /></Button></TableCell>
               </TableRow>

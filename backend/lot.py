@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "46"
-LOT_LIBELLE = "Bandeaux d'alerte programmables (date et heure de début et de fin) ; alerte / maintenance sans nouvelle collection (cluster Atlas plein)"
+LOT = "47"
+LOT_LIBELLE = "Conversations WhatsApp : les documents (PDF, Word) viennent de la bibliothèque et doivent être marqués partageable ; images JPEG / PNG depuis l'appareil"
