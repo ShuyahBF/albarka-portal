@@ -295,3 +295,33 @@ def test_fichiers_recus_conserves_et_visibles_dans_le_fil(monkeypatch):
         await asyncio.sleep(0)
     asyncio.run(principal())
     assert lances == [("https://sawali.test/f/abc", "application/pdf", "recu.pdf")]
+
+
+def test_purge_vide_aussi_le_support_sawali(monkeypatch):
+    """Lot 59 — le bouton « Vider les conversations » demande aussi à SAWALI de vider l'espace Support."""
+    import albarka_support_sawali as sup
+    appels = []
+
+    async def faux(chemin, corps, delai=15):
+        appels.append((chemin, corps))
+        return {"ok": True, "messages_supprimes": 4, "fichiers_supprimes": 1}
+    monkeypatch.setattr(sup, "appeler_sawali", faux)
+    monkeypatch.setattr(sup, "configure", lambda: True)
+    c = _appli(ADMIN_ACCOUNT_EMAIL)
+    r = c.post("/api/whatsapp/conversations/purge", json={"confirmation": "SUPPRIMER"}).json()
+    assert appels == [("/support-plateforme/purge", {"confirmation": "SUPPRIMER"})]
+    assert r["messages_supprimes"] == 2 and r["support"] == {"vide": True, "erreur": None, "messages_supprimes": 4, "fichiers_supprimes": 1}
+
+
+def test_purge_locale_faite_meme_si_sawali_injoignable(monkeypatch):
+    from fastapi import HTTPException
+    import albarka_support_sawali as sup
+
+    async def panne(chemin, corps, delai=15):
+        raise HTTPException(status_code=503, detail="Support SAWALI injoignable : réessayez dans un instant")
+    monkeypatch.setattr(sup, "appeler_sawali", panne)
+    monkeypatch.setattr(sup, "configure", lambda: True)
+    c = _appli(ADMIN_ACCOUNT_EMAIL)
+    r = c.post("/api/whatsapp/conversations/purge", json={"confirmation": "SUPPRIMER"}).json()
+    assert r["messages_supprimes"] == 2 and r["support"]["vide"] is False and "injoignable" in r["support"]["erreur"]
+    assert c.portal.call(c.db.wa_messages.count_documents, {}) == 0

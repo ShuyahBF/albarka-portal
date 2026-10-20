@@ -498,11 +498,27 @@ async def _super_admin(user: dict = Depends(get_current_user)) -> dict:
 async def purger_conversations(payload: PurgePayload, user: dict = Depends(_super_admin)):
     """Vide TOUTES les conversations WhatsApp du portail (messages et étiquettes), pour repartir à zéro après des tests.
     Réservé au compte super-admin ; il faut renvoyer la confirmation « SUPPRIMER ». Ne touche ni aux contacts, ni aux
-    réponses rapides, ni aux données de SAWALI (journal de transmission), ni aux messages déjà reçus sur les téléphones."""
+    réponses rapides, ni au journal de transmission de SAWALI, ni aux messages déjà reçus sur les téléphones.
+    Lot 59 : vide aussi les messages du support SAWALI de cette plateforme (appel signé, au mieux)."""
     if (payload.confirmation or "").strip().upper() != "SUPPRIMER":
         raise HTTPException(status_code=422, detail="Tapez SUPPRIMER pour confirmer la remise à zéro des conversations")
     messages = await db.wa_messages.delete_many({})
     etiquettes = await db.wa_conversation_labels.delete_many({})
     logger.warning("[wa_inbox] conversations vidées par %s : %s messages, %s étiquettes",
                    user.get("email"), messages.deleted_count, etiquettes.deleted_count)
-    return {"ok": True, "messages_supprimes": messages.deleted_count, "etiquettes_supprimees": etiquettes.deleted_count}
+    # Lot 59 : le même bouton vide aussi la discussion avec le support SAWALI (espace « ALBARKA - Support » chez SAWALI).
+    # Au mieux : si SAWALI est injoignable ou pas encore à jour, la remise à zéro locale reste faite et on l'indique.
+    support: dict = {"vide": False, "erreur": None}
+    from albarka_support_sawali import appeler_sawali, configure as support_configure
+    if support_configure():
+        try:
+            r = await appeler_sawali("/support-plateforme/purge", {"confirmation": "SUPPRIMER"})
+            support = {"vide": True, "erreur": None, "messages_supprimes": r.get("messages_supprimes", 0),
+                       "fichiers_supprimes": r.get("fichiers_supprimes", 0)}
+        except HTTPException as exc:
+            support = {"vide": False, "erreur": str(exc.detail)}
+        except Exception:  # noqa: BLE001
+            logger.exception("[wa_inbox] purge du support SAWALI en erreur")
+            support = {"vide": False, "erreur": "Support SAWALI : erreur inattendue"}
+    return {"ok": True, "messages_supprimes": messages.deleted_count, "etiquettes_supprimees": etiquettes.deleted_count,
+            "support": support}
