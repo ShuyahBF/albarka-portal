@@ -5,7 +5,7 @@
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Eye, EyeOff, ListVideo, KeyRound, Send } from "lucide-react";
+import { Plus, Trash2, Eye, EyeOff, ListVideo, KeyRound, Send, ArrowUp, ArrowDown, BarChart3 } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +32,8 @@ export default function AdminContenus() {
   const [acces, setAcces] = useState([]);
   const [clients, setClients] = useState([]);
   const [clientChoisi, setClientChoisi] = useState("");
+  const [avancementDe, setAvancementDe] = useState(null);   // id de la formation dont on regarde l'avancement
+  const [avancement, setAvancement] = useState([]);
 
   const charger = useCallback(() => apiClient.get("/contenus/admin/tout").then(({ data }) => setListe(data))
     .catch((e) => { toast.error(extractError(e)); setListe([]); }), []);
@@ -68,6 +70,18 @@ export default function AdminContenus() {
     catch (e) { toast.error(extractError(e)); }
   };
   const retirerAcces = async (tid) => { try { await apiClient.delete(`/contenus/${accesDe}/acces/${tid}`); chargerAcces(accesDe); charger(); } catch (e) { toast.error(extractError(e)); } };
+  // Monte / descend une leçon puis enregistre le nouvel ordre
+  const deplacer = async (i, delta) => {
+    const ids = (contenuLecons?.lecons || []).map((l) => l.id);
+    const j = i + delta;
+    if (j < 0 || j >= ids.length) return;
+    [ids[i], ids[j]] = [ids[j], ids[i]];
+    try { await apiClient.put(`/contenus/${leconsDe}/lecons-ordre`, { ids }); charger(); } catch (e) { toast.error(extractError(e)); }
+  };
+  const voirAvancement = (id) => {
+    setAvancementDe(id); setAvancement([]);
+    apiClient.get(`/contenus/${id}/progression`).then(({ data }) => setAvancement(data)).catch((e) => toast.error(extractError(e)));
+  };
   const contenuLecons = (liste || []).find((c) => c.id === leconsDe);
   const contenuAcces = (liste || []).find((c) => c.id === accesDe);
 
@@ -122,6 +136,7 @@ export default function AdminContenus() {
                 <span className="text-muted-foreground">{c.publie ? "Publié" : "Brouillon"}{c.type === "formation" ? ` · ${c.gratuit ? "gratuit" : `${c.prix} FCFA · ${c.achats} achat(s)`}` : ""}</span>
                 {c.diffusion && <span className="text-xs text-muted-foreground">WhatsApp : {{ a_envoyer: "programmée", en_cours: "en cours", envoyee: `envoyée (${c.diffusion.nb_envoyes ?? 0})` }[c.diffusion.statut] || c.diffusion.statut}</span>}
                 <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setLeconsDe(c.id)}><ListVideo className="w-4 h-4 mr-1" />Leçons ({c.lecons?.length || 0})</Button>
+                {c.type === "formation" && <Button variant="ghost" size="sm" onClick={() => voirAvancement(c.id)} data-testid="btn-avancement"><BarChart3 className="w-4 h-4 mr-1" />Avancement</Button>}
                 {c.type === "formation" && !c.gratuit && <Button variant="ghost" size="sm" onClick={() => ouvrirAcces(c.id)} data-testid="btn-acces"><KeyRound className="w-4 h-4 mr-1" />Accès</Button>}
                 {c.type === "info" && c.publie && <Button variant="ghost" size="sm" onClick={() => diffuser(c)}><Send className="w-4 h-4 mr-1" />Diffuser</Button>}
                 <Button variant="ghost" size="sm" onClick={() => basculer(c)}>{c.publie ? <><EyeOff className="w-4 h-4 mr-1" />Masquer</> : <><Eye className="w-4 h-4 mr-1" />Publier</>}</Button>
@@ -139,8 +154,10 @@ export default function AdminContenus() {
         <DialogContent className="max-w-xl max-h-[85dvh] overflow-y-auto">
           <DialogHeader><DialogTitle>Leçons — {contenuLecons?.titre}</DialogTitle></DialogHeader>
           <ol className="list-decimal pl-5 text-sm space-y-1">
-            {(contenuLecons?.lecons || []).map((l) => (
+            {(contenuLecons?.lecons || []).map((l, i) => (
               <li key={l.id}>{l.titre} <span className="text-muted-foreground">({l.format})</span>
+                <button type="button" className="ml-2" onClick={() => deplacer(i, -1)} aria-label={`Monter ${l.titre}`} data-testid="lecon-monter"><ArrowUp className="w-3.5 h-3.5 inline" /></button>
+                <button type="button" className="ml-1" onClick={() => deplacer(i, 1)} aria-label={`Descendre ${l.titre}`}><ArrowDown className="w-3.5 h-3.5 inline" /></button>
                 <button type="button" className="ml-2 text-rose-600" onClick={() => retirerLecon(l.id)} aria-label={`Retirer ${l.titre}`}><Trash2 className="w-3.5 h-3.5 inline" /></button></li>
             ))}
             {!contenuLecons?.lecons?.length && <li className="list-none text-muted-foreground">Aucune leçon pour le moment.</li>}
@@ -156,6 +173,22 @@ export default function AdminContenus() {
               : <input type="file" accept={lecon.format === "pdf" ? ".pdf" : "audio/*"} onChange={(e) => setLeconFichier(e.target.files?.[0] || null)} />}
             <Button type="submit" className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="lecon-ajouter">Ajouter la leçon</Button>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Avancement des clients sur une formation */}
+      <Dialog open={!!avancementDe} onOpenChange={(o) => !o && setAvancementDe(null)}>
+        <DialogContent className="max-w-xl max-h-[85dvh] overflow-y-auto">
+          <DialogHeader><DialogTitle>Avancement — {(liste || []).find((c) => c.id === avancementDe)?.titre}</DialogTitle></DialogHeader>
+          <div className="space-y-2 text-sm">
+            {avancement.map((a) => (
+              <div key={a.tenant_id} className="border rounded p-2">
+                <div className="flex gap-2"><span className="font-medium">{a.client}</span><span className="ml-auto text-muted-foreground">{a.terminees} / {a.total} · {a.pct} %</span></div>
+                <div className="h-1.5 bg-slate-100 rounded mt-1"><div className="h-1.5 rounded bg-[#0F6B4A]" style={{ width: `${a.pct}%` }} /></div>
+              </div>
+            ))}
+            {!avancement.length && <div className="text-muted-foreground">Aucun client n'a encore commencé cette formation.</div>}
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -119,3 +119,42 @@ def test_diffusion_coupee_par_reglage(monkeypatch):
     assert c.put("/api/contenus/admin/reglages", json={"diffusion_wa": False}).json()["diffusion_wa"] is False
     r = c.post("/api/contenus", data={"type": "info", "titre": "Sans diffusion", "format": "lien", "url": "https://exemple.bf/x", "theme": "autre"})
     assert "diffusion" not in r.json()
+
+
+# ---------------------------------------------------------------- lot 56 : ordre et progression
+def _serie(c, titre="Série", prix="0"):
+    cid = c.post("/api/contenus", data={"type": "formation", "titre": titre, "format": "serie", "theme": "rh", "prix": prix}).json()["id"]
+    ids = []
+    for t in ("A", "B", "C"):
+        r = c.post(f"/api/contenus/{cid}/lecons", data={"titre": t, "format": "lien", "url": "https://exemple.bf/" + t})
+        ids = [l["id"] for l in r.json()["lecons"]]
+    return cid, ids
+
+
+def test_reordonner_les_lecons(monkeypatch):
+    c = _app(monkeypatch)
+    cid, ids = _serie(c)
+    r = c.put(f"/api/contenus/{cid}/lecons-ordre", json={"ids": [ids[2], ids[0], ids[1]]})
+    assert [l["titre"] for l in r.json()["lecons"]] == ["C", "A", "B"]
+    assert c.put(f"/api/contenus/{cid}/lecons-ordre", json={"ids": [ids[0]]}).status_code == 400      # liste incomplète
+
+
+def test_progression_par_client_et_vue_cabinet(monkeypatch):
+    c = _app(monkeypatch)
+    cid, ids = _serie(c)                                                   # gratuite : accès libre
+    asyncio.run(c.db.users.insert_one({"id": "c1", "roles": ["client"], "company": "Société Un"}))
+    r = c.post(f"/api/contenus/{cid}/progression", json={"lecon_id": ids[0], "fait": True}).json()
+    assert r["pct"] == 33 and r["total"] == 3
+    c.post(f"/api/contenus/{cid}/progression", json={"lecon_id": ids[1], "fait": True})
+    f = c.get("/api/contenus?type=formation").json()[0]
+    assert f["progression"]["pct"] == 67 and f["progression"]["derniere"] == ids[1]
+    assert c.post(f"/api/contenus/{cid}/progression", json={"lecon_id": ids[1], "fait": False}).json()["pct"] == 33
+    assert c.post(f"/api/contenus/{cid}/progression", json={"lecon_id": "inconnue"}).status_code == 404
+    suivi = c.get(f"/api/contenus/{cid}/progression").json()
+    assert suivi == [{"tenant_id": "c1", "client": "Société Un", "terminees": 1, "total": 3, "pct": 33, "maj": suivi[0]["maj"]}]
+
+
+def test_progression_refusee_sans_acces_payant(monkeypatch):
+    c = _app(monkeypatch)
+    cid, ids = _serie(c, prix="9000")
+    assert c.post(f"/api/contenus/{cid}/progression", json={"lecon_id": ids[0], "fait": True}).status_code == 402
