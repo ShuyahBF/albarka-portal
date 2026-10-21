@@ -135,7 +135,9 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
   // Signalement d'un incident d'affichage (journal du serveur) : silencieux, jamais bloquant
   const signalerPlantage = (d) => { apiClient.post(`${publicApiBase}/${token}/rapport-erreur`, d).catch(() => {}); };
   const shell = (children) => (
-    <div className="min-h-screen bg-slate-50 py-8 px-4" data-testid="public-form-page">
+    // Lot 64 : translate="no" — la traduction automatique du navigateur (Chrome) modifie la page en cours d'affichage et
+    // provoquait « insertBefore … n'est pas un enfant de ce nœud » (incident d'affichage du 20/10/2026) ; la page est déjà en français.
+    <div className="min-h-screen bg-slate-50 py-8 px-4" data-testid="public-form-page" translate="no" lang="fr">
       <div className="max-w-2xl mx-auto">
         {(brand.logoUrl || brand.name) && (
           <div className="flex items-center gap-2 mb-4">
