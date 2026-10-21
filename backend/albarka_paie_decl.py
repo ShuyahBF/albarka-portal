@@ -26,8 +26,10 @@ LOGO_CNSS = MODELES / "logo_cnss.png"              # emblème CNSS du modèle d'
 # Emplacement du logo (points, depuis le coin haut-gauche de la feuille) : colonne A, lignes 1 à 5 du modèle
 CADRE_LOGO = (2.0, 1.5, 81.0, 73.0)                # x, y, largeur, hauteur
 
-# Couleurs d'origine : remplissage « indexé 22 » (gris argent) et police « thème 10 » / « indexé 12 » (bleu des liens)
-GRIS_ARGENT = (0.753, 0.753, 0.753)
+# Couleurs : remplissage « indexé 22 » du modèle (gris argent C0C0C0), ÉCLAIRCI à la demande du propriétaire (lot 71) en DBDBDB ;
+# police « thème 10 » / « indexé 12 » (bleu des liens)
+GRIS_CLAIR_HEX = "DBDBDB"
+GRIS_ARGENT = (0xDB / 255, 0xDB / 255, 0xDB / 255)
 BLEU = (0.0, 0.0, 1.0)
 
 
@@ -285,6 +287,11 @@ def remplir_feuille_decl_excel(ws, d: Dict[str, Any], ligne_total_btn: int, logo
     """Inscrit la déclaration dans la feuille DECL du gabarit, avec les formules du classeur d'origine."""
     from openpyxl.drawing.image import Image as XlImage
 
+    from openpyxl.styles import PatternFill
+    for ligne in ws.iter_rows():                                          # gris du rappel éclairci (comme sur le PDF)
+        for cell in ligne:
+            if cell.fill and cell.fill.fill_type == "solid" and cell.fill.fgColor.type == "indexed" and cell.fill.fgColor.indexed == 22:
+                cell.fill = PatternFill("solid", fgColor=GRIS_CLAIR_HEX)
     v = valeurs_decl(d)
     for cle in ("G8", "J8", "F10", "D13", "E14", "I18", "B26", "D26", "F26", "I26", "H32", "H35", "H38", "A50", "I51"):
         ws[cle] = v[cle]
