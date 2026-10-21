@@ -19,7 +19,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 import albarka_storage
-from albarka_auth import require_roles, require_staff
+from albarka_auth import get_current_user, require_roles, require_staff
 from albarka_models import CLIENT_MANAGE_ROLES
 from db import db, serialize, serialize_many
 
@@ -263,11 +263,8 @@ async def attach_document(contract_id: str, file: UploadFile = File(...), user: 
     return {"ok": True, "document": _public({"document": nouveau})["document"]}
 
 
-@router.get("/{contract_id}/document")
-async def get_document(contract_id: str, download: bool = False, user: dict = Depends(_gestion_contrats)):
-    """Renvoie le document attaché (affiché dans le navigateur, ou téléchargé avec ?download=true)."""
-    contrat = await db.client_contracts.find_one({"id": contract_id}, {"_id": 0, "document": 1})
-    d = (contrat or {}).get("document")
+async def _reponse_document(d: Optional[dict], download: bool) -> Response:
+    """Fichier du contrat prêt à être renvoyé (utilisé par le cabinet ET par le client propriétaire du contrat)."""
     if not d:
         raise HTTPException(status_code=404, detail="Aucun document attaché à ce contrat")
     data, ct = await albarka_storage.get_object(d["storage_path"])
@@ -277,6 +274,47 @@ async def get_document(contract_id: str, download: bool = False, user: dict = De
     return Response(content=data, media_type=d.get("content_type") or ct or "application/octet-stream",
                     headers={"Content-Disposition":
                              f'{"attachment" if download else "inline"}; filename="{ascii_nom}"; filename*=UTF-8\'\'{quote(nom)}'})
+
+
+@router.get("/{contract_id}/document")
+async def get_document(contract_id: str, download: bool = False, user: dict = Depends(_gestion_contrats)):
+    """Renvoie le document attaché (affiché dans le navigateur, ou téléchargé avec ?download=true)."""
+    contrat = await db.client_contracts.find_one({"id": contract_id}, {"_id": 0, "document": 1})
+    return await _reponse_document((contrat or {}).get("document"), download)
+
+
+# ---------------------------------------------------------------- lot 67 : le client voit ses contrats
+me_router = APIRouter(prefix="/me/contracts", tags=["Contrats — espace client"])
+
+
+def _exiger_client(user: dict) -> None:
+    if "client" not in (user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="Réservé aux clients")
+
+
+@me_router.get("")
+async def my_contracts(user: dict = Depends(get_current_user)):
+    """Contrats DU client connecté (jamais ceux d'un autre), avec le document attaché s'il y en a un.
+    Aucune information interne (notes, auteur, chemin de stockage)."""
+    _exiger_client(user)
+    items = await db.client_contracts.find({"tenant_id": user["id"]}, {"_id": 0}).sort("start_date", -1).to_list(200)
+    champs = ("id", "numero_contrat", "title", "start_date", "end_date", "amount", "currency", "status", "date_dernier_paiement")
+    out = []
+    for c in items:
+        pub = {k: c.get(k) for k in champs}
+        d = c.get("document")
+        pub["document"] = ({"filename": d.get("filename"), "size": d.get("size"), "content_type": d.get("content_type"),
+                            "uploaded_at": d.get("uploaded_at")} if d else None)
+        out.append(pub)
+    return {"items": serialize_many(out)}
+
+
+@me_router.get("/{contract_id}/document")
+async def my_contract_document(contract_id: str, download: bool = False, user: dict = Depends(get_current_user)):
+    """Ouvre / télécharge le document de SON contrat ; un contrat d'un autre client répond « introuvable »."""
+    _exiger_client(user)
+    contrat = await db.client_contracts.find_one({"id": contract_id, "tenant_id": user["id"]}, {"_id": 0, "document": 1})
+    return await _reponse_document((contrat or {}).get("document"), download)
 
 
 @router.delete("/{contract_id}/document")
