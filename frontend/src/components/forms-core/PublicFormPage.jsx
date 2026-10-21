@@ -17,7 +17,7 @@
 
   Props : publicApiBase ("/public/forms"), token, brand { name, logoUrl }
 */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2, Lock } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import FormRenderer from "./FormRenderer";
@@ -27,6 +27,23 @@ import { ui, cx } from "./ui";
 // Durée de conservation du brouillon sur l'appareil : 30 jours
 const DUREE_BROUILLON_MS = 30 * 24 * 3600 * 1000;
 const heureCourte = (t) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+
+// Lot 65 — identifiants aléatoires : code de reprise de l'appareil (brouillon sur le serveur) et clé d'envoi (évite les doublons)
+const aleatoire = () => {
+  try { return Array.from(window.crypto.getRandomValues(new Uint8Array(12))).map((b) => b.toString(16).padStart(2, "0")).join(""); }
+  catch { return (Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2)).slice(0, 24).padEnd(12, "0"); }
+};
+const CODE_VALIDE = /^[A-Za-z0-9_-]{8,64}$/;
+// Code de reprise : celui du lien (?reprise=…), sinon celui de l'appareil (mémorisé), sinon un code créé pour cette page
+const codeReprise = () => {
+  try {
+    const l = new URLSearchParams(window.location.search).get("reprise");
+    if (l && CODE_VALIDE.test(l)) return l;
+    let c = window.localStorage.getItem("forms-cle-appareil");
+    if (!c || !CODE_VALIDE.test(c)) { c = aleatoire(); window.localStorage.setItem("forms-cle-appareil", c); }
+    return c;
+  } catch { return aleatoire(); }
+};
 
 // Lot 32 (18/10/2026) — filet de sécurité : si l'affichage plante, plus d'écran blanc. Un message en français rappelle que les réponses
 // sont gardées sur l'appareil (brouillon), propose de recharger, et l'erreur est signalée au serveur (journal) pour être corrigée.
@@ -63,6 +80,11 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
   const [globalError, setGlobalError] = useState(null);
   const [restaure, setRestaure] = useState(null);   // heure du brouillon restauré à l'ouverture
   const [sauve, setSauve] = useState(null);         // heure du dernier enregistrement du brouillon
+  const [sauveServeur, setSauveServeur] = useState(null);   // lot 65 : heure du dernier enregistrement SUR LE SERVEUR (null = pas encore / échec)
+  const [recu, setRecu] = useState(null);                     // lot 65 : numéro d'accusé de réception donné par le serveur
+  const cleReprise = useRef(null);                            // lot 65 : code de reprise du brouillon serveur
+  if (cleReprise.current === null) cleReprise.current = codeReprise();
+  const cleEnvoi = useRef(aleatoire());                       // lot 65 : clé d'envoi (rejouer l'envoi ne crée jamais de doublon)
 
   // Clé du brouillon : un brouillon par formulaire (jeton) et par navigateur. Les accès au stockage sont protégés
   // (navigation privée, stockage plein ou bloqué) : sans stockage, la page fonctionne comme avant.
@@ -83,7 +105,17 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
         if (r.data.previous_data) { setData(r.data.previous_data); return; }   // modification d'une réponse déjà envoyée
         // Brouillon enregistré sur cet appareil (coupure de courant, page fermée…) : on le remet
         const b = lireBrouillon();
-        if (b) { setData(b.data || {}); setRespondent(b.respondent || { name: "", email: "" }); setRestaure(b.at); }
+        // Lot 65 : brouillon enregistré sur le SERVEUR (autre appareil, cache vidé…) : le plus récent des deux est repris
+        apiClient.get(`${publicApiBase}/${token}/brouillon`, { params: { cle: cleReprise.current } })
+          .then((rb) => rb.data?.brouillon || null).catch(() => null)
+          .then((sb) => {
+            const tSrv = sb?.updated_at ? Date.parse(sb.updated_at) : 0;
+            if (sb && tSrv > (b?.at || 0)) {
+              setData(sb.data || {}); setRespondent({ name: sb.respondent_name || "", email: sb.respondent_email || "" }); setRestaure(tSrv);
+            } else if (b) {
+              setData(b.data || {}); setRespondent(b.respondent || { name: "", email: "" }); setRestaure(b.at);
+            }
+          });
       })
       .catch((e) => setFailure(errorText(e, "Ce lien n'est pas valide.")));
   }, [publicApiBase, token]);
@@ -100,6 +132,20 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
         setSauve(at);
       } catch { /* stockage plein ou bloqué : le brouillon n'est simplement pas gardé */ }
     }, 600);
+    return () => clearTimeout(t);
+  }, [data, respondent, ctx, done]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lot 65 — enregistrement automatique SUR LE SERVEUR (2,5 s après la dernière saisie) : une page fermée, une coupure, un autre appareil
+  // ne font plus perdre le travail. Un échec n'empêche rien : le brouillon de l'appareil reste là, et l'état affiché le dit.
+  useEffect(() => {
+    if (!ctx || done || ctx.closed_reason) return undefined;
+    const vide = Object.keys(data).length === 0 && !respondent.name && !respondent.email;
+    if (vide) return undefined;
+    const t = setTimeout(() => {
+      apiClient.put(`${publicApiBase}/${token}/brouillon`, { cle: cleReprise.current, data, respondent_name: respondent.name, respondent_email: respondent.email })
+        .then((r) => setSauveServeur(r.data?.ok ? Date.now() : null))
+        .catch(() => setSauveServeur(null));
+    }, 2500);
     return () => clearTimeout(t);
   }, [data, respondent, ctx, done]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -120,15 +166,20 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
   const submit = async () => {
     setSubmitting(true); setGlobalError(null);
     try {
-      const r = await apiClient.post(`${publicApiBase}/${token}/submit`, { data, respondent_name: respondent.name, respondent_email: respondent.email, website: hp });
+      const r = await apiClient.post(`${publicApiBase}/${token}/submit`, { data, respondent_name: respondent.name, respondent_email: respondent.email,
+        website: hp, cle: cleReprise.current, client_key: cleEnvoi.current });
+      // Lot 65 : « Merci » n'est affiché QUE si le serveur confirme avoir enregistré la réponse (numéro de réception ou mise à jour).
+      // Sans confirmation, rien n'est effacé : les saisies restent à l'écran et sur l'appareil.
+      if (!(r.data?.id || r.data?.updated)) throw new Error("Le serveur n'a pas confirmé l'enregistrement de votre réponse. Vos saisies sont conservées : réessayez dans un instant.");
       effacerBrouillon();                      // réponse bien reçue : le brouillon n'a plus lieu d'être
-      setSauve(null);
+      setSauve(null); setSauveServeur(null);
+      setRecu(r.data?.recu || null);
       setDone(texteErreur(r.data?.message) || "Merci, votre réponse a bien été enregistrée.");
       window.scrollTo?.({ top: 0 });
     } catch (e) {
       const d = e?.response?.data?.detail;
       if (d && typeof d === "object" && d.errors) { setErrors(d.errors); setGlobalError(texteErreur(d.message) || "Certaines réponses sont à corriger."); }
-      else setGlobalError(errorText(e));
+      else setGlobalError(e?.response ? errorText(e) : (e?.message && !e.response && !e.request ? e.message : "Connexion impossible pour le moment. Vos saisies sont conservées sur cet appareil et sur le serveur : réessayez dans un instant (le bouton peut être cliqué sans risque de doublon)."));
     } finally { setSubmitting(false); }
   };
 
@@ -159,6 +210,7 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
       <CheckCircle2 className="h-12 w-12 text-emerald-600 mx-auto mb-3" />
       <h1 className="text-xl font-display font-bold mb-2">{form.title}</h1>
       <p className="text-slate-700 whitespace-pre-line">{texteErreur(done)}</p>
+      {recu && <p className="mt-3 text-sm text-slate-600" data-testid="public-form-recu">Accusé de réception n° <b className="font-mono">{recu}</b> — conservez ce numéro.</p>}
     </div>
   );
   if (ctx.closed_reason) return shell(<div className="text-center py-8"><h1 className="text-xl font-display font-bold mb-2">{form.title}</h1><p className="text-slate-600">{ctx.closed_reason}</p></div>);
@@ -196,12 +248,21 @@ export default function PublicFormPage({ publicApiBase = "/public/forms", token,
       <div className="rounded-xl bg-amber-50 ring-1 ring-amber-200 text-amber-900 text-xs px-4 py-2.5 mb-3" data-testid="public-form-brouillon">
         {restaure && !done && <p className="font-semibold mb-1">Votre brouillon enregistré à {heureCourte(restaure)} a été restauré.</p>}
         <p>
-          Vos réponses sont enregistrées automatiquement <b>sur cet appareil</b>{sauve ? ` (dernier enregistrement à ${heureCourte(sauve)})` : ""} : vous pouvez fermer la page et revenir avec le même lien.
+          Vos réponses sont enregistrées automatiquement <b>sur cet appareil</b>{sauve ? ` (à ${heureCourte(sauve)})` : ""}
+          {" "}<b>et sur le serveur</b>{sauveServeur ? ` (à ${heureCourte(sauveServeur)})` : " (en cours…)"} : vous pouvez fermer la page et revenir avec le même lien.
           {" "}<b>Elles ne sont envoyées qu'au clic sur « {ctx.already_answered ? "Mettre à jour ma réponse" : "Envoyer mes réponses"} » en bas de la page.</b>
         </p>
+        {ctx.source === "public" && sauveServeur && (
+          <p className="mt-1" data-testid="public-form-reprise">
+            Pour continuer sur un autre appareil, ouvrez ce lien :{" "}
+            <button type="button" className="underline break-all" onClick={() => { try { navigator.clipboard.writeText(`${window.location.origin}${window.location.pathname}?reprise=${cleReprise.current}`); } catch { /* ignoré */ } }}>
+              copier le lien de reprise
+            </button>
+          </p>
+        )}
         {(restaure || sauve) && (
           <button type="button" className="underline mt-1" data-testid="public-form-brouillon-effacer"
-            onClick={() => { effacerBrouillon(); setData(ctx.previous_data || {}); setRespondent({ name: "", email: "" }); setRestaure(null); setSauve(null); }}>
+            onClick={() => { effacerBrouillon(); apiClient.delete(`${publicApiBase}/${token}/brouillon`, { params: { cle: cleReprise.current } }).catch(() => {}); setData(ctx.previous_data || {}); setRespondent({ name: "", email: "" }); setRestaure(null); setSauve(null); setSauveServeur(null); }}>
             Effacer le brouillon et recommencer
           </button>
         )}

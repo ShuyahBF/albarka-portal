@@ -239,3 +239,54 @@ def test_lot64_champ_piege_rempli_par_le_navigateur_ne_perd_pas_la_reponse(env):
     sub = __import__("asyncio").run(env.db.forms_submissions.find_one({"id": r.json()["id"]}))
     assert sub["champ_piege"] is True and sub["data"]["nom"] == "Vrai répondant"
     assert __import__("asyncio").run(env.db.forms.find_one({"id": f["id"]}))["submissions_count"] == 1
+
+
+def _lien_public(env, **settings):
+    f = _create(env, settings={"respondent_info": "none", **settings})
+    token = env.c.post(f"/api/forms/{f['id']}/public-link", headers=_h("form"), json={"enabled": True}).json()["token"]
+    return f, token
+
+
+def test_lot65_brouillon_serveur_repris_sur_un_autre_appareil_puis_supprime_a_l_envoi(env):
+    """Lot 65 — la saisie en cours est enregistrée sur le SERVEUR : reprise avec le code de reprise, comptée « en cours » côté
+    personnel, supprimée dès que la réponse est envoyée."""
+    f, token = _lien_public(env)
+    cle = "abcdef0123456789"
+    assert env.c.get(f"/api/public/forms/{token}/brouillon", params={"cle": cle}).json() == {"brouillon": None}
+    r = env.c.put(f"/api/public/forms/{token}/brouillon", json={"cle": cle, "data": {"nom": "Kaboré"}, "respondent_name": "Awa"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+    # Reprise (autre appareil, même code) : la saisie est là
+    b = env.c.get(f"/api/public/forms/{token}/brouillon", params={"cle": cle}).json()["brouillon"]
+    assert b["data"] == {"nom": "Kaboré"} and b["respondent_name"] == "Awa"
+    # Un autre code ne voit rien ; une clé invalide est refusée
+    assert env.c.get(f"/api/public/forms/{token}/brouillon", params={"cle": "autrecode123456"}).json()["brouillon"] is None
+    assert env.c.put(f"/api/public/forms/{token}/brouillon", json={"cle": "x", "data": {}}).status_code == 400
+    # Le personnel voit la saisie commencée
+    assert env.c.get(f"/api/forms/{f['id']}/stats", headers=_h("form")).json()["brouillons_en_cours"] == 1
+    assert env.c.get(f"/api/forms/{f['id']}/brouillons", headers=_h("form")).json()["items"][0]["champs_remplis"] == 1
+    # Envoi : réponse enregistrée avec accusé, brouillon supprimé
+    ok = env.c.post(f"/api/public/forms/{token}/submit", json={"data": {"nom": "Kaboré", "note": 4}, "cle": cle, "client_key": "essai1"}).json()
+    assert ok["ok"] and ok["id"] and ok["recu"] == ok["id"][:8].upper()
+    assert env.c.get(f"/api/public/forms/{token}/brouillon", params={"cle": cle}).json()["brouillon"] is None
+    assert env.c.get(f"/api/forms/{f['id']}/stats", headers=_h("form")).json()["brouillons_en_cours"] == 0
+
+
+def test_lot65_envoi_rejoue_sans_doublon(env):
+    """Double clic ou nouvel essai après une coupure : même réponse, une seule ligne enregistrée."""
+    f, token = _lien_public(env)
+    corps = {"data": {"nom": "Awa", "note": 5}, "client_key": "cle-unique-1"}
+    a = env.c.post(f"/api/public/forms/{token}/submit", json=corps).json()
+    b = env.c.post(f"/api/public/forms/{token}/submit", json=corps).json()
+    assert a["id"] == b["id"] and b.get("deja") is True
+    assert env.c.get(f"/api/forms/{f['id']}/stats", headers=_h("form")).json()["total_submissions"] == 1
+
+
+def test_lot65_un_bureau_entier_derriere_une_adresse_n_est_pas_bloque(env):
+    """40 réponses valides depuis la même adresse (limite précédente : 30) : toutes enregistrées ; les erreurs de saisie ne comptent pas."""
+    f, token = _lien_public(env)
+    for _ in range(5):   # 5 envois refusés pour champ obligatoire manquant : ne consomment pas la limite
+        assert env.c.post(f"/api/public/forms/{token}/submit", json={"data": {}}).status_code == 422
+    for i in range(40):
+        r = env.c.post(f"/api/public/forms/{token}/submit", json={"data": {"nom": f"Agent {i}", "note": 3}})
+        assert r.status_code == 200, (i, r.text)
+    assert env.c.get(f"/api/forms/{f['id']}/stats", headers=_h("form")).json()["total_submissions"] == 40

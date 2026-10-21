@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "64"
-LOT_LIBELLE = "Formulaires publics : une réponse dont le champ piège est rempli par le navigateur n'est plus perdue (gardée et marquée suspecte) ; la traduction automatique ne casse plus la page"
+LOT = "65"
+LOT_LIBELLE = "Formulaires fiables : saisie enregistrée sur le serveur (reprise sur un autre appareil), accusé de réception, aucun doublon, plus de blocage d'un bureau entier derrière une seule adresse"
