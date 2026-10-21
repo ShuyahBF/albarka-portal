@@ -28,6 +28,7 @@ USERS = {
     "direction": {"id": "u-dir", "full_name": "Direction", "roles": ["direction"]},
     "compta": {"id": "u-cpt", "full_name": "Comptable", "roles": ["comptable"]},
     "client": {"id": "c1", "full_name": "Client", "roles": ["client"]},
+    "autre": {"id": "c2", "full_name": "Autre client", "roles": ["client"]},
 }
 PDF = b"%PDF-1.4\n%contrat\n"
 DOCX = b"PK\x03\x04docx"
@@ -37,7 +38,8 @@ DOCX = b"PK\x03\x04docx"
 def env(monkeypatch):
     import asyncio
     db = mongomock_motor.AsyncMongoMockClient()["albarka_contrats_test"]
-    asyncio.run(db.users.insert_one({"id": "c1", "roles": ["client"], "full_name": "Kaboré"}))
+    asyncio.run(db.users.insert_many([{"id": "c1", "roles": ["client"], "full_name": "Kaboré"},
+                                      {"id": "c2", "roles": ["client"], "full_name": "Autre"}]))
     fichiers, supprimes = {}, []
 
     async def fake_save(db_, *, data, kind, tenant_id, ext, content_type=None, original_filename=None, user_id=None):
@@ -60,6 +62,7 @@ def env(monkeypatch):
     monkeypatch.setattr(ac.albarka_storage, "delete_object", fake_delete)
     app = FastAPI()
     app.include_router(ac.router, prefix="/api")
+    app.include_router(ac.me_router, prefix="/api")
 
     async def fake_user(x_user: str = Header("direction")):
         return USERS[x_user]
@@ -132,3 +135,29 @@ def test_droits(env):
         assert env.c.get(f"/api/client-contracts/{cid}/document", headers=_h(u)).status_code == 403
         assert env.c.delete(f"/api/client-contracts/{cid}/document", headers=_h(u)).status_code == 403
     assert env.c.post("/api/client-contracts/inconnu/document", headers=_h(), files={"file": ("a.pdf", PDF, "application/pdf")}).status_code == 404
+
+
+def test_lot67_le_client_voit_et_telecharge_son_contrat(env):
+    """Lot 67 — le client connecté voit SES contrats (sans notes internes) et ouvre / télécharge leur document ; jamais ceux d'un autre."""
+    cid = env.contrat["id"]
+    env.c.patch(f"/api/client-contracts/{cid}", headers=_h(), json={"notes": "note interne confidentielle"})
+    env.c.post(f"/api/client-contracts/{cid}/document", headers=_h(), files={"file": ("Contrat signé.pdf", PDF, "application/pdf")})
+    autre = env.c.post("/api/client-contracts", headers=_h(), json={"tenant_id": "c2", "title": "Contrat de l'autre", "start_date": "2026-02-01"}).json()
+    env.c.post(f"/api/client-contracts/{autre['id']}/document", headers=_h(), files={"file": ("autre.pdf", PDF, "application/pdf")})
+    # Liste : uniquement le contrat de c1, sans notes ni chemin de stockage
+    liste = env.c.get("/api/me/contracts", headers=_h("client")).json()["items"]
+    assert [c["id"] for c in liste] == [cid]
+    assert "notes" not in liste[0] and "created_by" not in liste[0] and "storage_path" not in liste[0]["document"]
+    assert liste[0]["document"]["filename"] == "Contrat signé.pdf"
+    # Ouverture et téléchargement de son document
+    vue = env.c.get(f"/api/me/contracts/{cid}/document", headers=_h("client"))
+    assert vue.status_code == 200 and vue.content == PDF and vue.headers["content-disposition"].startswith("inline")
+    tel = env.c.get(f"/api/me/contracts/{cid}/document", params={"download": True}, headers=_h("client"))
+    assert tel.headers["content-disposition"].startswith("attachment")
+    # Le contrat (et le document) d'un autre client est introuvable
+    assert env.c.get(f"/api/me/contracts/{autre['id']}/document", headers=_h("client")).status_code == 404
+    # Réservé aux clients : le personnel passe par l'écran du cabinet
+    assert env.c.get("/api/me/contracts", headers=_h("direction")).status_code == 403
+    # Contrat sans document : message clair
+    sans = env.c.post("/api/client-contracts", headers=_h(), json={"tenant_id": "c1", "title": "Sans document", "start_date": "2026-03-01"}).json()
+    assert env.c.get(f"/api/me/contracts/{sans['id']}/document", headers=_h("client")).status_code == 404

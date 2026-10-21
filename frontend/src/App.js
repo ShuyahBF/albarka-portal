@@ -31,6 +31,7 @@ import ClientMissions from "@/pages/portal/Missions";
 import ClientEcheances from "@/pages/portal/Echeances";
 import Historique from "@/pages/portal/Historique";
 import MyAccount from "@/pages/portal/MyAccount";
+import MonContrat from "@/pages/portal/MonContrat";   // lot 67 : le client voit et télécharge son contrat
 import MyForms from "@/pages/portal/MyForms";
 import CabinetDocuments from "@/pages/portal/CabinetDocuments";
 import Demandes from "@/pages/portal/Demandes";                       // lot 53
@@ -126,6 +127,7 @@ function App() {
             <Route path="infos" element={<Infos />} />
             <Route path="formations" element={<Formations />} />
             <Route path="outils-numeriques" element={<OutilsNumeriques />} />
+            <Route path="mon-contrat" element={<MonContrat />} />
             <Route path="mon-compte" element={<MyAccount />} />
           </Route>
 

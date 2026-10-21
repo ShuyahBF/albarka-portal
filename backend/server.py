@@ -22,7 +22,7 @@ from albarka_clients import router as clients_router  # noqa: E402
 from albarka_contact_groups import router as contact_groups_router  # noqa: E402
 from albarka_contacts import router as contacts_router  # noqa: E402
 from albarka_contacts_import import router as contacts_import_router  # noqa: E402
-from albarka_contracts import router as contracts_router  # noqa: E402
+from albarka_contracts import me_router as contracts_me_router, router as contracts_router  # noqa: E402
 from albarka_dashboard import router as dashboard_router  # noqa: E402
 from albarka_documents import router as documents_router  # noqa: E402
 from albarka_echeances import router as echeances_router  # noqa: E402
@@ -141,6 +141,7 @@ api_router.include_router(reports_mgmt_router)
 api_router.include_router(report_templates_router)
 # Phase B — Contrats clients
 api_router.include_router(contracts_router)
+api_router.include_router(contracts_me_router)   # lot 67 : le client voit ses contrats et leur document
 # Phase C — Modules internes
 api_router.include_router(chat_router)
 api_router.include_router(billing_router)

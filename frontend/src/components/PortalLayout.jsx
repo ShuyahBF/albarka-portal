@@ -86,6 +86,8 @@ const CLIENT_LINKS = [
   { to: "/portal/formulaires", label: "Mes formulaires", icon: ClipboardCheck, module: "formulaires" },
   // Lot 9 : logiciels, documents, applications à télécharger (toujours visible)
   { to: "/portal/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload },
+  // Lot 67 : le client voit son contrat et télécharge le document joint par le cabinet (toujours visible)
+  { to: "/portal/mon-contrat", label: "Mon contrat", icon: FileSignature, depuis: "2026-10-21" },
   { to: "/portal/mon-compte", label: "Mon compte", icon: UserCog },
 ];
 // Doit rester identique à CLIENT_SPACE_ROLES côté backend (albarka_models.py).
