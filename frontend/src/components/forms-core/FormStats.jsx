@@ -276,6 +276,13 @@ export default function FormStats({ apiBase = "/forms", form, color = "#0F6B4A" 
         <KpiCard label="Taux de réponse" value={inv.response_pct || 0} decimals={(inv.response_pct || 0) % 1 ? 1 : 0} suffix=" %" icon={Percent} theme="rose" delay={300} hint={`${inv.pending || 0} invité(s) en attente`} />
       </div>
 
+      {/* Lot 65 : saisies commencées et enregistrées sur le serveur, pas encore envoyées (rien n'est perdu) */}
+      {(st.brouillons_en_cours || 0) > 0 && (
+        <p className="rounded-xl bg-amber-50 ring-1 ring-amber-200 text-amber-900 text-xs px-4 py-2.5" data-testid="stats-brouillons">
+          <b>{st.brouillons_en_cours}</b> saisie(s) commencée(s) et conservée(s) sur le serveur, pas encore envoyée(s) : ces personnes peuvent reprendre où elles se sont arrêtées.
+        </p>
+      )}
+
       {/* 2. Réponses dans le temps : barres par jour ou courbe cumulée */}
       <ChartCard title="Réponses dans le temps" icon={CalendarDays} color={colors[0]} delay={100} testId="stats-timeline"
         subtitle={total ? `${total} réponse(s) sur ${st.active_days} jour(s) actif(s)${peakDay?.count ? ` · jour le plus actif : ${peakDay.day}` : ""}` : "Aucune réponse sur la période."}

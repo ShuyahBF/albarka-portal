@@ -36,7 +36,13 @@ from .validation import validate_submission
 logger = logging.getLogger("forms_core")
 
 MAX_CATEGORIES = 12
-PUBLIC_RATE_PER_HOUR = 30      # réponses/envois de fichiers par IP et par formulaire
+PUBLIC_RATE_PER_HOUR = 30      # envois de fichiers et signalements par IP et par formulaire
+# Lot 65 : réponses par IP et par formulaire sur un LIEN PUBLIC (jamais pour une invitation personnelle). Un bureau entier partage une
+# seule adresse IP : 100 agents de saisie derrière la même box étaient bloqués après 30 réponses (et les réponses refusées pour une
+# erreur de saisie comptaient aussi). Réglable par formulaire : settings.public_rate_per_hour.
+SUBMIT_RATE_PER_HOUR = 600
+DRAFT_MAX_BYTES = 300_000      # lot 65 : taille maximale d'un brouillon enregistré sur le serveur
+DRAFT_TTL_DAYS = 60            # lot 65 : un brouillon non repris est supprimé après 60 jours
 UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 
 
@@ -165,12 +171,16 @@ async def ensure_indexes(adapter: FormsAdapter) -> None:
     await A.col("submissions").create_index([("form_id", 1), ("created_at", -1)])
     # Anti-abus : comptage des envois récents par adresse IP
     await A.col("rate").create_index([("key", 1), ("at", 1)])
+    # Lot 65 : brouillons enregistrés sur le serveur (un par formulaire et par répondant / appareil)
+    await A.col("drafts").create_index([("form_id", 1), ("cle", 1)], unique=True)
+    await A.col("drafts").create_index("updated_at")
 
 
 def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
     A = adapter
     forms, subs, invs, cats, counters, rate = (A.col(""), A.col("submissions"), A.col("invitations"),
                                                A.col("categories"), A.col("counters"), A.col("rate"))
+    drafts = A.col("drafts")          # lot 65 : brouillons côté serveur
     staff = APIRouter(prefix=A.staff_prefix, tags=["Formulaires"])
     public = APIRouter(prefix=A.public_prefix, tags=["Formulaires — public"])
     portal = APIRouter(prefix=A.portal_prefix, tags=["Formulaires — espace client"])
@@ -427,7 +437,19 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
         items = await subs.find({"form_id": fid}, {"_id": 0}).to_list(20000)
         items = [s for s in items if in_period(s.get("created_at"), date_from, date_to)]
         inv = await invs.find({"form_id": fid}, {"_id": 0}).to_list(20000)
-        return form_stats(form.get("pages") or [], items, views=form.get("views") or 0, invitations=inv)
+        res = form_stats(form.get("pages") or [], items, views=form.get("views") or 0, invitations=inv)
+        res["brouillons_en_cours"] = await drafts.count_documents({"form_id": fid})     # lot 65 : saisies commencées, pas encore envoyées
+        return res
+
+    @staff.get("/{fid}/brouillons")
+    async def list_drafts(fid: str, user: dict = manager):
+        """Lot 65 : saisies COMMENCÉES et non envoyées (qui, depuis quand, combien de champs remplis) — rien n'est perdu."""
+        await _get_form(fid, user)
+        items = await drafts.find({"form_id": fid}, {"_id": 0, "data": 1, "respondent_name": 1, "respondent_email": 1,
+                                                     "recipient_name": 1, "updated_at": 1, "source": 1}).sort("updated_at", -1).to_list(500)
+        return {"items": [{"nom": d.get("recipient_name") or d.get("respondent_name") or "", "email": d.get("respondent_email") or "",
+                           "source": d.get("source"), "mis_a_jour_le": d.get("updated_at"),
+                           "champs_remplis": len(d.get("data") or {})} for d in items]}
 
     @staff.get("/{fid}/export.csv")
     async def export_csv(fid: str, date_from: Optional[str] = None, date_to: Optional[str] = None, user: dict = manager):
@@ -569,12 +591,12 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
             return {"form": form, "invitation": None, "source": "public"}
         raise HTTPException(status_code=404, detail="Lien invalide ou désactivé.")
 
-    async def _rate_limited(request: Request, form_id: str, kind: str) -> bool:
+    async def _rate_limited(request: Request, form_id: str, kind: str, limite: Optional[int] = None) -> bool:
         ip = _client_ip(request)
         since = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         key = f"{kind}:{form_id}:{ip}"
         n = await rate.count_documents({"key": key, "at": {"$gte": since}})
-        if n >= PUBLIC_RATE_PER_HOUR * (3 if kind == "upload" else 1):
+        if n >= (limite or PUBLIC_RATE_PER_HOUR * (3 if kind == "upload" else 1)):
             return True
         await rate.insert_one({"key": key, "at": now_iso()})
         return False
@@ -639,6 +661,64 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
                      str(payload.get("pile") or "")[:1200], str(payload.get("composants") or "")[:600])
         return {"ok": True}
 
+    def _cle_brouillon(ctx: Dict[str, Any], cle: Optional[str]) -> Optional[str]:
+        """Clé du brouillon : l'invitation (retrouvée depuis n'importe quel appareil avec le même lien) ou, pour un lien public,
+        l'identifiant aléatoire de l'appareil / du lien de reprise. None si la clé fournie est invalide."""
+        if ctx["invitation"]:
+            return "inv:" + ctx["invitation"]["id"]
+        c = str(cle or "")
+        return "pub:" + c if re.fullmatch(r"[A-Za-z0-9_-]{8,64}", c) else None
+
+    @public.get("/{token}/brouillon")
+    async def public_brouillon_get(token: str, cle: str = ""):
+        """Lot 65 : brouillon enregistré sur le serveur (reprise sur un autre appareil, après une panne ou une page fermée)."""
+        ctx = await _resolve(token)
+        key = _cle_brouillon(ctx, cle)
+        d = await drafts.find_one({"form_id": ctx["form"]["id"], "cle": key}, {"_id": 0}) if key else None
+        if not d:
+            return {"brouillon": None}
+        return {"brouillon": {"data": d.get("data") or {}, "respondent_name": d.get("respondent_name") or "",
+                              "respondent_email": d.get("respondent_email") or "", "updated_at": d.get("updated_at")}}
+
+    @public.delete("/{token}/brouillon")
+    async def public_brouillon_delete(token: str, cle: str = ""):
+        """Lot 65 : « Effacer le brouillon et recommencer » supprime aussi le brouillon du serveur."""
+        ctx = await _resolve(token)
+        key = _cle_brouillon(ctx, cle)
+        if key:
+            await drafts.delete_one({"form_id": ctx["form"]["id"], "cle": key})
+        return {"ok": True}
+
+    @public.put("/{token}/brouillon")
+    async def public_brouillon_put(token: str, payload: Dict[str, Any] = Body(...)):
+        """Lot 65 : enregistre la saisie EN COURS (sans contrôle des champs obligatoires) toutes les quelques secondes. Ne remplace jamais
+        une réponse envoyée ; refusée (ok=False, jamais d'erreur bloquante) si le formulaire est fermé ou déjà rempli."""
+        ctx = await _resolve(token)
+        form, inv = ctx["form"], ctx["invitation"]
+        if _is_closed(form):
+            return {"ok": False, "raison": "ferme"}
+        if inv and inv.get("answered_at") and not (form.get("settings") or {}).get("allow_edit"):
+            return {"ok": False, "raison": "deja_repondu"}
+        key = _cle_brouillon(ctx, payload.get("cle"))
+        if not key:
+            raise HTTPException(status_code=400, detail="Clé de brouillon invalide.")
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        if len(repr(data)) > DRAFT_MAX_BYTES:
+            raise HTTPException(status_code=413, detail="Brouillon trop volumineux.")
+        now = now_iso()
+        await drafts.update_one(
+            {"form_id": form["id"], "cle": key},
+            {"$set": {"data": data, "respondent_name": str(payload.get("respondent_name") or "")[:120],
+                      "respondent_email": str(payload.get("respondent_email") or "")[:200], "updated_at": now,
+                      "recipient_name": (inv or {}).get("recipient_name") or ""},
+             "$setOnInsert": {"id": secrets.token_hex(8), "created_at": now, "source": ctx["source"],
+                              "invitation_id": (inv or {}).get("id")},
+             "$inc": {"revisions": 1}}, upsert=True)
+        # Ménage : brouillons de ce formulaire non repris depuis 60 jours
+        limite = (datetime.now(timezone.utc) - timedelta(days=DRAFT_TTL_DAYS)).isoformat()
+        await drafts.delete_many({"form_id": form["id"], "updated_at": {"$lt": limite}})
+        return {"ok": True, "saved_at": now}
+
     @public.post("/{token}/submit")
     async def public_submit(token: str, request: Request, payload: Dict[str, Any] = Body(...)):
         ctx = await _resolve(token)
@@ -656,8 +736,13 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
         if champ_piege:
             logger.warning("[forms] champ piège rempli sur le formulaire %s : réponse gardée et marquée suspecte (navigateur : %s)",
                            form.get("number") or form["id"], (request.headers.get("user-agent") or "")[:160])
-        if await _rate_limited(request, form["id"], "submit"):
-            raise HTTPException(status_code=429, detail="Trop de réponses depuis cette connexion. Réessayez plus tard.")
+        # Lot 65 : une demande déjà enregistrée (double clic, nouvel essai après une coupure) renvoie la MÊME réponse, sans doublon
+        client_key = re.sub(r"[^A-Za-z0-9_-]", "", str(payload.get("client_key") or ""))[:64]
+        if client_key:
+            deja = await subs.find_one({"form_id": form["id"], "client_key": client_key}, {"_id": 0, "id": 1})
+            if deja:
+                return {"ok": True, "id": deja["id"], "recu": deja["id"][:8].upper(), "deja": True,
+                        "message": settings.get("confirmation_message")}
         clean, errors = validate_submission(form.get("pages") or [], data)
         name = str(payload.get("respondent_name") or "").strip()[:120]
         email = str(payload.get("respondent_email") or "").strip().lower()[:200]
@@ -670,6 +755,10 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
                 errors["_respondent_email"] = "Indiquez une adresse e-mail valide."
         if errors:
             raise HTTPException(status_code=422, detail={"message": "Certaines réponses sont à corriger.", "errors": errors})
+        # Lot 65 : la limite par adresse IP ne vise QUE le lien public (robots) et ne compte que les réponses valides ;
+        # une invitation personnelle n'est jamais limitée (un bureau entier partage une seule adresse IP).
+        if not inv and await _rate_limited(request, form["id"], "submit", int(settings.get("public_rate_per_hour") or SUBMIT_RATE_PER_HOUR)):
+            raise HTTPException(status_code=429, detail="Trop de réponses depuis cette connexion. Réessayez plus tard : vos saisies sont conservées.")
         now = now_iso()
         # Invitation déjà utilisée : modification si autorisée, sinon refus.
         if inv and inv.get("answered_at") and inv.get("submission_id"):
@@ -677,6 +766,9 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
                 raise HTTPException(status_code=409, detail="Vous avez déjà répondu à ce formulaire. Merci !")
             await subs.update_one({"id": inv["submission_id"]}, {"$set": {"data": clean, "updated_at": now},
                                                                  "$inc": {"revisions": 1}})
+            cle_b = _cle_brouillon(ctx, payload.get("cle"))
+            if cle_b:
+                await drafts.delete_one({"form_id": form["id"], "cle": cle_b})
             return {"ok": True, "updated": True, "message": settings.get("confirmation_message")}
         if not inv and not settings.get("public_multiple", True) and email:
             if await subs.find_one({"form_id": form["id"], "respondent_email": email}, {"_id": 0, "id": 1}):
@@ -688,7 +780,13 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
                "created_at": now, "updated_at": now, "revisions": 0}
         if champ_piege:
             sub["champ_piege"] = True                       # lot 64 : à relire (probable remplissage automatique du navigateur)
+        if client_key:
+            sub["client_key"] = client_key                  # lot 65 : évite les doublons si l'envoi est rejoué
         await subs.insert_one(dict(sub))
+        # Lot 65 : la réponse est enregistrée → le brouillon du serveur n'a plus lieu d'être
+        cle_b = _cle_brouillon(ctx, payload.get("cle"))
+        if cle_b:
+            await drafts.delete_one({"form_id": form["id"], "cle": cle_b})
         await forms.update_one({"id": form["id"]}, {"$inc": {"submissions_count": 1}, "$set": {"last_submission_at": now}})
         if inv:
             await invs.update_one({"id": inv["id"]}, {"$set": {"answered_at": now, "submission_id": sub["id"]}})
@@ -699,7 +797,7 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
                 except Exception:  # noqa: BLE001
                     logger.exception("[forms] notification de réponse échouée")
             asyncio.get_event_loop().create_task(_notify())
-        return {"ok": True, "id": sub["id"], "message": settings.get("confirmation_message")}
+        return {"ok": True, "id": sub["id"], "recu": sub["id"][:8].upper(), "message": settings.get("confirmation_message")}
 
     # ------------------------------------------------------------------ espace client : formulaires reçus
     if A.user_dependency is not None:
