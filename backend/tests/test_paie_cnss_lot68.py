@@ -238,3 +238,16 @@ def test_disposition_decl_identique_au_modele(env):
         total, montant = mots["TOTAL"], max((m for m in doc[0].get_text("words") if m[4].replace(" ", "").isdigit() and abs(m[1] - mots["TOTAL"][1]) < 4), key=lambda m: m[0])
         assert total[0] < montant[0] and mots["MR"][1] > total[1] and mots["TG"][1] > mots["MR"][1]
         assert mots["DECLARATION"][1] < mots["DECOMPTE"][1] < mots["BRANCHE"][1] < mots["Nom"][1]   # ordre vertical du modèle
+
+
+def test_fond_gris_du_rappel_eclairci_pdf_et_excel(env):
+    """Lot 71 : le cadre « RAPPEL IMPORTANT » est gris clair (DBDBDB) au lieu de C0C0C0, sur le PDF comme sur l'Excel."""
+    asyncio.run(_bulletins(env.db, ["2026-07", "2026-08", "2026-09"]))
+    pdf = env.c.get("/api/hr/paie/cnss/recap/pdf", params=Q3, headers=H).content
+    with fitz.open(stream=pdf, filetype="pdf") as doc:
+        zone = next(m for m in doc[0].get_text("words") if m[4] == "Cette")                # texte du rappel, en plein milieu du cadre gris
+        pix = doc[0].get_pixmap(dpi=72, clip=fitz.Rect(zone[0] - 12, zone[1] + 2, zone[0] - 4, zone[1] + 6))
+        r, g, b = pix.pixel(2, 2)[:3]
+        assert (r, g, b) == (0xDB, 0xDB, 0xDB), (r, g, b)
+    wb = openpyxl.load_workbook(io.BytesIO(env.c.get("/api/hr/paie/cnss/excel", params=Q3, headers=H).content))
+    assert wb["DECL"]["A9"].fill.fgColor.rgb.endswith("DBDBDB")
