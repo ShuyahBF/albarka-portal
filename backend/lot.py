@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "65"
-LOT_LIBELLE = "Formulaires fiables : saisie enregistrée sur le serveur (reprise sur un autre appareil), accusé de réception, aucun doublon, plus de blocage d'un bureau entier derrière une seule adresse"
+LOT = "66"
+LOT_LIBELLE = "Contrats clients : un document (Word, PDF ou image) peut être téléversé et attaché à chaque contrat, puis ouvert, téléchargé, remplacé ou retiré"

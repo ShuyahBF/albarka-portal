@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, FileSignature, Pencil } from "lucide-react";
+import { Plus, Trash2, FileSignature, Pencil, Paperclip, Download } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,6 +31,11 @@ const STATUS_TONE = {
   annule: "bg-red-100 text-red-700",
 };
 
+// Lot 66 — document du contrat (Word, PDF ou image) téléversé et rattaché au contrat
+const DOC_ACCEPT = ".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp";
+const DOC_MAX = 20 * 1024 * 1024;
+const tailleLisible = (n) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} Mo` : `${Math.max(1, Math.round((n || 0) / 1024))} Ko`);
+
 const emptyForm = () => ({
   tenant_id: "", numero_contrat: "", title: "", start_date: "", end_date: "",
   amount: "", currency: "XOF", status: "en_cours",
@@ -44,6 +49,10 @@ export default function AdminContracts() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [fichierNouveau, setFichierNouveau] = useState(null);   // lot 66 : document choisi à la création du contrat
+  const [envoiId, setEnvoiId] = useState(null);                  // lot 66 : contrat dont le document est en cours d'envoi
+  const champFichier = useRef(null);                             // lot 66 : sélecteur de fichier unique (boutons « Attacher / Remplacer »)
+  const cibleFichier = useRef(null);                             // contrat visé par le sélecteur
 
   const clientNames = React.useMemo(
     () => Object.fromEntries(clients.map((c) => [c.id, `${c.full_name}${c.company ? ` — ${c.company}` : ""}`])),
@@ -64,7 +73,49 @@ export default function AdminContracts() {
   };
   useEffect(() => { load(); }, []);
 
-  const openNew = () => { setEditing(null); setForm(emptyForm()); setOpen(true); };
+  // Lot 66 — contrôle du fichier choisi (format et taille) avant l'envoi
+  const fichierValide = (f) => {
+    const ext = (f.name.split(".").pop() || "").toLowerCase();
+    if (!DOC_ACCEPT.split(",").includes(`.${ext}`)) { toast.error("Format non accepté : Word (.doc, .docx), PDF ou image (.jpg, .png, .webp)"); return false; }
+    if (f.size > DOC_MAX) { toast.error("Le fichier dépasse 20 Mo"); return false; }
+    return true;
+  };
+  // Téléverse le document d'un contrat (remplace l'éventuel document existant)
+  const televerser = async (contratId, f) => {
+    if (!fichierValide(f)) return false;
+    setEnvoiId(contratId);
+    try {
+      const fd = new FormData(); fd.append("file", f);
+      await apiClient.post(`/client-contracts/${contratId}/document`, fd, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success("Document attaché au contrat");
+      await load();
+      return true;
+    } catch (err) { toast.error(extractError(err, "Envoi du document impossible")); return false; }
+    finally { setEnvoiId(null); }
+  };
+  const choisirDocument = (c) => { cibleFichier.current = c; champFichier.current?.click(); };
+  const documentChoisi = async (e) => {
+    const f = e.target.files?.[0]; e.target.value = "";
+    const c = cibleFichier.current; cibleFichier.current = null;
+    if (!f || !c) return;
+    const ok = await televerser(c.id, f);
+    if (ok && editing?.id === c.id) setEditing((prev) => prev && ({ ...prev }));
+  };
+  const ouvrirDocument = async (c, telecharger = false) => {
+    try {
+      const res = await apiClient.get(`/client-contracts/${c.id}/document`, { responseType: "blob", params: telecharger ? { download: true } : {} });
+      const url = window.URL.createObjectURL(res.data);
+      if (telecharger) { const a = document.createElement("a"); a.href = url; a.download = c.document?.filename || "contrat"; a.click(); }
+      else window.open(url, "_blank");
+    } catch (err) { toast.error(extractError(err, "Ouverture impossible")); }
+  };
+  const retirerDocument = async (c) => {
+    if (!window.confirm(`Retirer le document « ${c.document?.filename} » du contrat ?`)) return;
+    try { await apiClient.delete(`/client-contracts/${c.id}/document`); toast.success("Document retiré"); await load(); }
+    catch (err) { toast.error(extractError(err)); }
+  };
+
+  const openNew = () => { setEditing(null); setForm(emptyForm()); setFichierNouveau(null); setOpen(true); };
   const openEdit = (c) => {
     setEditing(c);
     setForm({
@@ -102,12 +153,14 @@ export default function AdminContracts() {
         if (payload.amount === "") delete payload.amount;
         else payload.amount = Number(payload.amount);
         if (!payload.end_date) delete payload.end_date;
-        await apiClient.post("/client-contracts", payload);
+        const { data: cree } = await apiClient.post("/client-contracts", payload);
         toast.success("Contrat créé");
+        if (fichierNouveau && cree?.id) await televerser(cree.id, fichierNouveau);   // lot 66 : document choisi dans le formulaire
       } catch (err) { toast.error(extractError(err)); return; }
     }
     setOpen(false);
     setEditing(null);
+    setFichierNouveau(null);
     setForm(emptyForm());
     await load();
   };
@@ -123,6 +176,7 @@ export default function AdminContracts() {
 
   return (
     <div className="space-y-6" data-testid="admin-contracts-page">
+      <input ref={champFichier} type="file" accept={DOC_ACCEPT} className="hidden" onChange={documentChoisi} data-testid="contract-document-input" />
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
@@ -172,6 +226,31 @@ export default function AdminContracts() {
                 </Select>
               </div>
               <div><Label>Notes</Label><Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="contract-notes-input" /></div>
+              {/* Lot 66 — document du contrat : à la création (choisi puis envoyé avec le contrat) ou à la modification */}
+              <div className="rounded-lg border border-dashed border-[#0F6B4A]/40 p-3" data-testid="contract-document-zone">
+                <Label className="flex items-center gap-1"><Paperclip className="w-4 h-4" /> Document du contrat <span className="text-[10px] text-muted-foreground">(Word, PDF ou image, 20 Mo au plus)</span></Label>
+                {editing ? (() => {
+                  const cur = items.find((x) => x.id === editing.id) || editing;
+                  return cur.document ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                      <button type="button" className="underline text-[#0F6B4A]" onClick={() => ouvrirDocument(cur)} data-testid="contract-document-open">{cur.document.filename}</button>
+                      <span className="text-xs text-muted-foreground">{tailleLisible(cur.document.size)}</span>
+                      <Button type="button" size="sm" variant="outline" onClick={() => choisirDocument(cur)} disabled={envoiId === cur.id} data-testid="contract-document-replace">Remplacer</Button>
+                      <Button type="button" size="sm" variant="ghost" className="text-red-600" onClick={() => retirerDocument(cur)} data-testid="contract-document-remove">Retirer</Button>
+                    </div>
+                  ) : (
+                    <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => choisirDocument(cur)} disabled={envoiId === cur.id} data-testid="contract-document-attach">
+                      <Paperclip className="w-4 h-4 mr-1" />{envoiId === cur.id ? "Envoi…" : "Attacher un document"}
+                    </Button>
+                  );
+                })() : (
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                    <input type="file" accept={DOC_ACCEPT} data-testid="contract-document-new"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f && fichierValide(f)) setFichierNouveau(f); else { setFichierNouveau(null); e.target.value = ""; } }} />
+                    {fichierNouveau && <span className="text-xs text-muted-foreground">{fichierNouveau.name} · {tailleLisible(fichierNouveau.size)}</span>}
+                  </div>
+                )}
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
@@ -208,6 +287,11 @@ export default function AdminContracts() {
                     <div>
                       <div className="font-mono text-xs text-muted-foreground">{c.numero_contrat || "—"}</div>
                       <div className="text-sm">{c.title}</div>
+                      {c.document && (
+                        <button type="button" className="mt-0.5 inline-flex items-center gap-1 text-xs text-[#0F6B4A] underline" onClick={() => ouvrirDocument(c)} title={`${c.document.filename} · ${tailleLisible(c.document.size)}`} data-testid={`contract-document-link-${c.id}`}>
+                          <Paperclip className="w-3 h-3" />{c.document.filename.length > 28 ? `${c.document.filename.slice(0, 26)}…` : c.document.filename}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </TableCell>
@@ -225,6 +309,15 @@ export default function AdminContracts() {
                   </span>
                 </TableCell>
                 <TableCell className="text-right whitespace-nowrap">
+                  {/* Lot 66 — document du contrat : attacher / remplacer, télécharger, retirer */}
+                  <Button variant="ghost" size="sm" onClick={() => choisirDocument(c)} disabled={envoiId === c.id} title={c.document ? "Remplacer le document" : "Attacher un document (Word, PDF, image)"} data-testid={`attach-contract-${c.id}`}>
+                    <Paperclip className={`w-4 h-4 ${c.document ? "text-[#0F6B4A]" : ""}`} />
+                  </Button>
+                  {c.document && (
+                    <Button variant="ghost" size="sm" onClick={() => ouvrirDocument(c, true)} title="Télécharger le document" data-testid={`download-contract-${c.id}`}>
+                      <Download className="w-4 h-4" />
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" onClick={() => openEdit(c)} data-testid={`edit-contract-${c.id}`}>
                     <Pencil className="w-4 h-4" />
                   </Button>
