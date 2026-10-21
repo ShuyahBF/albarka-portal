@@ -9,16 +9,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import PayrollTable from "@/components/PayrollTable";
-import { Table2, BookOpen, SlidersHorizontal, Receipt } from "lucide-react";
+import { Table2, BookOpen, SlidersHorizontal, Receipt, ClipboardList, FileSpreadsheet } from "lucide-react";
 // Lot 8 : paie Burkina Faso paramétrable (cabinet + clients)
 import PaieEmployees from "@/components/paie/PaieEmployees";
 import { PaieBulletins, PaieLivre } from "@/components/paie/PaieBulletins";
 import PaieSettings from "@/components/paie/PaieSettings";
+// Lot 68 : déclarations CNSS (BTN et DECLARATION)
+import PaieCnss, { CHOIX_CNSS_INITIAL } from "@/components/paie/PaieCnss";
 
 export default function AdminHR() {
   const [employees, setEmployees] = useState([]);
   const [payslips, setPayslips] = useState([]);
   const [openPay, setOpenPay] = useState(false);
+  // Lot 68 : employeur et période de la déclaration CNSS, partagés par les onglets BTN et DECLARATION
+  const [choixCnss, setChoixCnss] = useState(CHOIX_CNSS_INITIAL);
   const [payForm, setPayForm] = useState({ employee_id: "", period_month: "", gross_salary: "", deductions: 0, bonuses: 0, notes: "" });
 
   const load = async () => {
@@ -60,18 +64,24 @@ export default function AdminHR() {
       </div>
 
       <Tabs defaultValue="employees">
-        <TabsList className="flex-wrap h-auto">
-          <TabsTrigger value="employees" data-testid="tab-hr-employees"><Users className="w-4 h-4 mr-2" />Salariés</TabsTrigger>
-          <TabsTrigger value="bulletins" data-testid="tab-hr-bulletins"><Receipt className="w-4 h-4 mr-2" />Bulletins de paie</TabsTrigger>
-          <TabsTrigger value="livre" data-testid="tab-hr-livre"><BookOpen className="w-4 h-4 mr-2" />Livre de paie</TabsTrigger>
+        {/* Onglets rangés sans barre de défilement : grille de 2 colonnes sur téléphone, rangée qui passe à la ligne sur grand écran */}
+        <TabsList className="grid grid-cols-2 gap-x-2 gap-y-1 overflow-visible sm:flex sm:flex-wrap sm:gap-2" data-testid="hr-tabs">
+          <TabsTrigger value="employees" data-testid="tab-hr-employees" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><Users className="w-4 h-4 mr-2" />Salariés</TabsTrigger>
+          <TabsTrigger value="bulletins" data-testid="tab-hr-bulletins" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><Receipt className="w-4 h-4 mr-2" />Bulletins de paie</TabsTrigger>
+          <TabsTrigger value="livre" data-testid="tab-hr-livre" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><BookOpen className="w-4 h-4 mr-2" />Livre de paie</TabsTrigger>
           {/* Lot 7 : liste actualisée du personnel (fiche de renseignement) */}
-          <TabsTrigger value="table" data-testid="tab-hr-table"><Table2 className="w-4 h-4 mr-2" />Tableau de paie</TabsTrigger>
-          <TabsTrigger value="settings" data-testid="tab-hr-settings"><SlidersHorizontal className="w-4 h-4 mr-2" />Paramètres de paie</TabsTrigger>
-          {payslips.length > 0 && <TabsTrigger value="payslips" data-testid="tab-hr-payslips"><FileText className="w-4 h-4 mr-2" />Anciens bulletins</TabsTrigger>}
+          <TabsTrigger value="table" data-testid="tab-hr-table" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><Table2 className="w-4 h-4 mr-2" />Tableau de paie</TabsTrigger>
+          {/* Lot 68 : déclarations CNSS (feuilles BTN et DECLARATION du classeur) */}
+          <TabsTrigger value="btn" data-testid="tab-hr-btn" title="Déclaration CNSS : bordereau nominatif des travailleurs salariés" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><ClipboardList className="w-4 h-4 mr-2" />BTN</TabsTrigger>
+          <TabsTrigger value="recap" data-testid="tab-hr-recap" title="Déclaration CNSS : récapitulatif des salaires et des cotisations" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><FileSpreadsheet className="w-4 h-4 mr-2" />DECLARATION</TabsTrigger>
+          <TabsTrigger value="settings" data-testid="tab-hr-settings" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><SlidersHorizontal className="w-4 h-4 mr-2" />Paramètres de paie</TabsTrigger>
+          {payslips.length > 0 && <TabsTrigger value="payslips" data-testid="tab-hr-payslips" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><FileText className="w-4 h-4 mr-2" />Anciens bulletins</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="bulletins" className="pt-4"><PaieBulletins /></TabsContent>
         <TabsContent value="livre" className="pt-4"><PaieLivre /></TabsContent>
+        <TabsContent value="btn" className="pt-4"><PaieCnss vue="btn" choix={choixCnss} setChoix={setChoixCnss} /></TabsContent>
+        <TabsContent value="recap" className="pt-4"><PaieCnss vue="recap" choix={choixCnss} setChoix={setChoixCnss} /></TabsContent>
         <TabsContent value="settings" className="pt-4"><PaieSettings /></TabsContent>
 
         <TabsContent value="table" className="pt-4">

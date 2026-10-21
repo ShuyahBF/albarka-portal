@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "67"
-LOT_LIBELLE = "Espace client : la page « Mon contrat » permet au client de voir ses contrats et d'ouvrir ou télécharger le document attaché"
+LOT = "68"
+LOT_LIBELLE = "Paie : déclarations CNSS — onglets BTN (bordereau nominatif) et DECLARATION (récapitulatif 21,5 %) remplis depuis les bulletins validés, imprimables en PDF et exportables en Excel"
