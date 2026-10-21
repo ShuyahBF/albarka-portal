@@ -9,8 +9,9 @@ const TabsList = React.forwardRef(({ className, ...props }, ref) => (
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      // Onglets soulignés (design SAWALI)
-      "inline-flex h-auto items-center justify-start gap-2 border-b border-slate-200 bg-transparent p-0 text-slate-500 overflow-x-auto max-w-full",
+      // Onglets soulignés (design SAWALI). Lot 69 : les onglets passent à la LIGNE quand la place manque (téléphone
+      // compris) au lieu de défiler : plus de barre de défilement, ni horizontale ni verticale.
+      "inline-flex h-auto flex-wrap items-center justify-start gap-x-2 gap-y-1 border-b border-slate-200 bg-transparent p-0 text-slate-500 overflow-visible max-w-full",
       className
     )}
     {...props} />
