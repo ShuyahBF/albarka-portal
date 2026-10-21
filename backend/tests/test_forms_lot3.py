@@ -226,3 +226,16 @@ def test_lot28_1_lien_copie_avec_caractere_invisible(env):
     abime = token[:3] + "\u200b" + token[3:] + "\u200b "
     assert env.c.get(f"/api/public/forms/{abime}").status_code == 200
     assert env.c.get(f"/api/public/forms/{token}x").status_code == 404          # un vrai mauvais jeton reste refusé
+
+
+def test_lot64_champ_piege_rempli_par_le_navigateur_ne_perd_pas_la_reponse(env):
+    """Lot 64 — le remplissage automatique du navigateur peut remplir le champ piège chez un vrai répondant :
+    la réponse est GARDÉE (marquée « champ_piege ») et comptée, au lieu d'être écartée en silence (statistiques à 0)."""
+    f = _create(env, settings={"respondent_info": "required"})
+    token = env.c.post(f"/api/forms/{f['id']}/public-link", headers=_h("form"), json={"enabled": True}).json()["token"]
+    r = env.c.post(f"/api/public/forms/{token}/submit", json={
+        "data": {"nom": "Vrai répondant"}, "respondent_name": "Awa", "respondent_email": "awa@exemple.bf", "website": "http://auto-rempli"})
+    assert r.status_code == 200 and r.json().get("id")                         # une vraie réponse enregistrée
+    sub = __import__("asyncio").run(env.db.forms_submissions.find_one({"id": r.json()["id"]}))
+    assert sub["champ_piege"] is True and sub["data"]["nom"] == "Vrai répondant"
+    assert __import__("asyncio").run(env.db.forms.find_one({"id": f["id"]}))["submissions_count"] == 1

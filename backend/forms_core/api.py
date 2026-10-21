@@ -648,11 +648,14 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
             raise HTTPException(status_code=403, detail=closed)
         settings = form.get("settings") or {}
         data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
-        if payload.get("website"):  # champ piège invisible : un robot le remplit, un humain non
-            # Lot 32 : tracé dans le journal (un remplissage automatique du navigateur pouvait faire perdre une vraie réponse sans bruit)
-            logger.warning("[forms] champ piège rempli sur le formulaire %s : réponse écartée (navigateur : %s)",
+        # Champ piège invisible : un robot le remplit, un humain non… mais le remplissage automatique de certains navigateurs
+        # (Chrome, gestionnaires de mots de passe) le remplit AUSSI chez un vrai répondant. Lot 64 : la réponse n'est plus
+        # écartée (le répondant croyait avoir répondu et toutes les statistiques restaient à 0) ; elle est GARDÉE, marquée
+        # « champ_piege » et tracée. Les robots restent freinés par la limite de réponses par IP et par formulaire.
+        champ_piege = bool(payload.get("website"))
+        if champ_piege:
+            logger.warning("[forms] champ piège rempli sur le formulaire %s : réponse gardée et marquée suspecte (navigateur : %s)",
                            form.get("number") or form["id"], (request.headers.get("user-agent") or "")[:160])
-            return {"ok": True, "message": settings.get("confirmation_message")}
         if await _rate_limited(request, form["id"], "submit"):
             raise HTTPException(status_code=429, detail="Trop de réponses depuis cette connexion. Réessayez plus tard.")
         clean, errors = validate_submission(form.get("pages") or [], data)
@@ -683,6 +686,8 @@ def create_routers(adapter: FormsAdapter) -> Dict[str, APIRouter]:
                "recipient_id": (inv or {}).get("recipient_id"), "respondent_name": name, "respondent_email": email,
                "ip": _client_ip(request), "user_agent": (request.headers.get("user-agent") or "")[:200],
                "created_at": now, "updated_at": now, "revisions": 0}
+        if champ_piege:
+            sub["champ_piege"] = True                       # lot 64 : à relire (probable remplissage automatique du navigateur)
         await subs.insert_one(dict(sub))
         await forms.update_one({"id": form["id"]}, {"$inc": {"submissions_count": 1}, "$set": {"last_submission_at": now}})
         if inv:
