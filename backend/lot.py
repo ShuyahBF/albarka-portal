@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "69"
-LOT_LIBELLE = "Affichage : les onglets de toutes les pages passent à la ligne au lieu de défiler (plus de barre de défilement, notamment sur téléphone)"
+LOT = "70"
+LOT_LIBELLE = "Paie : format DECL = modèle standard de la CNSS reproduit sans changer la disposition, avec emplacement du logo des impôts (téléversable) ; Excel DECL + BTN"

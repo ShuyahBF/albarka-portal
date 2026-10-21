@@ -144,8 +144,15 @@ def test_pdf_btn_recap_et_complet(env):
     assert textes["tout"][0] == textes["btn"][0] + textes["recap"][0]
     assert "235844 C" in textes["btn"][1] and "ROUAMBA Habibou" in textes["btn"][1] and "EN COURS" in textes["btn"][1]
     assert "2 400 000" in textes["btn"][1] and "21,5 %" in textes["btn"][1]
-    assert "DÉCLARATION RÉCAPITULATIVE DES SALAIRES" in textes["recap"][1] and "Assurance vieillesse" in textes["recap"][1]
-    assert "SAWADOGO Irène" in textes["recap"][1] and "14 %" in textes["recap"][1] and "1,5 %" in textes["recap"][1]
+    # DECL = modèle standard de la CNSS : textes d'origine du gabarit (sans accents), valeurs inscrites aux cellules prévues
+    decl = textes["recap"][1]
+    for libelle in ("CAISSE NATIONALE DE SECURITE SOCIALE", "DECLARATION RECAPITULATIVE DES SALAIRES", "RAPPEL IMPORTANT",
+                    "DECOMPTE DES COTISATIONS", "NOMBRE DE TRAVAILLEURS SALARIES", "TOTAL COTISATIONS", "Matricule de l'employeur",
+                    "Signature et cachet", "CERTIFIE EXACT LE", "PHARMACIE ELITE", "235844 C", "SAWADOGO Irène", "14%", "1,5%", "6%"):
+        assert libelle in decl, libelle
+    total = SOMME_MENSUELLE * 3
+    assert f"{total:,}".replace(",", " ") in decl                                          # « 4 134 030 » (espace de milliers)
+    assert f"{round(total * 0.14):,}".replace(",", " ") in decl and "01/07/2026" in decl and "30/09/2026" in decl
 
 
 def test_pdf_btn_plusieurs_pages_avec_total_a_la_fin(env):
@@ -161,11 +168,16 @@ def test_excel_deux_feuilles_avec_formules(env):
     r = env.c.get("/api/hr/paie/cnss/excel", params=Q3, headers=H)
     assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["BTN", "DECLARATION"]
-    btn, recap = wb["BTN"], wb["DECLARATION"]
+    assert wb.sheetnames == ["DECL", "BTN"]                                                # même ordre que le classeur d'origine
+    btn, recap = wb["BTN"], wb["DECL"]
     assert btn["G3"].value == "235844 C" and btn["B7"].value == "BADINI Samiratou" and btn["D7"].value == 84868 * 3   # ordre alphabétique
     assert btn["B8"].value == "ILBOUDO Hamado" and btn["D8"].value == 2_400_000 and btn["D14"].value == "=SUM(D7:D13)"        # 7 lignes (7 à 13) → total ligne 14
-    assert recap["G25"].value == "=SUM(G22:G24)" and recap["E22"].value == "=BTN!$D$14" and btn["D16"].value == "=ROUND(D14*D15,0)"
+    assert btn["D16"].value == "=ROUND(D14*D15,0)"
+    # feuille DECL : gabarit d'origine (formules du classeur conservées) + logo
+    assert recap["E31"].value == "=BTN!$D$14" and recap["I41"].value == "=SUM(I31:J39)" and recap["I31"].value == "=ROUND(E31*H32,0)"
+    assert recap["F10"].value == "PHARMACIE ELITE" and recap["I18"].value == "235844 C" and recap["H35"].value == 0.015
+    assert recap["A8"].value == "RAPPEL IMPORTANT" and "F41:H41" in {str(m) for m in recap.merged_cells.ranges}
+    assert len(recap._images) == 1
 
 
 def test_acces_reserve_aux_roles_rh_et_declarant_memorise(env):
@@ -178,3 +190,51 @@ def test_acces_reserve_aux_roles_rh_et_declarant_memorise(env):
     assert d["declarant"] == "SAWADOGO Irène" and d["ville"] == "BOBO-DIOULASSO"
     assert env.c.get("/api/hr/paie/cnss/declaration", params={**Q3, "numero": 5}, headers=H).status_code == 422   # trimestre 1 à 4
     assert env.c.get("/api/hr/paie/cnss/declaration", params={**Q3, "periodicite": "annuelle"}, headers=H).status_code == 422
+
+
+def _png(couleur=(200, 30, 30), taille=(120, 60)):
+    from PIL import Image
+    tampon = io.BytesIO()
+    Image.new("RGB", taille, couleur).save(tampon, "PNG")
+    return tampon.getvalue()
+
+
+def test_logo_des_impots_televerse_imprime_et_retabli(env):
+    asyncio.run(_bulletins(env.db, ["2026-07", "2026-08", "2026-09"]))
+    # sans logo téléversé : emblème CNSS du modèle d'origine
+    r = env.c.get("/api/hr/paie/cnss/logo", headers=H)
+    assert r.status_code == 200 and r.headers["x-logo"] == "modele" and r.content[:4] == b"\x89PNG"
+    assert env.c.get("/api/hr/paie/cnss/declaration", params=Q3, headers=H).json()["logo_personnalise"] is False
+    # téléversement du logo des impôts (réservé aux rôles RH)
+    envoi = {"fichier": ("impots.png", _png(), "image/png")}
+    assert env.c.post("/api/hr/paie/cnss/logo", files=envoi, headers={"X-User": "compta"}).status_code == 403
+    assert env.c.post("/api/hr/paie/cnss/logo", files=envoi, headers=H).status_code == 200
+    r = env.c.get("/api/hr/paie/cnss/logo", headers=H)
+    assert r.headers["x-logo"] == "personnalise"
+    assert env.c.get("/api/hr/paie/cnss/declaration", params=Q3, headers=H).json()["logo_personnalise"] is True
+    # le PDF DECL et l'Excel utilisent ce logo (une seule image, en haut à gauche)
+    pdf = env.c.get("/api/hr/paie/cnss/recap/pdf", params=Q3, headers=H).content
+    with fitz.open(stream=pdf, filetype="pdf") as doc:
+        images = doc[0].get_images()
+        assert len(images) == 1
+        zone = doc[0].get_image_rects(images[0][0])[0]
+        assert zone.x0 < 90 and zone.y0 < 90                                               # emplacement d'origine : coin haut-gauche
+        assert fitz.Pixmap(doc, images[0][0]).width <= 600
+    # fichier invalide ou trop lourd refusés ; rétablissement du logo du modèle
+    assert env.c.post("/api/hr/paie/cnss/logo", files={"fichier": ("x.png", b"pas une image", "image/png")}, headers=H).status_code == 422
+    assert env.c.post("/api/hr/paie/cnss/logo", files={"fichier": ("gros.png", b"0" * (3 * 1024 * 1024 + 5), "image/png")}, headers=H).status_code == 413
+    assert env.c.delete("/api/hr/paie/cnss/logo", headers=H).status_code == 200
+    assert env.c.get("/api/hr/paie/cnss/logo", headers=H).headers["x-logo"] == "modele"
+
+
+def test_disposition_decl_identique_au_modele(env):
+    """La DECL imprimée garde la disposition du gabarit : mêmes cellules fusionnées, mêmes largeurs, une page A4 portrait."""
+    asyncio.run(_bulletins(env.db, ["2026-07", "2026-08", "2026-09"]))
+    pdf = env.c.get("/api/hr/paie/cnss/recap/pdf", params=Q3, headers=H).content
+    with fitz.open(stream=pdf, filetype="pdf") as doc:
+        assert len(doc) == 1 and abs(doc[0].rect.width - 595.3) < 1 and abs(doc[0].rect.height - 841.9) < 1
+        mots = {m[4]: m for m in doc[0].get_text("words")}
+        # « TOTAL COTISATIONS » (F41) est à gauche de son montant (I41), tous deux sur la même ligne ; MR et TG en dessous
+        total, montant = mots["TOTAL"], max((m for m in doc[0].get_text("words") if m[4].replace(" ", "").isdigit() and abs(m[1] - mots["TOTAL"][1]) < 4), key=lambda m: m[0])
+        assert total[0] < montant[0] and mots["MR"][1] > total[1] and mots["TG"][1] > mots["MR"][1]
+        assert mots["DECLARATION"][1] < mots["DECOMPTE"][1] < mots["BRANCHE"][1] < mots["Nom"][1]   # ordre vertical du modèle

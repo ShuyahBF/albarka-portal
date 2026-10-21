@@ -12,7 +12,7 @@
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { FileSpreadsheet, FileText, Printer, Save, TriangleAlert } from "lucide-react";
+import { FileSpreadsheet, FileText, ImagePlus, Printer, RotateCcw, Save, TriangleAlert } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { EmployerSelect, fcfa, useEmployers } from "@/components/paie/paieCommon";
 
@@ -150,12 +150,14 @@ export default function PaieCnss({ vue, choix, setChoix }) {
           {/* Impression et export */}
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" className={bouton} onClick={() => ouvrirPdf(`/hr/paie/cnss/${vue}/pdf`, params)} data-testid={`cnss-${vue}-pdf`}>
-              <Printer className="h-4 w-4" /> Imprimer {vue === "btn" ? "le BTN" : "la DECLARATION"} (PDF)</button>
+              <Printer className="h-4 w-4" /> Imprimer {vue === "btn" ? "le BTN" : "la DECL (modèle CNSS)"} (PDF)</button>
             <button type="button" className={bouton} onClick={() => ouvrirPdf("/hr/paie/cnss/pdf", params)} data-testid={`cnss-${vue}-pdf-complet`}>
-              <FileText className="h-4 w-4" /> BTN + DECLARATION (PDF)</button>
+              <FileText className="h-4 w-4" /> BTN + DECL (PDF)</button>
             <button type="button" className={bouton} onClick={() => telechargerExcel(params)} data-testid={`cnss-${vue}-excel`}>
-              <FileSpreadsheet className="h-4 w-4" /> Excel (BTN et DECLARATION)</button>
+              <FileSpreadsheet className="h-4 w-4" /> Excel (DECL et BTN)</button>
           </div>
+
+          {vue === "recap" && <LogoDecl personnalise={data.logo_personnalise} onChange={() => setChoix((c) => ({ ...c }))} />}
 
           {/* Nom du déclarant et ville imprimés en bas des états (mémorisés par employeur) */}
           <div className="flex flex-wrap items-end gap-3">
@@ -174,6 +176,59 @@ export default function PaieCnss({ vue, choix, setChoix }) {
           {vue === "btn" ? <ApercuBtn d={data} e={e} /> : <ApercuRecap d={data} e={e} />}
         </>
       )}
+    </div>
+  );
+}
+
+// Logo imprimé en haut à gauche de la DECL (logo des impôts). Sans logo téléversé : emblème CNSS du modèle d'origine.
+function LogoDecl({ personnalise, onChange }) {
+  const [url, setUrl] = useState("");
+  const [perso, setPerso] = useState(!!personnalise);
+  const [occupe, setOccupe] = useState(false);
+
+  // Aperçu du logo actuellement imprimé (rechargé après chaque changement)
+  const charger = async () => {
+    try {
+      const { data, headers } = await apiClient.get("/hr/paie/cnss/logo", { responseType: "blob" });
+      setUrl((ancien) => { if (ancien) URL.revokeObjectURL(ancien); return URL.createObjectURL(data); });
+      setPerso(headers?.["x-logo"] === "personnalise");
+    } catch { /* l'aperçu est facultatif */ }
+  };
+  useEffect(() => { charger(); /* eslint-disable-next-line */ }, []);
+
+  const choisir = async (ev) => {
+    const fichier = ev.target.files?.[0];
+    ev.target.value = "";
+    if (!fichier) return;
+    setOccupe(true);
+    try {
+      const corps = new FormData();
+      corps.append("fichier", fichier);
+      await apiClient.post("/hr/paie/cnss/logo", corps, { headers: { "Content-Type": "multipart/form-data" } });
+      toast.success("Logo enregistré : il s'imprime en haut à gauche de la DECL");
+      await charger(); onChange?.();
+    } catch (e) { toast.error(extractError(e)); } finally { setOccupe(false); }
+  };
+  const retablir = async () => {
+    setOccupe(true);
+    try {
+      await apiClient.delete("/hr/paie/cnss/logo");
+      toast.success("Logo du modèle CNSS rétabli");
+      await charger(); onChange?.();
+    } catch (e) { toast.error(extractError(e)); } finally { setOccupe(false); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-3" data-testid="decl-logo">
+      {url && <img src={url} alt="Logo imprimé sur la DECL" className="h-16 w-16 rounded border border-slate-200 object-contain bg-white" />}
+      <div className="text-sm min-w-0">
+        <p className="font-semibold">Logo imprimé en haut à gauche de la DECL</p>
+        <p className="text-slate-500">{perso ? "Logo des impôts téléversé." : "Emblème CNSS du modèle d'origine : choisissez le logo des impôts pour le remplacer."}</p>
+      </div>
+      <label className={`${bouton} cursor-pointer ${occupe ? "opacity-50 pointer-events-none" : ""}`}>
+        <ImagePlus className="h-4 w-4" /> Choisir le logo des impôts
+        <input type="file" accept="image/png,image/jpeg" className="hidden" onChange={choisir} data-testid="decl-logo-fichier" />
+      </label>
+      {perso && <button type="button" className={bouton} onClick={retablir} disabled={occupe} data-testid="decl-logo-retablir"><RotateCcw className="h-4 w-4" /> Rétablir le logo CNSS</button>}
     </div>
   );
 }
@@ -229,18 +284,18 @@ function ApercuRecap({ d, e }) {
         <p>Nombre de travailleurs salariés : permanents <b>{N.permanents}</b> · temporaires <b>{N.temporaires}</b> · journaliers <b>{N.journaliers}</b> · apprentis <b>{N.apprentis}</b></p>
       </div>
       <div className="rounded-xl border border-slate-200 bg-white overflow-auto">
-        <table className="w-full text-sm" data-testid="recap-table">
+        <table className="w-full text-xs sm:text-sm" data-testid="recap-table">
           <thead className="bg-slate-50 text-[11px] uppercase text-slate-500">
-            <tr><th className="px-3 py-2 text-left">Branche</th><th className="text-right px-2">Total rémunérations soumises à cotisations</th><th className="text-right px-2">Taux</th><th className="text-right px-2">Cotisations dues</th></tr>
+            <tr><th className="px-2 sm:px-3 py-2 text-left">Branche</th><th className="text-right px-1 sm:px-2">Rémunérations<span className="hidden sm:inline"> soumises à cotisations</span></th><th className="text-right px-1 sm:px-2 whitespace-nowrap">Taux</th><th className="text-right px-1 sm:px-2">Cotisations</th></tr>
           </thead>
           <tbody>
             {d.branches.map((b) => (
               <tr key={b.libelle} className="border-t border-slate-100">
-                <td className="px-3 py-1.5 font-medium">{b.libelle}</td><td className="text-right tabular-nums px-2">{fcfa(b.remuneration)}</td>
-                <td className="text-right px-2">{tauxFr(b.taux)} %</td><td className="text-right tabular-nums px-2">{fcfa(b.cotisation)}</td>
+                <td className="px-2 sm:px-3 py-1.5 font-medium">{b.libelle}</td><td className="text-right tabular-nums px-1 sm:px-2">{fcfa(b.remuneration)}</td>
+                <td className="text-right px-1 sm:px-2"><span className="whitespace-nowrap">{tauxFr(b.taux)} %</span></td><td className="text-right tabular-nums px-1 sm:px-2">{fcfa(b.cotisation)}</td>
               </tr>
             ))}
-            <tr className="border-t-2 font-semibold bg-slate-50"><td className="px-3 py-2" colSpan={2}>TOTAL COTISATIONS</td><td className="text-right px-2">{tauxFr(d.taux_total)} %</td><td className="text-right tabular-nums px-2">{fcfa(d.cotisations)}</td></tr>
+            <tr className="border-t-2 font-semibold bg-slate-50"><td className="px-2 sm:px-3 py-2" colSpan={2}>TOTAL COTISATIONS</td><td className="text-right px-1 sm:px-2"><span className="whitespace-nowrap">{tauxFr(d.taux_total)} %</span></td><td className="text-right tabular-nums px-1 sm:px-2">{fcfa(d.cotisations)}</td></tr>
           </tbody>
         </table>
       </div>
