@@ -11,7 +11,14 @@ import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import ListeDocumentsClient from "@/components/ListeDocumentsClient";
 import { ouvrirPdf } from "@/lib/ouvrirDocument";
-import { DOMAINES, STATUTS_ECHEANCE, STATUTS_MISSION, elementsDuDomaine } from "@/lib/domainesClient";
+import { DOMAINES, STATUTS_ECHEANCE, STATUTS_MISSION, elementsDuDomaine, etatDeclarations } from "@/lib/domainesClient";
+
+// Lot 76 — pastille d'état d'une déclaration (page Fiscalité)
+const ETATS_DECL = {
+  deposee: ["Déposée", "bg-emerald-100 text-emerald-800"],
+  a_faire: ["À faire", "bg-amber-100 text-amber-800"],
+  en_retard: ["En retard", "bg-rose-100 text-rose-800"],
+};
 
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "");
 const fmtMontant = (n) => Math.round(Number(n || 0)).toLocaleString("fr-FR");   // FCFA, sans décimales
@@ -43,8 +50,13 @@ export default function Domaine({ domaine }) {
   // Lot 74 — Comptabilité : « Déclarations déposées » = documents de catégorie « Déclaration fiscale » mis à disposition par le cabinet
   const declarations = domaine === "comptabilite" && donnees ? donnees.documents.filter((x) => x.category === "declaration") : [];
   const lignesBalance = balance?.rows || [];
+  // Lot 76 — Fiscalité : état des déclarations du mois en cours (déposée / à faire / en retard) et retards de tous les mois
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const decl = domaine === "fiscalite" && donnees ? etatDeclarations(donnees.echeances, aujourdhui) : null;
   const moisPaie = paie?.mois || [], declarationsCnss = paie?.declarations || [];
-  const total = el ? el.missions.length + el.echeances.length + el.documents.length + declarations.length + lignesBalance.length + moisPaie.length + declarationsCnss.length : 0;
+  // Fiscalité : le mois en cours et les retards ont leurs propres blocs ; la liste « Échéances » ne garde que les mois suivants non traités
+  const echeancesListe = !el ? [] : (decl ? el.echeances.filter((e) => String(e.due_date).slice(0, 7) > aujourdhui.slice(0, 7) && e.status !== "traitee") : el.echeances);
+  const total = el ? (decl ? decl.mois.length + decl.retards.length : 0) + el.missions.length + echeancesListe.length + el.documents.length + declarations.length + lignesBalance.length + moisPaie.length + declarationsCnss.length : 0;
 
   // Déplie / replie la liste des bulletins validés d'un mois (une lecture à l'ouverture)
   const basculerMois = async (m) => {
@@ -142,6 +154,35 @@ export default function Domaine({ domaine }) {
               ))}
             </section>
           )}
+          {decl && (decl.retards.length > 0 || decl.mois.length > 0) && (
+            <section className="space-y-3" data-testid="domaine-declarations-mois">
+              {decl.retards.length > 0 && (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 space-y-1" data-testid="fiscal-retards" role="alert">
+                  <div className="font-semibold text-rose-800">{decl.retards.length} déclaration(s) en retard</div>
+                  {decl.retards.map((e) => (
+                    <div key={e.id} className="text-sm text-rose-900">{e.title} — à rendre le {fmtDate(e.due_date)} ({e.jours} jour{e.jours > 1 ? "s" : ""} de retard)</div>
+                  ))}
+                </div>
+              )}
+              {decl.mois.length > 0 && (
+                <>
+                  <div className="flex flex-wrap items-baseline gap-2">
+                    <h2 className="font-display text-xl">Déclarations de {new Date(`${aujourdhui}T12:00:00`).toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}</h2>
+                    <span className="text-xs text-muted-foreground" data-testid="fiscal-decomptes">
+                      {decl.decomptes.deposee} déposée(s) · {decl.decomptes.a_faire} à faire · {decl.decomptes.en_retard} en retard
+                    </span>
+                  </div>
+                  {decl.mois.map((e) => (
+                    <div key={e.id} className="albarka-card p-4 flex flex-wrap items-center gap-3" data-testid={`fiscal-decl-${e.id}`}>
+                      <div className="flex-1 min-w-[220px]"><div className="font-medium">{e.title}</div>
+                        <div className="text-xs text-muted-foreground">À rendre le {fmtDate(e.due_date)}{e.period ? ` · ${e.period}` : ""}</div></div>
+                      <span className={`albarka-chip text-xs ${ETATS_DECL[e.etat][1]}`}>{ETATS_DECL[e.etat][0]}{e.etat === "en_retard" ? ` (${e.jours} j)` : ""}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </section>
+          )}
           {declarations.length > 0 && (
             <section className="space-y-2" data-testid="domaine-declarations">
               <h2 className="font-display text-xl">Déclarations déposées</h2>
@@ -160,10 +201,10 @@ export default function Domaine({ domaine }) {
               ))}
             </section>
           )}
-          {el.echeances.length > 0 && (
+          {echeancesListe.length > 0 && (
             <section className="space-y-2" data-testid="domaine-echeances">
-              <h2 className="font-display text-xl">Échéances</h2>
-              {el.echeances.map((e) => (
+              <h2 className="font-display text-xl">{decl ? "Prochaines échéances" : "Échéances"}</h2>
+              {echeancesListe.map((e) => (
                 <div key={e.id} className="albarka-card p-4 flex flex-wrap items-center gap-3">
                   <div className="flex-1 min-w-[220px]"><div className="font-medium">{e.title}</div>
                     <div className="text-xs text-muted-foreground">À rendre le {fmtDate(e.due_date)}{e.period ? ` · ${e.period}` : ""}</div></div>
