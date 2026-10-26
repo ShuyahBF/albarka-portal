@@ -12,7 +12,8 @@ import { apiClient } from "@/lib/api";
 import { formatDateTime } from "./fieldTypes";
 import { ui, cx } from "./ui";
 
-export default function MyForms({ portalApiBase = "/me/forms" }) {
+// `titre` : intitulé de la page (lot 72 : ALBARKA l'appelle « Questionnaires » ; les autres plateformes gardent « Mes formulaires »)
+export default function MyForms({ portalApiBase = "/me/forms", titre = "Mes formulaires" }) {
   const [items, setItems] = useState(null);
   useEffect(() => { apiClient.get(portalApiBase).then((r) => setItems(r.data.items || [])).catch(() => setItems([])); }, [portalApiBase]);
 
@@ -21,7 +22,7 @@ export default function MyForms({ portalApiBase = "/me/forms" }) {
     <div className="space-y-4" data-testid="my-forms">
       <div>
         <p className={ui.eyebrow}>Mon espace</p>
-        <h1 className={ui.h1}><ClipboardList className={ui.h1Icon} /> Mes formulaires</h1>
+        <h1 className={ui.h1}><ClipboardList className={ui.h1Icon} /> {titre}</h1>
         <p className={ui.subtitle}>{items === null ? "" : todo ? `${todo} formulaire(s) à remplir.` : "Vous êtes à jour : aucun formulaire en attente."}</p>
       </div>
       {items === null ? <p className={ui.loading}><Loader2 className="h-4 w-4 animate-spin inline mr-1" /> Chargement…</p> : items.length === 0 ? (

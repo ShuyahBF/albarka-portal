@@ -69,21 +69,26 @@ const FORMS_ROLES = ["formulaires"];
 // `module` = clé du module (CLIENT_PORTAL_MODULES côté backend) que le cabinet
 // peut fermer client par client ; sans `module`, le lien est toujours visible.
 const CLIENT_LINKS = [
-  { to: "/portal", label: "Tableau de bord", icon: LayoutDashboard, end: true },
+  // Lot 72 : les 10 rubriques de l'espace client, dans cet ordre (demande du propriétaire du 26/10/2026)
+  { to: "/portal", label: "Tableaux de bord", icon: LayoutDashboard, end: true },
+  { to: "/portal/formulaires", label: "Questionnaires", icon: ClipboardCheck, module: "formulaires" },   // formulaires envoyés par le cabinet (à remplir / déjà répondus)
+  { to: "/portal/demandes", label: "Demande de services", icon: MessageCircle },                         // lot 53 : demander un service (texte, voix, pièces jointes)
+  { to: "/portal/missions", label: "Missions", icon: Briefcase, module: "missions" },
+  { to: "/portal/rapports", label: "Rapports", icon: ClipboardList, module: "cabinet_documents", depuis: "2026-10-26" },
+  { to: "/portal/echeances", label: "Échéances", icon: CalendarClock, module: "echeances" },
+  { to: "/portal/ordres-mission", label: "Ordres de mission", icon: FileSignature, module: "cabinet_documents", depuis: "2026-10-26" },
+  { to: "/portal/comptabilite", label: "Comptabilité", icon: Calculator, depuis: "2026-10-26" },
+  { to: "/portal/fiscalite", label: "Fiscalité", icon: Landmark, depuis: "2026-10-26" },
+  { to: "/portal/ressources-humaines", label: "Ressources humaines", icon: UsersRound, depuis: "2026-10-26" },
+  // Groupe « Plus » : les autres rubriques de l'espace client (rien n'est supprimé)
   // Lot 51 : « Documents » = ce que le client envoie au cabinet, rangé par mois et par section
-  { to: "/portal/documents", label: "Documents", icon: FileText, module: "documents", depuis: "2026-10-19" },
+  { to: "/portal/documents", label: "Documents", icon: FileText, module: "documents", depuis: "2026-10-19", entete: "Plus" },
   // Lot 51 : « Factures » = factures, proformas et reçus envoyés par le cabinet (les autres documents : onglet de la page)
   { to: "/portal/documents-cabinet", label: "Factures", icon: FolderOpen, depuis: "2026-10-19", module: "cabinet_documents" },
-  // Lot 53 : demander un service au cabinet (texte, voix, pièces jointes)
-  { to: "/portal/demandes", label: "Demander un service", depuis: "2026-10-20", icon: MessageCircle },
   // Lot 54 : contenu utile de la semaine et formations (gratuites ou payantes)
   { to: "/portal/infos", label: "Infos", icon: Newspaper, depuis: "2026-10-20" },
   { to: "/portal/formations", label: "Formations", icon: GraduationCap , depuis: "2026-10-20" },
-  { to: "/portal/missions", label: "Mes missions", icon: Briefcase, module: "missions" },
-  { to: "/portal/echeances", label: "Échéances", icon: CalendarClock, module: "echeances" },
   { to: "/portal/historique", label: "Historique", icon: History, module: "historique" },
-  // Formulaires envoyés par le cabinet (à remplir / déjà répondus)
-  { to: "/portal/formulaires", label: "Mes formulaires", icon: ClipboardCheck, module: "formulaires" },
   // Lot 9 : logiciels, documents, applications à télécharger (toujours visible)
   { to: "/portal/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload },
   // Lot 67 : le client voit son contrat et télécharge le document joint par le cabinet (toujours visible)
@@ -385,8 +390,10 @@ export default function PortalLayout({ admin = false }) {
             // Lot 22 : lien grisé si son service est suspendu
             const suspendu = suspendus[SERVICE_DU_LIEN[link.to]];
             return (
+            <React.Fragment key={link.to}>
+            {/* Lot 72 : titre du groupe « Plus » avant le premier de ses liens */}
+            {link.entete && <div className="px-3 pt-4 pb-1 text-[10px] uppercase tracking-widest text-white/40" data-testid="sidebar-entete-plus">{link.entete}</div>}
             <NavLink
-              key={link.to}
               to={link.to}
               end={link.end}
               title={suspendu ? `Service suspendu (contrat SAWALI échu) : ${suspendu}` : undefined}
@@ -410,6 +417,7 @@ export default function PortalLayout({ admin = false }) {
                 </span>
               )}
             </NavLink>
+            </React.Fragment>
             );
           })}
         </nav>
