@@ -22,7 +22,7 @@ export default function Demandes() {
     <div className="space-y-6" data-testid="demandes-page">
       <div>
         <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Mon espace</div>
-        <h1 className="font-display text-3xl">Demander un service</h1>
+        <h1 className="font-display text-3xl">Demande de services</h1>
         <p className="text-muted-foreground mt-1">Fiscalité, ressources humaines, comptabilité ou autre : écrivez, parlez ou joignez vos pièces.</p>
       </div>
       <div className="rounded-xl border bg-white p-5 max-w-2xl">

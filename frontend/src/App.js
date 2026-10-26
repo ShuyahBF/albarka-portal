@@ -42,6 +42,8 @@ import Formations from "@/pages/portal/Formations";                     // lot 5
 import AdminContenus from "@/pages/admin/AdminContenus";               // lot 54
 // Lot 9 : Outils Numériques (clients et personnel)
 import OutilsNumeriques from "@/pages/portal/OutilsNumeriques";
+import DocumentsParCategorie from "@/pages/portal/DocumentsParCategorie";   // lot 72 : Rapports, Ordres de mission
+import Domaine from "@/pages/portal/Domaine";                               // lot 72 : Comptabilité, Fiscalité, Ressources humaines
 
 // Admin (staff)
 import AdminClients from "@/pages/admin/AdminClients";
@@ -127,6 +129,11 @@ function App() {
             <Route path="infos" element={<Infos />} />
             <Route path="formations" element={<Formations />} />
             <Route path="outils-numeriques" element={<OutilsNumeriques />} />
+            <Route path="rapports" element={<DocumentsParCategorie categorie="rapport" />} />
+            <Route path="ordres-mission" element={<DocumentsParCategorie categorie="ordre_mission" />} />
+            <Route path="comptabilite" element={<Domaine domaine="comptabilite" />} />
+            <Route path="fiscalite" element={<Domaine domaine="fiscalite" />} />
+            <Route path="ressources-humaines" element={<Domaine domaine="rh" />} />
             <Route path="mon-contrat" element={<MonContrat />} />
             <Route path="mon-compte" element={<MyAccount />} />
           </Route>

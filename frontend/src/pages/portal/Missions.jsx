@@ -122,7 +122,7 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
         <div>
           <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Missions</div>
           <h1 className="font-display text-3xl md:text-4xl text-foreground">
-            {isClient ? "Mes missions" : "Missions en cours"}
+            {isClient ? "Missions" : "Missions en cours"}
           </h1>
           <p className="text-muted-foreground mt-1">Suivi des dossiers ouverts, en revue et terminés.</p>
         </div>

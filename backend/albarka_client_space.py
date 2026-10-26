@@ -47,6 +47,7 @@ CATEGORIES: Dict[str, str] = {
     "proforma": "Proforma",
     "recu": "Reçu",
     "rapport": "Rapport",
+    "ordre_mission": "Ordre de mission",   # lot 72 : page « Ordres de mission » de l'espace client
     "declaration": "Déclaration fiscale",
     "attestation": "Attestation / certificat",
     "contrat": "Contrat",
