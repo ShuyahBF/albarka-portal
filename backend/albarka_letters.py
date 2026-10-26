@@ -659,15 +659,17 @@ async def _values_for(tpl: dict, tenant_id: str, payload: GenerateIn, settings: 
 
 
 async def _deposit(doc: dict, pdf: bytes, user: dict, notify: bool) -> Optional[str]:
-    """Dépose le PDF dans l'espace du client (catégorie Courrier) — même
-    enregistrement qu'un dépôt fait depuis « Dépôt espace client »."""
-    from albarka_client_space import _portal_link, _upload_item, notify_client
+    """Dépose le PDF dans l'espace du client — même enregistrement qu'un dépôt fait depuis « Dépôt espace client ».
+    Lot 73 : la catégorie du dépôt est celle du modèle quand l'espace client la connaît (ex. « Ordre de mission », « Attestation »),
+    sinon « Courrier » ; un ordre de mission apparaît ainsi dans la rubrique « Ordres de mission » du client."""
+    from albarka_client_space import CATEGORIES as CATEGORIES_ESPACE, _portal_link, _upload_item, notify_client
+    categorie = doc.get("category") if doc.get("category") in CATEGORIES_ESPACE else "courrier"
     fname = f"{doc['number'] or doc['title']}.pdf".replace("/", "-")
     stored = await albarka_storage.save_and_log(
         db, data=pdf, kind="client_space", tenant_id=doc["tenant_id"], ext="pdf", content_type="application/pdf",
         original_filename=fname, user_id=user["id"])
     now = now_iso()
-    cdoc = {"id": secrets.token_urlsafe(12), "tenant_id": doc["tenant_id"], "category": "courrier",
+    cdoc = {"id": secrets.token_urlsafe(12), "tenant_id": doc["tenant_id"], "category": categorie,
             "title": doc["title"][:200], "reference": (doc.get("number") or "")[:80] or None, "amount": None,
             "currency": "XOF", "doc_date": doc.get("doc_date"), "storage_id": stored["id"], "storage_path": stored["path"],
             "content_type": "application/pdf", "size": stored["size"], "original_filename": fname,
@@ -919,9 +921,33 @@ _SEED_VARIABLES = [
 ]
 
 
+# Lot 73 : modèle « Ordre de mission » fourni d'office (texte standard, à adapter dans « Documents & modèles »)
+_SEED_ORDRE = """
+<p style="text-align: right">{{date.lieu_jour}}</p>
+<p><b>ORDRE DE MISSION N° {{doc.numero}}</b></p>
+<p style="text-align: justify">Il est ordonné à <b>{{intervenant_nom}}</b>, {{intervenant_fonction}} du cabinet, de se rendre chez <b>{{client.nom}}</b>, {{ville_destinataire}}, afin d'exécuter la mission suivante : {{objet_mission}}.</p>
+<p style="text-align: justify">Période de la mission : {{periode_mission}}.</p>
+<p style="text-align: justify">Le présent ordre de mission est délivré pour servir et valoir ce que de droit. Le client est prié de faciliter l'accès de l'intervenant aux pièces et informations nécessaires à l'exécution de la mission.</p>
+<p style="margin-left: 230px; margin-top: 18px">{{signataire.titre}}</p>
+<p style="margin-left: 230px; margin-top: 48px"><b>{{signataire.nom}}</b></p>
+"""
+_SEED_ORDRE_VARIABLES = [
+    {"key": "intervenant_nom", "label": "Nom de l'intervenant", "scope": "common", "default": ""},
+    {"key": "intervenant_fonction", "label": "Fonction de l'intervenant", "scope": "common", "default": "collaborateur"},
+    {"key": "ville_destinataire", "label": "Ville du client", "scope": "recipient", "default": "OUAGADOUGOU"},
+    {"key": "objet_mission", "label": "Objet de la mission", "scope": "common", "default": "traitement des dossiers comptables et fiscaux"},
+    {"key": "periode_mission", "label": "Période de la mission", "scope": "common", "default": "du lundi au vendredi"},
+]
+
+
+def _corps_pastilles(texte: str) -> str:
+    """Corps d'un modèle fourni d'office : chaque variable dans une pastille de l'éditeur."""
+    return re.sub(r"\{\{([a-z0-9_.]+)\}\}", r'<span class="tpl-var" data-var="\1">{{\1}}</span>', texte.strip())
+
+
 def _seed_body() -> str:
-    """Corps du modèle : chaque variable dans une pastille de l'éditeur."""
-    return re.sub(r"\{\{([a-z0-9_.]+)\}\}", r'<span class="tpl-var" data-var="\1">{{\1}}</span>', _SEED_AVIS.strip())
+    """Corps du modèle « Avis de mission »."""
+    return _corps_pastilles(_SEED_AVIS)
 
 
 async def ensure_letters_setup() -> None:
@@ -929,6 +955,14 @@ async def ensure_letters_setup() -> None:
     await db.generated_documents.create_index([("tenant_id", 1), ("created_at", -1)])
     await db.generated_documents.create_index("verify_token")
     await db.invoices.create_index("verify_token")
+    if not await db.doc_templates.find_one({"seed_key": "ordre_mission_v1"}):
+        await db.doc_templates.insert_one({
+            "id": secrets.token_hex(8), "seed_key": "ordre_mission_v1", "is_seed": True, "name": "Ordre de mission — modèle standard",
+            "category": "ordre_mission", "body_html": _corps_pastilles(_SEED_ORDRE), "variables": _SEED_ORDRE_VARIABLES,
+            "number_format": "{n}/ODM/DG/{annee}", "next_number": 1, "letterhead_id": None,
+            "title_pattern": "Ordre de mission — {{client.nom}}", "locked": False, "created_by": None,
+            "created_by_name": "Portail", "created_at": now_iso(), "updated_at": now_iso(), "generated_count": 0,
+            "deleted_at": None})
     if not await db.doc_templates.find_one({"seed_key": "avis_mission_v1"}):
         await db.doc_templates.insert_one({
             "id": secrets.token_hex(8), "seed_key": "avis_mission_v1", "is_seed": True, "name": "Avis de mission",
