@@ -35,7 +35,7 @@ from albarka_maintenance import router as maintenance_router  # noqa: E402  (lot
 from albarka_support_sawali import router as support_sawali_router  # noqa: E402  (lot 23 : assistance SAWALI)
 from albarka_settings_tests import router as settings_tests_router  # noqa: E402
 from albarka_myaccount import router as myaccount_router  # noqa: E402
-from albarka_ohada import router as ohada_router  # noqa: E402
+from albarka_ohada import router as ohada_router, me_router as ohada_me_router  # noqa: E402
 from albarka_payments import router as payments_router, webhook_router as payments_webhook_router  # noqa: E402
 # Lot 14 : encaissement PI-SPI (paramètres, transactions, notification désactivée)
 from albarka_pispi import router as pispi_router, notification_router as pispi_notification_router  # noqa: E402
@@ -159,6 +159,7 @@ api_router.include_router(archives_router)
 api_router.include_router(messaging_router)
 # Phase D — Comptabilité OHADA
 api_router.include_router(ohada_router)
+api_router.include_router(ohada_me_router)   # lot 74 : balance du client connecté (/me/balance)
 # Chat interne — extensions Partie 1 (transcribe/search/photo)
 api_router.include_router(chat_extra_router)
 # WhatsApp inbox — Partie 2.D (webhook + conversations)
