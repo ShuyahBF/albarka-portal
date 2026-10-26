@@ -37,7 +37,7 @@ SERVICES: Dict[str, Dict] = {
     "pispi": {"libelle": "Encaissement PI-SPI", "chemins": ["/api/admin/pispi"]},
     "modeles": {"libelle": "Documents & modèles", "chemins": ["/api/letters"]},
     "paie": {"libelle": "RH & Paie", "chemins": ["/api/hr/paie", "/api/hr/payroll"]},
-    "compta": {"libelle": "Comptabilité OHADA", "chemins": ["/api/accounting"]},
+    "compta": {"libelle": "Comptabilité OHADA", "chemins": ["/api/accounting", "/api/me/balance"]},
     "chat": {"libelle": "Chat interne", "chemins": ["/api/chat"]},
     "push": {"libelle": "Notifications push", "chemins": ["/api/push"]},
 }

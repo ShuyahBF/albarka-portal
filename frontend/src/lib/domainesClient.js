@@ -9,7 +9,7 @@
 export const DOMAINES = {
   comptabilite: {
     titre: "Comptabilité", missions: ["tenue_comptable", "audit"], echeances: ["bilan_annuel"],
-    themes: ["comptable"], categories: ["facture", "proforma", "recu"],
+    themes: ["comptable"], categories: ["facture", "proforma", "recu"],   // les déclarations déposées ont leur propre section (page Comptabilité)
     vide: "Aucun élément de comptabilité pour l'instant.",
   },
   fiscalite: {

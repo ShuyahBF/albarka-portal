@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "73"
-LOT_LIBELLE = "Ordres de mission : modèle standard fourni d'office, génération depuis « Documents & modèles » et dépôt dans la rubrique « Ordres de mission » de l'espace client"
+LOT = "74"
+LOT_LIBELLE = "Espace client, page Comptabilité : balance du client (écritures validées, arrêtée à la date du jour) et déclarations déposées"
