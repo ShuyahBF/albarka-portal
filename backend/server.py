@@ -195,6 +195,8 @@ from albarka_paie import router as paie_router, ensure_paie_setup  # noqa: E402
 api_router.include_router(paie_router)
 from albarka_paie_cnss import router as paie_cnss_router  # noqa: E402  (lot 68 : déclarations CNSS, feuilles BTN et RECAP)
 api_router.include_router(paie_cnss_router)
+from albarka_paie_client import router as paie_client_router  # noqa: E402  (lot 75 : bulletins validés et déclarations CNSS vus par le client)
+api_router.include_router(paie_client_router)
 # Lot 53 : demandes de services (fiscalité, RH, comptable, autres) — client, visiteur public et cabinet
 from albarka_demandes import router as demandes_router, public_router as demandes_public_router  # noqa: E402
 api_router.include_router(demandes_router)

@@ -100,6 +100,7 @@ CLIENT_PORTAL_MODULES = {
     "echeances": "Échéances",
     "formulaires": "Mes formulaires",
     "historique": "Historique",
+    "paie": "Bulletins de paie & CNSS",   # lot 75 : rubrique « Ressources humaines » du client
 }
 
 

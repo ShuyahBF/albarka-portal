@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "74"
-LOT_LIBELLE = "Espace client, page Comptabilité : balance du client (écritures validées, arrêtée à la date du jour) et déclarations déposées"
+LOT = "75"
+LOT_LIBELLE = "Espace client, page Ressources humaines : bulletins de paie validés (un par un ou tous ceux d'un mois, en PDF) et déclarations CNSS de son entreprise ; module « Bulletins de paie & CNSS » à ouvrir dans la fiche client"

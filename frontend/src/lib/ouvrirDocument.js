@@ -18,3 +18,14 @@ export async function ouvrirDocument(it, telecharger = false, apres = null) {
     if (it.is_new && apres) apres();
   } catch (err) { toast.error(extractError(err, "Ouverture impossible")); }
 }
+
+/*
+  Lot 75 — Ouvre un PDF généré par le serveur (bulletin de paie, déclaration CNSS…) : `chemin` est une route de l'API protégée par la session
+  (elle exige l'en-tête d'authentification, un simple lien ne suffirait donc pas), `params` ses paramètres d'URL.
+*/
+export async function ouvrirPdf(chemin, params = {}) {
+  try {
+    const res = await apiClient.get(chemin, { params, responseType: "blob" });
+    window.open(window.URL.createObjectURL(res.data), "_blank");
+  } catch (err) { toast.error(extractError(err, "Document indisponible")); }
+}
