@@ -6,10 +6,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Loader2, MessageCircle } from "lucide-react";
+import { ChevronDown, FileText, Loader2, MessageCircle } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import ListeDocumentsClient from "@/components/ListeDocumentsClient";
+import { ouvrirPdf } from "@/lib/ouvrirDocument";
 import { DOMAINES, STATUTS_ECHEANCE, STATUTS_MISSION, elementsDuDomaine } from "@/lib/domainesClient";
 
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleDateString("fr-FR") : "");
@@ -19,9 +20,13 @@ export default function Domaine({ domaine }) {
   const d = DOMAINES[domaine];
   const [donnees, setDonnees] = useState(null);
   const [balance, setBalance] = useState(null);                // lot 74 : balance du client (page Comptabilité seulement)
+  const [paie, setPaie] = useState(null);                       // lot 75 : bulletins validés et déclarations CNSS (page Ressources humaines seulement)
+  const [moisOuvert, setMoisOuvert] = useState("");             // mois dont la liste des bulletins est dépliée
+  const [bulletins, setBulletins] = useState([]);
 
   // Trois lectures indépendantes, en parallèle : une qui échoue (module fermé par le cabinet…) n'empêche pas les autres
   const charger = useCallback(async () => {
+    if (domaine === "rh") apiClient.get("/me/paie").then(({ data }) => setPaie(data)).catch(() => setPaie({ mois: [], declarations: [] }));   // rubrique fermée = rien à montrer
     const [m, e, s] = await Promise.allSettled([apiClient.get("/missions"), apiClient.get("/echeances"), apiClient.get("/me/space")]);
     const echecs = [m, e, s].filter((r) => r.status === "rejected");
     if (echecs.length === 3) toast.error(extractError(echecs[0].reason));
@@ -32,13 +37,23 @@ export default function Domaine({ domaine }) {
       documents: s.status === "fulfilled" ? s.value.data?.items || [] : [],
     });
   }, [domaine]);
-  useEffect(() => { setDonnees(null); setBalance(null); charger(); }, [charger, domaine]);
+  useEffect(() => { setDonnees(null); setBalance(null); setPaie(null); setMoisOuvert(""); charger(); }, [charger, domaine]);
 
   const el = donnees ? elementsDuDomaine(domaine, donnees) : null;
   // Lot 74 — Comptabilité : « Déclarations déposées » = documents de catégorie « Déclaration fiscale » mis à disposition par le cabinet
   const declarations = domaine === "comptabilite" && donnees ? donnees.documents.filter((x) => x.category === "declaration") : [];
   const lignesBalance = balance?.rows || [];
-  const total = el ? el.missions.length + el.echeances.length + el.documents.length + declarations.length + lignesBalance.length : 0;
+  const moisPaie = paie?.mois || [], declarationsCnss = paie?.declarations || [];
+  const total = el ? el.missions.length + el.echeances.length + el.documents.length + declarations.length + lignesBalance.length + moisPaie.length + declarationsCnss.length : 0;
+
+  // Déplie / replie la liste des bulletins validés d'un mois (une lecture à l'ouverture)
+  const basculerMois = async (m) => {
+    if (moisOuvert === m) { setMoisOuvert(""); return; }
+    setMoisOuvert(m); setBulletins([]);
+    try { setBulletins((await apiClient.get("/me/paie/bulletins", { params: { period_month: m } })).data?.items || []); }
+    catch (err) { toast.error(extractError(err)); }
+  };
+  const libMois = (m) => new Date(`${m}-01T12:00:00`).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 
   return (
     <div className="space-y-6" data-testid={`page-domaine-${domaine}`}>
@@ -85,6 +100,46 @@ export default function Domaine({ domaine }) {
                   </tbody>
                 </table>
               </div>
+            </section>
+          )}
+          {domaine === "rh" && moisPaie.length > 0 && (
+            <section className="space-y-2" data-testid="domaine-paie">
+              <h2 className="font-display text-xl">Bulletins de paie</h2>
+              {moisPaie.map((m) => (
+                <div key={m.period_month} className="albarka-card" data-testid={`paie-mois-${m.period_month}`}>
+                  <div className="p-4 flex flex-wrap items-center gap-3">
+                    <button type="button" onClick={() => basculerMois(m.period_month)} className="flex-1 min-w-[200px] text-left flex items-center gap-2" aria-expanded={moisOuvert === m.period_month}>
+                      <ChevronDown className={`w-4 h-4 transition-transform ${moisOuvert === m.period_month ? "rotate-180" : ""}`} />
+                      <span><span className="font-medium capitalize">{libMois(m.period_month)}</span>
+                        <span className="block text-xs text-muted-foreground">{m.count} bulletin(s) · net à payer {fmtMontant(m.net_to_pay)} FCFA</span></span>
+                    </button>
+                    <Button size="sm" variant="outline" onClick={() => ouvrirPdf("/me/paie/bulletins-pdf", { period_month: m.period_month })}><FileText className="w-4 h-4 mr-1" /> Tous (PDF)</Button>
+                  </div>
+                  {moisOuvert === m.period_month && (
+                    <ul className="border-t divide-y">
+                      {bulletins.map((b) => (
+                        <li key={b.id} className="px-4 py-2.5 flex flex-wrap items-center gap-3 text-sm">
+                          <span className="flex-1 min-w-[160px] font-medium">{b.full_name}</span>
+                          <span className="text-xs text-muted-foreground">Brut {fmtMontant(b.gross)} · Net {fmtMontant(b.net_to_pay)}</span>
+                          <Button size="sm" variant="ghost" onClick={() => ouvrirPdf(`/me/paie/bulletins/${b.id}/pdf`)}><FileText className="w-4 h-4 mr-1" /> Bulletin</Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </section>
+          )}
+          {domaine === "rh" && declarationsCnss.length > 0 && (
+            <section className="space-y-2" data-testid="domaine-cnss">
+              <h2 className="font-display text-xl">Déclarations CNSS</h2>
+              {declarationsCnss.map((d) => (
+                <div key={`${d.annee}-${d.numero}`} className="albarka-card p-4 flex flex-wrap items-center gap-3">
+                  <div className="flex-1 min-w-[200px]"><div className="font-medium capitalize">{d.libelle}</div>
+                    <div className="text-xs text-muted-foreground">Déclaration {d.periodicite} · feuilles BTN et déclaration</div></div>
+                  <Button size="sm" variant="outline" onClick={() => ouvrirPdf("/me/paie/cnss/pdf", { annee: d.annee, numero: d.numero })}><FileText className="w-4 h-4 mr-1" /> Ouvrir (PDF)</Button>
+                </div>
+              ))}
             </section>
           )}
           {declarations.length > 0 && (
