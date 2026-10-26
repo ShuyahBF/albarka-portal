@@ -128,6 +128,9 @@ function TemplateEditor({ initial, catalog, letterheads, onClose, onSaved }) {
 }
 
 // ---------------------------------------------------------------- génération
+// Lot 73 : rubrique de l'espace client où le document est déposé (même catégorie que le modèle quand l'espace client la connaît, sinon « Courrier »)
+const RUBRIQUE_DEPOT = { ordre_mission: "Ordres de mission", attestation: "Attestation", courrier: "Courrier" };
+
 function GenerateWizard({ template, letterheads, preset, onClose, onDone }) {
   const [full, setFull] = useState(null);
   const [clients, setClients] = useState([]);
@@ -137,7 +140,7 @@ function GenerateWizard({ template, letterheads, preset, onClose, onDone }) {
   const [perClient, setPerClient] = useState({});
   const [docDate, setDocDate] = useState(today());
   const [letterheadId, setLetterheadId] = useState("");
-  const [deposit, setDeposit] = useState(false);
+  const [deposit, setDeposit] = useState(template?.category === "ordre_mission");   // lot 73 : un ordre de mission est déposé chez le client par défaut (sans le prévenir)
   const [notify, setNotify] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -252,7 +255,7 @@ function GenerateWizard({ template, letterheads, preset, onClose, onDone }) {
                   <input value={common[v.key] ?? ""} onChange={(e) => setCommon({ ...common, [v.key]: e.target.value })} className={ui.input} data-testid={`generate-common-${v.key}`} /></label>
               ))}
               <div className="space-y-1 pt-1">
-                <label className={ui.checkLabel}><input type="checkbox" className={ui.check} checked={deposit} onChange={(e) => setDeposit(e.target.checked)} data-testid="generate-deposit" /> Déposer chaque document dans l'espace du client (Courrier)</label>
+                <label className={ui.checkLabel}><input type="checkbox" className={ui.check} checked={deposit} onChange={(e) => setDeposit(e.target.checked)} data-testid="generate-deposit" /> Déposer chaque document dans l'espace du client ({RUBRIQUE_DEPOT[template?.category] || "Courrier"})</label>
                 <label className={cx(ui.checkLabel, !deposit && "opacity-40")}><input type="checkbox" className={ui.check} disabled={!deposit} checked={deposit && notify} onChange={(e) => setNotify(e.target.checked)} /> et prévenir le client (WhatsApp ou e-mail)</label>
               </div>
             </div>
