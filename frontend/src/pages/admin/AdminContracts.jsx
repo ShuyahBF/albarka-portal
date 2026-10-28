@@ -42,13 +42,16 @@ const emptyForm = () => ({
   date_dernier_paiement: "", notes: "",
 });
 
-export default function AdminContracts() {
+// Lot 78 — même composant pour la page « Contrats clients » (tous les clients) et pour l'onglet « Historique des Contrats »
+// de la fiche d'un client (prop tenantId : liste limitée à ce client, client imposé dans le formulaire de création).
+export default function AdminContracts({ tenantId = null }) {
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const [numeroModifiable, setNumeroModifiable] = useState(false);   // lot 78 : DG et super-admin seulement (décidé par le serveur)
   const [fichierNouveau, setFichierNouveau] = useState(null);   // lot 66 : document choisi à la création du contrat
   const [envoiId, setEnvoiId] = useState(null);                  // lot 66 : contrat dont le document est en cours d'envoi
   const champFichier = useRef(null);                             // lot 66 : sélecteur de fichier unique (boutons « Attacher / Remplacer »)
@@ -63,15 +66,25 @@ export default function AdminContracts() {
     setLoading(true);
     try {
       const [{ data: contracts }, { data: cls }] = await Promise.all([
-        apiClient.get("/client-contracts"),
-        apiClient.get("/clients"),
+        apiClient.get("/client-contracts", { params: tenantId ? { tenant_id: tenantId } : {} }),
+        tenantId ? Promise.resolve({ data: [] }) : apiClient.get("/clients"),   // fiche client : le client est déjà connu
       ]);
       setItems(contracts);
       setClients(cls);
     } catch (err) { toast.error(extractError(err)); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [tenantId]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lot 78 — numéro proposé (dernier numéro de l'année + 1) et droit de le modifier, tous deux fournis par le serveur
+  const chargerNumero = async () => {
+    try {
+      const { data } = await apiClient.get("/client-contracts/prochain-numero");
+      setNumeroModifiable(!!data.modifiable);
+      return data.numero || "";
+    } catch { return ""; }
+  };
+  useEffect(() => { chargerNumero(); }, []);
 
   // Lot 66 — contrôle du fichier choisi (format et taille) avant l'envoi
   const fichierValide = (f) => {
@@ -115,7 +128,13 @@ export default function AdminContracts() {
     catch (err) { toast.error(extractError(err)); }
   };
 
-  const openNew = () => { setEditing(null); setForm(emptyForm()); setFichierNouveau(null); setOpen(true); };
+  const openNew = async () => {
+    setEditing(null); setFichierNouveau(null);
+    setForm({ ...emptyForm(), tenant_id: tenantId || "" });
+    setOpen(true);
+    const numero = await chargerNumero();                  // numéro proposé, rempli dès que le serveur répond
+    setForm((f) => ({ ...f, numero_contrat: numero }));
+  };
   const openEdit = (c) => {
     setEditing(c);
     setForm({
@@ -137,6 +156,7 @@ export default function AdminContracts() {
     if (editing) {
       try {
         const payload = { ...form };
+        if (!numeroModifiable) delete payload.numero_contrat;   // lot 78 : le numéro n'est pas modifiable par ce profil
         if (payload.amount === "" || payload.amount === null) delete payload.amount;
         else payload.amount = Number(payload.amount);
         if (!payload.end_date) delete payload.end_date;
@@ -150,6 +170,7 @@ export default function AdminContracts() {
       }
       try {
         const payload = { ...form };
+        if (!numeroModifiable) delete payload.numero_contrat;   // lot 78 : attribué par le serveur (dernier numéro + 1)
         if (payload.amount === "") delete payload.amount;
         else payload.amount = Number(payload.amount);
         if (!payload.end_date) delete payload.end_date;
@@ -161,7 +182,7 @@ export default function AdminContracts() {
     setOpen(false);
     setEditing(null);
     setFichierNouveau(null);
-    setForm(emptyForm());
+    setForm({ ...emptyForm(), tenant_id: tenantId || "" });
     await load();
   };
 
@@ -175,16 +196,25 @@ export default function AdminContracts() {
   };
 
   return (
-    <div className="space-y-6" data-testid="admin-contracts-page">
+    <div className={tenantId ? "space-y-4" : "space-y-6"} data-testid="admin-contracts-page">
       <input ref={champFichier} type="file" accept={DOC_ACCEPT} className="hidden" onChange={documentChoisi} data-testid="contract-document-input" />
       <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-        <div>
-          <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
-          <h1 className="font-display text-3xl md:text-4xl text-foreground">Contrats clients</h1>
-          <p className="text-muted-foreground mt-1 max-w-2xl">
-            Un contrat actif est <strong>obligatoire</strong> pour qu'un client puisse se connecter au portail.
-          </p>
-        </div>
+        {tenantId ? (
+          <div>
+            <h2 className="font-display text-xl text-foreground" data-testid="historique-contrats-titre">Historique des contrats</h2>
+            <p className="text-muted-foreground text-sm mt-1 max-w-2xl">
+              Un contrat actif est <strong>obligatoire</strong> pour que ce client puisse se connecter au portail.
+            </p>
+          </div>
+        ) : (
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">Cabinet</div>
+            <h1 className="font-display text-3xl md:text-4xl text-foreground">Contrats clients</h1>
+            <p className="text-muted-foreground mt-1 max-w-2xl">
+              Un contrat actif est <strong>obligatoire</strong> pour qu'un client puisse se connecter au portail.
+            </p>
+          </div>
+        )}
         <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) setEditing(null); }}>
           <DialogTrigger asChild>
             <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="new-contract-btn" onClick={openNew}>
@@ -196,7 +226,7 @@ export default function AdminContracts() {
               <DialogTitle>{editing ? "Modifier le contrat" : "Nouveau contrat"}</DialogTitle>
             </DialogHeader>
             <div className="space-y-3">
-              {!editing && (
+              {!editing && !tenantId && (
                 <div>
                   <Label>Client</Label>
                   <EntitySelect
@@ -207,7 +237,11 @@ export default function AdminContracts() {
                 </div>
               )}
               <div><Label>Titre</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="contract-title-input" /></div>
-              <div><Label>Numéro de contrat <span className="text-[10px] text-muted-foreground">(auto-généré si vide)</span></Label><Input value={form.numero_contrat} onChange={(e) => setForm({ ...form, numero_contrat: e.target.value })} placeholder="CTR-2026-0001" data-testid="contract-numero-input" /></div>
+              <div>
+                <Label>Numéro de contrat <span className="text-[10px] text-muted-foreground">{numeroModifiable ? "(proposé, modifiable par le DG et le super-admin)" : "(attribué automatiquement, non modifiable)"}</span></Label>
+                <Input value={form.numero_contrat} readOnly={!numeroModifiable} disabled={!numeroModifiable}
+                  onChange={(e) => setForm({ ...form, numero_contrat: e.target.value })} placeholder="CTR-2026-0001" data-testid="contract-numero-input" />
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Début</Label><Input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} data-testid="contract-start-input" /></div>
                 <div><Label>Fin (optionnel)</Label><Input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} data-testid="contract-end-input" /></div>
@@ -267,7 +301,7 @@ export default function AdminContracts() {
           <TableHeader>
             <TableRow>
               <TableHead>N° / Titre</TableHead>
-              <TableHead>Client</TableHead>
+              {!tenantId && <TableHead>Client</TableHead>}
               <TableHead>Début</TableHead>
               <TableHead>Fin</TableHead>
               <TableHead className="text-right">Montant</TableHead>
@@ -277,8 +311,8 @@ export default function AdminContracts() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && items.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Aucun contrat.</TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={tenantId ? 7 : 8} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+            {!loading && items.length === 0 && <TableRow><TableCell colSpan={tenantId ? 7 : 8} className="text-center py-10 text-muted-foreground">Aucun contrat.</TableCell></TableRow>}
             {items.map((c) => (
               <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
                 <TableCell className="font-medium">
@@ -295,10 +329,12 @@ export default function AdminContracts() {
                     </div>
                   </div>
                 </TableCell>
-                <TableCell className="text-xs">
-                  <div className="font-medium text-foreground text-sm">{clientNames[c.tenant_id] || "Client inconnu"}</div>
-                  <div className="font-mono text-muted-foreground">{c.tenant_id.slice(0, 10)}…</div>
-                </TableCell>
+                {!tenantId && (
+                  <TableCell className="text-xs">
+                    <div className="font-medium text-foreground text-sm">{clientNames[c.tenant_id] || "Client inconnu"}</div>
+                    <div className="font-mono text-muted-foreground">{c.tenant_id.slice(0, 10)}…</div>
+                  </TableCell>
+                )}
                 <TableCell className="text-sm">{c.start_date}</TableCell>
                 <TableCell className="text-sm">{c.end_date || "—"}</TableCell>
                 <TableCell className="text-sm font-mono text-right">{c.amount ? `${Number(c.amount).toLocaleString()} ${c.currency || "XOF"}` : "—"}</TableCell>
