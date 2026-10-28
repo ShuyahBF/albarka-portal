@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "76"
-LOT_LIBELLE = "Espace client, page Fiscalité : état des déclarations du mois (déposée, à faire, en retard) et retards en évidence"
+LOT = "77"
+LOT_LIBELLE = "Connexion client sans contrat actif : le message « Aucun contrat actif » reste affiché à chaque essai (le code de vérification n'est plus consommé par ce refus : fini le « Session invalide ou expirée » trompeur)."
