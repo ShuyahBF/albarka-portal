@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "79"
-LOT_LIBELLE = "Contrats clients : la Direction peut aussi modifier le numéro de contrat (avec le DG et le super-admin). Lot 78 : option sous « Clients », onglet « Historique des Contrats », numéro proposé automatiquement."
+LOT = "80"
+LOT_LIBELLE = "Demande de services : l'envoi (texte, note vocale, pièces jointes) ne répond plus « Field required ». Lot 79 — Contrats clients : la Direction peut aussi modifier le numéro de contrat (avec le DG et le super-admin). Lot 78 : option sous « Clients », onglet « Historique des Contrats », numéro proposé automatiquement."

@@ -9,6 +9,14 @@ export const apiClient = axios.create({
 });
 
 apiClient.interceptors.request.use((config) => {
+  // Lot 80 : envoi de fichiers (FormData) sans en-tête « application/json ». Avec cet en-tête par défaut, axios 1.x transforme le
+  // formulaire en JSON et le serveur répond « Field required » (demande de service, note vocale, pièces jointes). Sans en-tête,
+  // le navigateur fixe lui-même « multipart/form-data » avec sa frontière.
+  if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+    config.headers = config.headers || {};
+    if (typeof config.headers.delete === "function") config.headers.delete("Content-Type");
+    else delete config.headers["Content-Type"];
+  }
   const token = localStorage.getItem("albarka_token");
   if (token) {
     config.headers = config.headers || {};
