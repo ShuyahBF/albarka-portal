@@ -41,12 +41,12 @@ _SIGNATURES = {
 _gestion_contrats = require_roles(CLIENT_MANAGE_ROLES)
 
 # Lot 78 — numéro de contrat : proposé automatiquement (dernier numéro de l'année + 1), modifiable seulement
-# par le DG et le super-admin (rôle « superviseur »). Les autres collaborateurs ne choisissent jamais le numéro.
-NUMERO_ROLES = {"dg", "superviseur"}
+# par la Direction, le DG et le super-admin (rôle « superviseur »). Les autres collaborateurs ne choisissent jamais le numéro.
+NUMERO_ROLES = {"direction", "dg", "superviseur"}   # lot 79 : la Direction aussi
 
 
 def peut_modifier_numero(user: dict) -> bool:
-    """Vrai si l'utilisateur est DG ou super-admin (superviseur) : seuls autorisés à saisir / changer le numéro."""
+    """Vrai si l'utilisateur est Direction, DG ou super-admin (superviseur) : seuls autorisés à saisir / changer le numéro."""
     return bool(set(user.get("roles") or []) & NUMERO_ROLES)
 
 
@@ -194,7 +194,7 @@ async def create_contract(payload: ContractCreate, user: dict = Depends(require_
     client = await db.users.find_one({"id": payload.tenant_id, "roles": "client"}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
-    # Lot 78 — numéro : seuls le DG et le super-admin peuvent saisir le numéro ; pour tous les autres, la saisie est
+    # Lot 78 — numéro : seules la Direction, le DG et le super-admin peuvent saisir le numéro ; pour tous les autres, la saisie est
     # ignorée et le prochain numéro libre est attribué par le serveur (CTR-AAAA-NNNN, dernier numéro + 1).
     numero = (payload.numero_contrat or "").strip() if peut_modifier_numero(user) else ""
     if numero:
@@ -239,7 +239,7 @@ async def update_contract(
     contract_id: str, payload: ContractUpdate, user: dict = Depends(require_staff()),
 ):
     update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
-    # Lot 78 — le numéro ne change que par le DG ou le super-admin ; pour les autres il est ignoré (jamais d'erreur bloquante)
+    # Lot 78 — le numéro ne change que par la Direction, le DG ou le super-admin ; pour les autres il est ignoré (jamais d'erreur bloquante)
     if "numero_contrat" in update:
         if not peut_modifier_numero(user):
             update.pop("numero_contrat")

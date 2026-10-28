@@ -29,6 +29,7 @@ ANNEE = datetime.now(timezone.utc).strftime("%Y")
 USERS = {
     "dg": {"id": "u-dg", "full_name": "DG", "roles": ["dg"]},
     "sup": {"id": "u-sup", "full_name": "Superviseur", "roles": ["superviseur"]},
+    "dir": {"id": "u-dir", "full_name": "Direction", "roles": ["direction"]},
     "secr": {"id": "u-secr", "full_name": "Secrétaire", "roles": ["secretariat"]},
 }
 
@@ -89,3 +90,9 @@ def test_modification_du_numero_reservee(env):
     assert r.status_code == 200 and r.json()["numero_contrat"] == f"CTR-{ANNEE}-0001" and r.json()["title"] == "Nouveau titre"
     r = env.c.patch(f"/api/client-contracts/{cid}", headers={"X-User": "dg"}, json={"numero_contrat": "CTR-2026-0777"})
     assert r.status_code == 200 and r.json()["numero_contrat"] == "CTR-2026-0777"
+
+
+def test_la_direction_peut_aussi_modifier_le_numero(env):
+    """Lot 79 : la Direction a le même droit que le DG et le super-admin."""
+    assert env.c.get("/api/client-contracts/prochain-numero", headers={"X-User": "dir"}).json()["modifiable"] is True
+    assert _creer(env, "dir", numero_contrat="CTR-2026-0123").json()["numero_contrat"] == "CTR-2026-0123"

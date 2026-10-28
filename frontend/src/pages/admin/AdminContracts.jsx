@@ -238,7 +238,7 @@ export default function AdminContracts({ tenantId = null }) {
               )}
               <div><Label>Titre</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} data-testid="contract-title-input" /></div>
               <div>
-                <Label>Numéro de contrat <span className="text-[10px] text-muted-foreground">{numeroModifiable ? "(proposé, modifiable par le DG et le super-admin)" : "(attribué automatiquement, non modifiable)"}</span></Label>
+                <Label>Numéro de contrat <span className="text-[10px] text-muted-foreground">{numeroModifiable ? "(proposé, modifiable par la Direction, le DG et le super-admin)" : "(attribué automatiquement, non modifiable)"}</span></Label>
                 <Input value={form.numero_contrat} readOnly={!numeroModifiable} disabled={!numeroModifiable}
                   onChange={(e) => setForm({ ...form, numero_contrat: e.target.value })} placeholder="CTR-2026-0001" data-testid="contract-numero-input" />
               </div>
