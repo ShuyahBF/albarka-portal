@@ -11,6 +11,7 @@ import Echeances from "@/pages/portal/Echeances";
 import { ClientReportsPanel } from "@/pages/admin/AdminReports";
 import { ContactsPanel } from "@/pages/admin/AdminContacts";
 import ClientSpacePanel from "@/components/ClientSpacePanel";
+import AdminContracts from "@/pages/admin/AdminContracts";
 
 export default function AdminClientDetail() {
   const { id } = useParams();
@@ -52,6 +53,8 @@ export default function AdminClientDetail() {
           <TabsTrigger value="documents" data-testid="tab-client-documents">Pièces</TabsTrigger>
           <TabsTrigger value="missions" data-testid="tab-client-missions">Missions</TabsTrigger>
           <TabsTrigger value="echeances" data-testid="tab-client-echeances">Échéances</TabsTrigger>
+          {/* Lot 78 : historique des contrats du client + création d'un nouveau contrat */}
+          <TabsTrigger value="contrats" data-testid="tab-client-contrats">Historique des Contrats</TabsTrigger>
           {/* Modules visibles + documents déposés / mis à disposition du client */}
           <TabsTrigger value="espace" data-testid="tab-client-space">Espace client</TabsTrigger>
         </TabsList>
@@ -69,6 +72,9 @@ export default function AdminClientDetail() {
         </TabsContent>
         <TabsContent value="echeances" className="pt-4">
           <Echeances tenantIdOverride={client.id} staffMode notifiable />
+        </TabsContent>
+        <TabsContent value="contrats" className="pt-4">
+          <AdminContracts tenantId={client.id} />
         </TabsContent>
         <TabsContent value="espace" className="pt-4">
           <ClientSpacePanel tenantId={id} />

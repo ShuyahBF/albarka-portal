@@ -40,6 +40,38 @@ _SIGNATURES = {
 }
 _gestion_contrats = require_roles(CLIENT_MANAGE_ROLES)
 
+# Lot 78 — numéro de contrat : proposé automatiquement (dernier numéro de l'année + 1), modifiable seulement
+# par le DG et le super-admin (rôle « superviseur »). Les autres collaborateurs ne choisissent jamais le numéro.
+NUMERO_ROLES = {"dg", "superviseur"}
+
+
+def peut_modifier_numero(user: dict) -> bool:
+    """Vrai si l'utilisateur est DG ou super-admin (superviseur) : seuls autorisés à saisir / changer le numéro."""
+    return bool(set(user.get("roles") or []) & NUMERO_ROLES)
+
+
+async def prochain_numero(annee: Optional[str] = None) -> str:
+    """Prochain numéro libre « CTR-AAAA-NNNN » : le plus grand numéro déjà utilisé cette année (contrats saisis à la
+    main compris, ex. CTR-2026-0020) ou le compteur de la série, + 1. Lecture seule : ne consomme aucun numéro."""
+    annee = annee or datetime.now(timezone.utc).strftime("%Y")
+    motif = re.compile(rf"^CTR-{annee}-(\d+)$")
+    plus_grand = 0
+    async for c in db.client_contracts.find({"numero_contrat": {"$regex": f"^CTR-{annee}-"}}, {"_id": 0, "numero_contrat": 1}):
+        m = motif.match(str(c.get("numero_contrat") or ""))
+        if m:
+            plus_grand = max(plus_grand, int(m.group(1)))
+    serie = await db.report_series.find_one({"key": f"contract:{annee}"}, {"_id": 0, "seq": 1})
+    plus_grand = max(plus_grand, int((serie or {}).get("seq") or 0))
+    return f"CTR-{annee}-{plus_grand + 1:04d}"
+
+
+async def numero_deja_pris(numero: str, sauf_id: Optional[str] = None) -> bool:
+    """Un numéro de contrat ne sert qu'une fois (insensible à la casse et aux espaces)."""
+    q: dict = {"numero_contrat": {"$regex": f"^{re.escape(numero.strip())}$", "$options": "i"}}
+    if sauf_id:
+        q["id"] = {"$ne": sauf_id}
+    return await db.client_contracts.find_one(q, {"_id": 1}) is not None
+
 
 def _public(doc: dict) -> dict:
     """Contrat prêt à être renvoyé à l'écran : le chemin interne de stockage n'est jamais exposé."""
@@ -150,22 +182,31 @@ async def list_contracts(
     return serialize_many([_public(c) for c in items])
 
 
+@router.get("/prochain-numero")
+async def get_prochain_numero(user: dict = Depends(require_staff())):
+    """Lot 78 — numéro proposé pour un nouveau contrat + droit de le modifier (DG et super-admin seulement)."""
+    return {"numero": await prochain_numero(), "modifiable": peut_modifier_numero(user)}
+
+
 @router.post("")
 async def create_contract(payload: ContractCreate, user: dict = Depends(require_staff())):
     # Ensure the tenant is an existing client
     client = await db.users.find_one({"id": payload.tenant_id, "roles": "client"}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
-    # Auto-generate numero_contrat if not provided : CTR-YYYY-NNNN
-    numero = payload.numero_contrat
-    if not numero:
-        year = datetime.now(timezone.utc).strftime("%Y")
-        seq_doc = await db.report_series.find_one_and_update(
-            {"key": f"contract:{year}"},
-            {"$inc": {"seq": 1}, "$setOnInsert": {"kind": "contract", "year": year}},
-            upsert=True, return_document=True,
-        )
-        numero = f"CTR-{year}-{int(seq_doc.get('seq') or 1):04d}"
+    # Lot 78 — numéro : seuls le DG et le super-admin peuvent saisir le numéro ; pour tous les autres, la saisie est
+    # ignorée et le prochain numéro libre est attribué par le serveur (CTR-AAAA-NNNN, dernier numéro + 1).
+    numero = (payload.numero_contrat or "").strip() if peut_modifier_numero(user) else ""
+    if numero:
+        if await numero_deja_pris(numero):
+            raise HTTPException(status_code=409, detail=f"Le numéro {numero} est déjà utilisé")
+    else:
+        numero = await prochain_numero()
+        # Garde la série à jour (autres modules) sans jamais reculer
+        annee = numero.split("-")[1]
+        await db.report_series.update_one({"key": f"contract:{annee}"},
+                                          {"$max": {"seq": int(numero.rsplit("-", 1)[1])},
+                                           "$setOnInsert": {"kind": "contract", "year": annee}}, upsert=True)
     doc = {
         "id": secrets.token_urlsafe(12),
         "tenant_id": payload.tenant_id,
@@ -198,6 +239,16 @@ async def update_contract(
     contract_id: str, payload: ContractUpdate, user: dict = Depends(require_staff()),
 ):
     update = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    # Lot 78 — le numéro ne change que par le DG ou le super-admin ; pour les autres il est ignoré (jamais d'erreur bloquante)
+    if "numero_contrat" in update:
+        if not peut_modifier_numero(user):
+            update.pop("numero_contrat")
+        else:
+            update["numero_contrat"] = update["numero_contrat"].strip()
+            if update["numero_contrat"] and await numero_deja_pris(update["numero_contrat"], sauf_id=contract_id):
+                raise HTTPException(status_code=409, detail=f"Le numéro {update['numero_contrat']} est déjà utilisé")
+            if not update["numero_contrat"]:
+                update.pop("numero_contrat")
     if not update:
         raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
     update["updated_at"] = datetime.now(timezone.utc).isoformat()

@@ -107,6 +107,9 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "secretariat", "fiscaliste", "comptable", "aide_comptable", "rh"] },
   { to: "/admin/clients", label: "Clients", icon: Users,
     roles: ["superviseur", "direction", "administrateur", "secretariat"] },
+  // Lot 78 : « Contrats clients » juste sous « Clients »
+  { to: "/admin/contrats", label: "Contrats clients", icon: FileSignature,
+    roles: ["superviseur", "direction", "administrateur", "secretariat"] },
   { to: "/admin/contacts", label: "Contacts", icon: Contact,
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
   { to: "/admin/staff", label: "Personnels", icon: UserCog,
@@ -135,8 +138,6 @@ const STAFF_MENU = [
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
   { to: "/admin/rapports/bulk", label: "Rapports en masse", icon: Zap,
     roles: ["superviseur", "direction", "comptable", "fiscaliste"] },
-  { to: "/admin/contrats", label: "Contrats clients", icon: FileSignature,
-    roles: ["superviseur", "direction", "administrateur", "secretariat"] },
   // Caisse : le Caissier y accède aussi (seul habilité à encaisser / délivrer un reçu).
   { to: "/admin/caisse", label: "Caisse", icon: Receipt,
     roles: ["superviseur", "direction", "administrateur", "comptable", "secretariat", "caissier"] },
