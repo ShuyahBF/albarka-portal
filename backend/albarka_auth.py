@@ -210,6 +210,9 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
     if "client" in roles and len(roles) == 1:
         from albarka_contracts import has_active_contract
         if not await has_active_contract(user["id"]):
+            # Lot 33 : le code n'est PAS consommé par ce refus. Avant, il était déjà marqué « utilisé » : au deuxième essai
+            # le client lisait « Session invalide ou expirée » et ne voyait plus la vraie raison (aucun contrat actif).
+            await db.otps.update_one({"id": otp["id"]}, {"$set": {"used": False}})
             raise HTTPException(
                 status_code=403,
                 detail=(
