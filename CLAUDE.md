@@ -55,6 +55,7 @@ méthode de travail par défaut, sans qu'il soit nécessaire de les redemander.
 - Même principe sur toute plateforme qui possède une page de paramètres / nouveautés.
 
 ## Tableaux (règle 3)
+- Règle du 29/10/2026 : les NOMBRES (quantités, montants, pourcentages) sont TOUJOURS alignés à DROITE, en-tête de colonne compris (écran : `text-right tabular-nums` ; PDF reportlab : style de paragraphe `alignment=2` ; WinForms : `DefaultCellStyle.Alignment = MiddleRight`).
 - Sur TOUT tableau : ligne survolée = fond bleu clair transparent
   (`rgba(56, 189, 248, 0.16)`) ; ligne sélectionnée = fond orange clair
   (`#f6a35b`) avec police blanche.
