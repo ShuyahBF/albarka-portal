@@ -12,6 +12,7 @@ Tests autonomes : MongoDB simulé (mongomock-motor).
 """
 from __future__ import annotations
 
+import re
 import asyncio
 import os
 import sys
@@ -264,10 +265,13 @@ def test_api_exceptional_bonus_pdf_and_year_cumul(env):
     for needle in ("BULLETIN DE PAIE", "CLIENT SARL", "SEGO IRENE", "Total brut", "Cotisations sociales (CNSS)",
                    "Impôt retenu à la source (IUTS)", "Total retenues sociales et fiscales",
                    "Prélèvement pour effort de paix (FSP)", "NET À PAYER", "Impôt sur le salaire", "Cumul",
-                   "Masse salariale", "Jours considérés", "Non cadre", "M-42",
+                   "Masse salariale", "Jours considérés", "M-42",
                    "Pour vous aider à faire valoir vos droits, conservez ce bulletin de paie sans limitation de durée.",
                    "Édité le", "171 682"):
         assert needle in text, needle
+    # Lot 80.2 (inspection du travail) : jamais la mention « non cadre » sur le bulletin, ni au niveau du statut ni ailleurs
+    assert not re.search(r"non[\s_-]*cadre", text, re.IGNORECASE)
+    assert "Statut :" in text and "Statut Non" not in text
     # Livre de paie : colonne FSP
     lv = c.get("/api/hr/paie/livre?employer_id=c1&period_month=2026-08", headers=H).json()
     assert any(col["label"] == "FSP" for col in lv["columns"])
