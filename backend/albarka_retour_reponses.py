@@ -9,8 +9,8 @@ aussi dans ALBARKA : le retour n'enlève rien.
 
 Adresse de SAWALI : celle de LILUVINE_WA_URL (déjà saisie pour la transmission universelle), coupée avant « /api/ » ; aucune variable de plus.
 Principe « boîte d'envoi » : une réponse non encore transmise porte l'absence du champ `sawali_envoye_le` ; le planificateur (chaque minute)
-transmet celles en attente. Une panne réseau ou un refus 5xx laisse la réponse en attente (nouvel essai à la minute suivante) ; un refus 4xx
-(signature, document inconnu) est noté (`sawali_erreur`) et n'est pas rejoué. SAWALI est idempotent (même `reponse_id` = jamais de doublon).
+transmet celles en attente. Une panne réseau, un refus 5xx ou un 404 (route pas encore en ligne chez SAWALI) laisse la réponse en attente (nouvel essai à la minute suivante) ; un refus définitif (400, 401, 403,
+409, 422 : signature, document inconnu) est noté (`sawali_erreur`) et n'est pas rejoué. SAWALI est idempotent (même `reponse_id` = jamais de doublon).
 Les fichiers joints et signatures ne sont pas transmis : seules les valeurs saisies le sont.
 """
 from __future__ import annotations
@@ -63,7 +63,9 @@ async def _poster(cfg: Dict[str, str], url: str, corps: Dict[str, Any]) -> Dict[
         return {"ok": False, "definitif": False, "erreur": f"SAWALI injoignable ({type(exc).__name__})"}
     if rep.status_code < 300:
         return {"ok": True, "definitif": True, "erreur": None}
-    return {"ok": False, "definitif": rep.status_code < 500, "erreur": f"refusé par SAWALI (HTTP {rep.status_code})"}
+    # Refus DÉFINITIFS : demande invalide, signature, document inconnu (400, 401, 403, 409, 422). Tout le reste (404 = route pas encore
+    # déployée chez SAWALI, 5xx, 429…) est réessayé à la minute suivante.
+    return {"ok": False, "definitif": rep.status_code in (400, 401, 403, 409, 422), "erreur": f"refusé par SAWALI (HTTP {rep.status_code})"}
 
 
 async def envoyer_reponses_en_attente(base) -> Dict[str, int]:
