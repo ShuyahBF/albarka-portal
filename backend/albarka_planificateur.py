@@ -126,6 +126,14 @@ async def boucle_planificateur() -> None:
                 await sauvegarde_du_jour(db, maintenant)
             except Exception:  # noqa: BLE001
                 logger.exception("Planificateur : sauvegarde quotidienne en erreur")
+        # 2 bis) Lot 82 : réponses aux formulaires reçus de SAWALI, renvoyées à SAWALI (chaque minute, seulement si les envois sont actifs)
+        if envois:
+            try:
+                from albarka_retour_reponses import envoyer_reponses_en_attente
+                from db import db as base_albarka
+                await envoyer_reponses_en_attente(base_albarka)
+            except Exception:  # noqa: BLE001
+                logger.exception("Planificateur : retour des réponses vers SAWALI en erreur")
         # 3) Envois WhatsApp planifiés (toutes les 5 minutes) — seulement si les envois sont actifs
         horloge = asyncio.get_running_loop().time()
         if envois and horloge - dernier_envoi_wa >= INTERVALLE_WA_SECONDES:
