@@ -217,6 +217,9 @@ api_router.include_router(transmission_wa_router)
 from albarka_transmission_wa import retour_router as liluvine_retour_router  # noqa: E402
 from albarka_transmission_wa import admin_alias_router as transmission_wa_alias_router  # noqa: E402
 api_router.include_router(liluvine_retour_router)
+# Lot 81 — formulaires et sondages transmis par SAWALI (route publique signée) : ils arrivent dans « Mes formulaires »
+from albarka_reception_formulaires import router as reception_formulaires_router  # noqa: E402
+api_router.include_router(reception_formulaires_router)
 api_router.include_router(transmission_wa_alias_router)
 
 
