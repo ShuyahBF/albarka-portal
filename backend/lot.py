@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "32.1"
-LOT_LIBELLE = "Paie : l'abattement pour charges de famille s'affiche en positif sur le bulletin (le calcul et le net ne changent pas)"
+LOT = "32.2"
+LOT_LIBELLE = "Tableaux : la ligne sélectionnée garde son fond orange clair mais passe en police bleu nuit (contraste 7,7:1 au lieu de 2:1 en blanc), règle 3 modifiée par le propriétaire le 28/10/2026. Lot 32.1 : Paie : l'abattement pour charges de famille s'affiche en positif sur le bulletin (le calcul et le net ne changent pas)"
