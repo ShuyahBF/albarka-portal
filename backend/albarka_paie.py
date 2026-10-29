@@ -891,6 +891,10 @@ def build_bulletin_pdf(b: dict, ctx: Optional[dict] = None) -> bytes:
     if emp.get("category"):
         cats = (params.get("flat_abatement") or {}).get("categories") or []
         cat_label = next((c.get("label") for c in cats if c.get("key") == emp["category"]), emp["category"])
+        # Inspection du travail : le bulletin ne doit JAMAIS porter la mention « non cadre » au niveau du statut.
+        # Pour un non-cadre le champ « Statut » est donc omis (il est retiré plus bas car vide) ; « Cadre » reste affiché.
+        if re.search(r"non[\s_-]*cadre", f"{emp['category']} {cat_label}", re.IGNORECASE):
+            cat_label = ""
     years = r.get("years_of_service")
     since = ""
     if emp.get("hire_date"):
