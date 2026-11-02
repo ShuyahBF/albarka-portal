@@ -45,7 +45,7 @@ from pymongo.errors import DuplicateKeyError
 from albarka_auth import require_roles
 from albarka_models import is_admin_account   # lot 26.1 : « Restaurer les valeurs par défaut » réservé au super-admin
 from albarka_docgen import MONTHS_FR, fcfa, new_verify_token, now_iso, qr_png, verify_url
-from albarka_paie_moteur import (DEFAULT_PARAMS, base_for_net, compute_payslip, normalize_params, upgrade_params_lot26,
+from albarka_paie_moteur import (DEFAULT_PARAMS, _clean_special, base_for_net, compute_payslip, normalize_params, upgrade_params_lot26,
                                  upgrade_params_lot27)
 from db import db
 
@@ -430,6 +430,10 @@ class EmployeePaieIn(BaseModel):
     allowances: Dict[str, float] = Field(default_factory=dict)
     non_exempt: List[str] = Field(default_factory=list)
     in_kind: float = Field(0, ge=0)               # lot 26 : avantage en nature mensuel (logement, véhicule…)
+    cnss_exempt: bool = False                     # lot 84 : exonéré de la cotisation CNSS (part salariale et patronale)
+    # lot 84 : SND / SFED / CENAMU propres au salarié {clé: {mode: percent|amount, base: gross|base|net, value}} ;
+    # une rubrique absente ici suit le réglage du modèle de l'employeur
+    special_deductions: Dict[str, dict] = Field(default_factory=dict)
     email: Optional[str] = None
     phone: Optional[str] = None
 
@@ -443,6 +447,16 @@ def _employee_fields(p: EmployeePaieIn) -> dict:
         raise HTTPException(status_code=400, detail="Date d'embauche attendue au format AAAA-MM-JJ")
     d = p.model_dump(exclude={"tenant_id"})
     d["allowances"] = {k: float(v) for k, v in (p.allowances or {}).items() if float(v or 0) > 0}
+    # Lot 84 : on ne garde que les rubriques SND / SFED / CENAMU réellement renseignées sur la fiche
+    spec = {}
+    for k, v in (p.special_deductions or {}).items():
+        if not isinstance(v, dict) or v.get("value") in (None, ""):
+            continue
+        try:
+            spec[str(k)[:40]] = {k2: v2 for k2, v2 in _clean_special({"label": k, **v}, str(k)).items() if k2 in ("mode", "base", "value")}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    d["special_deductions"] = spec
     d["full_name"] = p.full_name.strip()
     return d
 
@@ -537,7 +551,7 @@ class PrepareIn(BaseModel):
 
 def _snapshot(emp: dict) -> dict:
     keys = ("full_name", "role", "matricule", "cnss_number", "category", "grade", "echelon", "dependents", "hire_date", "pay_mode",
-            "base_salary", "net_target", "allowances", "non_exempt", "in_kind")
+            "base_salary", "net_target", "allowances", "non_exempt", "in_kind", "cnss_exempt", "special_deductions")
     return {k: emp.get(k) for k in keys}
 
 
@@ -664,7 +678,8 @@ async def delete_bulletin(bid: str, user: dict = Depends(require_roles(HR_ROLES)
 # Livre de paie
 # ==========================================================================
 LEDGER_COLUMNS = [
-    ("gross", "Brut"), ("cnss", "CNSS sal."), ("iuts", "IUTS net"), ("patriotic_support", "FSP"),
+    # Lot 84 : « Base IUTS » (base imposable) figure désormais dans le livre, à l'écran, en CSV et en PDF
+    ("gross", "Brut"), ("cnss", "CNSS sal."), ("iuts_base", "Base IUTS"), ("iuts", "IUTS net"), ("patriotic_support", "FSP"),
     ("deductions_total", "Retenues"), ("net_to_pay", "Net à payer"), ("employer_total", "Charges patr."),
     ("employer_cost", "Coût total"),
 ]
@@ -672,7 +687,6 @@ LEDGER_COLUMNS = [
 
 def _totals(items: List[dict]) -> dict:
     t = {k: 0.0 for k, _ in LEDGER_COLUMNS}
-    t["iuts_base"] = 0.0
     employer_detail: Dict[str, float] = {}
     for b in items:
         r = b.get("result") or {}
@@ -954,6 +968,9 @@ def build_bulletin_pdf(b: dict, ctx: Optional[dict] = None) -> bytes:
         if ln.get("code") == "patriotic":
             label = ln["label"] if "effort de paix" in ln["label"].lower() else f"Prélèvement pour effort de paix — {ln['label']}"
             rows.append([P(label, "cell"), _money(ln.get("base")), _rate(ln.get("rate")), fcfa(ln["amount"]), "", ""])
+    for ln in lines:                                             # lot 84 : SND / SFED / CENAMU
+        if str(ln.get("code") or "").startswith("spec_"):
+            rows.append([P(ln["label"], "cell"), _money(ln.get("base")), _rate(ln.get("rate")), fcfa(ln["amount"]), "", ""])
     for ln in lines:
         if str(ln.get("code") or "").startswith("ded_"):
             rows.append([P(ln["label"], "cell"), "", "", fcfa(ln["amount"]), "", ""])
@@ -1050,8 +1067,8 @@ def build_ledger_pdf(data: dict) -> bytes:
     from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     green = colors.HexColor("#0F6B4A")
-    h = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=13, textColor=green)
-    s = ParagraphStyle("s", fontName="Helvetica", fontSize=8.5, textColor=colors.HexColor("#475569"))
+    h = ParagraphStyle("h", fontName="Helvetica-Bold", fontSize=13, leading=17, textColor=green)
+    s = ParagraphStyle("s", fontName="Helvetica", fontSize=8.5, leading=11, textColor=colors.HexColor("#475569"))
     cell = ParagraphStyle("c", fontName="Helvetica", fontSize=7.8, leading=9.5)
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4), leftMargin=10 * mm, rightMargin=10 * mm, topMargin=12 * mm, bottomMargin=12 * mm,
@@ -1061,11 +1078,11 @@ def build_ledger_pdf(data: dict) -> bytes:
         rows.append([str(i), Paragraph(escape(r["full_name"] or ""), cell), Paragraph(escape(r.get("role") or ""), cell)]
                     + [fcfa(r.get(k) or 0) for k, _ in LEDGER_COLUMNS])
     rows.append(["", "TOTAL", ""] + [fcfa(data["totals"].get(k) or 0) for k, _ in LEDGER_COLUMNS])
-    t = Table(rows, colWidths=[8 * mm, 48 * mm, 36 * mm] + [23.3 * mm] * len(LEDGER_COLUMNS), repeatRows=1)
+    t = Table(rows, colWidths=[8 * mm, 42 * mm, 30 * mm] + [21.8 * mm] * len(LEDGER_COLUMNS), repeatRows=1)
     t.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), green), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
                            ("FONT", (0, 0), (-1, 0), "Helvetica-Bold", 7.8), ("FONT", (0, 1), (-1, -1), "Helvetica", 7.8),
                            ("FONT", (0, -1), (-1, -1), "Helvetica-Bold", 8), ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#F1F5F9")),
-                           ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")), ("ALIGN", (3, 1), (-1, -1), "RIGHT"),
+                           ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#CBD5E1")), ("ALIGN", (3, 0), (-1, -1), "RIGHT"),
                            ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
     detail = [["Charges patronales", "Montant"]] + [[x["label"], fcfa(x["amount"])] for x in data["totals"]["employer_detail"]] \
         + [["Total charges patronales", fcfa(data["totals"].get("employer_total") or 0)]]
