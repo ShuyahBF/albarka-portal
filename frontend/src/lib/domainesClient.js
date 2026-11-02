@@ -31,7 +31,8 @@ export function elementsDuDomaine(cle, { missions = [], echeances = [], document
   return {
     missions: missions.filter((m) => d.missions.includes(m.type)),
     echeances: echeances.filter((e) => d.echeances.includes(e.type)),
-    documents: documents.filter((x) => d.themes.includes(x.theme) || d.categories.includes(x.category)),
+    // Lot 84 : un rapport n'est montré que dans la rubrique « Rapports », jamais en double dans une page de domaine
+    documents: documents.filter((x) => x.category !== "rapport" && (d.themes.includes(x.theme) || d.categories.includes(x.category))),
   };
 }
 

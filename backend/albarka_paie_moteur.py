@@ -150,6 +150,15 @@ DEFAULT_PARAMS: Dict[str, Any] = {
     # FSP — « Prélèvement pour effort de paix » (clé historique conservée pour
     # rester compatible avec les modèles enregistrés).
     "patriotic_support": {"enabled": True, "rate": 1.0, "label": "Prélèvement pour effort de paix (FSP)"},
+    # Lot 84 — nouvelles rubriques de retenue SND, SFED et CENAMU. Chacune est soit un POURCENTAGE (« mode »: percent) du
+    # salaire brut, du salaire de base ou du salaire net (« base »: gross | base | net), soit une VALEUR fixe
+    # (« mode »: amount). Réglage par défaut ici (modèle de l'employeur) ; chaque fiche salarié peut le remplacer.
+    # Valeur 0 = rubrique sans effet (aucun bulletin existant n'est modifié).
+    "special_deductions": [
+        {"key": "snd", "label": "SND", "mode": "percent", "base": "gross", "value": 0.0},
+        {"key": "sfed", "label": "SFED", "mode": "percent", "base": "gross", "value": 0.0},
+        {"key": "cenamu", "label": "CENAMU", "mode": "percent", "base": "gross", "value": 0.0},
+    ],
     "rounding": {
         "amounts": {"step": 1, "mode": "nearest"},      # CNSS, IUTS, primes… : au franc
         "iuts_base": {"step": 100, "mode": "down"},     # base IUTS : centaine inférieure
@@ -215,6 +224,21 @@ def merged_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         else:
             base[k] = copy.deepcopy(v)
     return base
+
+
+SPECIAL_MODES = ("percent", "amount")            # pourcentage d'une base | valeur fixe
+SPECIAL_BASES = ("gross", "base", "net")          # salaire brut | salaire de base | salaire net
+
+
+def _clean_special(sd: Dict[str, Any], key: str) -> Dict[str, Any]:
+    """Contrôle une rubrique SND / SFED / CENAMU : mode, base et valeur (positive ; ≤ 100 si pourcentage)."""
+    label = str(sd.get("label") or key).strip()[:80]
+    mode = sd.get("mode") if sd.get("mode") in SPECIAL_MODES else "percent"
+    base = sd.get("base") if sd.get("base") in SPECIAL_BASES else "gross"
+    value = _num(sd.get("value"), 0)
+    if value < 0 or (mode == "percent" and value > 100):
+        raise ValueError(f"Rubrique {label} : " + ("taux entre 0 et 100 %" if mode == "percent" else "montant positif attendu"))
+    return {"key": key, "label": label, "mode": mode, "base": base, "value": round(value, 4)}
 
 
 def normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -334,6 +358,14 @@ def normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     ps = p["patriotic_support"]
     patriotic = {"enabled": bool(ps.get("enabled", True)), "rate": pct(ps.get("rate"), "Prélèvement pour effort de paix"),
                  "label": str(ps.get("label") or DEFAULT_PARAMS["patriotic_support"]["label"]).strip()[:80]}
+    # Lot 84 : rubriques de retenue SND / SFED / CENAMU (pourcentage d'une base, ou valeur fixe)
+    specials, sk = [], set()
+    for i, sd in enumerate(p.get("special_deductions") or [], start=1):
+        key = str(sd.get("key") or f"rub{i}").strip()[:40]
+        if key in sk:
+            raise ValueError(f"Rubrique « {key} » en double")
+        sk.add(key)
+        specials.append(_clean_special(sd, key))
     rounding = {}
     for rk, rv in p["rounding"].items():
         if rk not in DEFAULT_PARAMS["rounding"]:
@@ -348,7 +380,8 @@ def normalize_params(params: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return {"country": str(p.get("country") or "Burkina Faso")[:60], "allowances": allowances, "exemptions": exemptions,
             "cnss": cnss, "employer_taxes": employer_taxes, "flat_abatement": flat, "iuts_brackets": brackets,
             "family_abatement": fam, "seniority": seniority, "patriotic_support": patriotic, "rounding": rounding,
-            "exceptional_bonus": exceptional, "in_kind": in_kind}
+            "exceptional_bonus": exceptional, "in_kind": in_kind,
+            "special_deductions": specials}
 
 
 def upgrade_params_lot26(params: Optional[Dict[str, Any]]) -> tuple:
@@ -502,7 +535,10 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
     in_kind (avantage en nature mensuel, lot 26),
     extras [{label, amount, exceptional?}] (primes du mois, imposables ;
     exceptional = true : prime exceptionnelle, hors base CNSS),
-    deductions [{label, amount}] (acomptes, prêts, autres retenues).
+    deductions [{label, amount}] (acomptes, prêts, autres retenues),
+    cnss_exempt (lot 84 : agent exonéré de la cotisation CNSS, part salariale ET patronale à zéro),
+    special_deductions {clé: {mode, base, value}} (lot 84 : SND / SFED / CENAMU propres au salarié,
+    qui remplacent le réglage du modèle de l'employeur).
     """
     p = normalize_params(params)
     R = lambda v, k="amounts": round_rule(v, p["rounding"].get(k))  # noqa: E731
@@ -568,8 +604,13 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
     if not p["in_kind"]["subject_to_cnss"]:
         cnss_assiette -= in_kind
     cnss_base = min(cnss_assiette, c["ceiling"]) if c["ceiling"] else cnss_assiette
+    # Lot 84 : agent exonéré de la cotisation CNSS (case cochée sur sa fiche) → aucune base, aucune cotisation
+    cnss_exempt = bool(employee.get("cnss_exempt"))
+    if cnss_exempt:
+        cnss_base = 0.0
     cnss = R(cnss_base * c["employee_rate"] / 100)
-    line("cnss", "CNSS (part salariale)", cnss, "deduction", cnss_base, c["employee_rate"])
+    if not cnss_exempt:
+        line("cnss", "CNSS (part salariale)", cnss, "deduction", cnss_base, c["employee_rate"])
     # 4-5. CNSS fiscale : limitée à 8 % de (base + ancienneté + prime exceptionnelle)
     fiscal_cap_base = base + (seniority if c["fiscal_cap_with_seniority"] else 0) \
         + (exceptional_total if c["fiscal_cap_with_exceptional"] else 0)
@@ -622,6 +663,28 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
     patriotic = R(net * ps["rate"] / 100) if ps["enabled"] else 0
     if patriotic:
         line("patriotic", ps["label"], patriotic, "deduction", net, ps["rate"])
+    # 12 bis (lot 84). Rubriques SND / SFED / CENAMU : % du brut, du salaire de base ou du net, ou valeur fixe.
+    #     Le réglage de la fiche du salarié (s'il existe) remplace celui du modèle de l'employeur.
+    refs = {"gross": gross, "base": base, "net": net}
+    own = employee.get("special_deductions") or {}
+    specials, special_total = [], 0.0
+    for sd in p["special_deductions"]:
+        ov = own.get(sd["key"]) or {}
+        mode = ov.get("mode") if ov.get("mode") in SPECIAL_MODES else sd["mode"]
+        base_key = ov.get("base") if ov.get("base") in SPECIAL_BASES else sd["base"]
+        value = _num(ov.get("value")) if ov.get("value") not in (None, "") else sd["value"]
+        if not value:
+            continue
+        if mode == "percent":
+            ref = refs[base_key]
+            amt = R(ref * value / 100)
+            line(f"spec_{sd['key']}", sd["label"], amt, "deduction", ref, value)
+        else:
+            ref, amt = None, R(value)
+            line(f"spec_{sd['key']}", sd["label"], amt, "deduction")
+        special_total += amt
+        specials.append({"key": sd["key"], "label": sd["label"], "mode": mode, "base": base_key if mode == "percent" else None,
+                         "value": value, "amount": amt})
     # 13. Retenues et net à payer
     ded_total = 0.0
     for i, d in enumerate(employee.get("deductions") or []):
@@ -629,10 +692,12 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
         if amt:
             ded_total += amt
             line(f"ded_{i}", str(d.get("label") or "Retenue"), amt, "deduction")
-    net_to_pay = net - patriotic - ded_total
+    net_to_pay = net - patriotic - ded_total - special_total
     # Charges patronales : CNSS employeur sur la même assiette que la CNSS
     # salariale (plafond employeur), taxes patronales sur le brut
     emp_base = min(cnss_assiette, c["employer_ceiling"]) if c["employer_ceiling"] else cnss_assiette
+    if cnss_exempt:                      # lot 84 : exonéré → pas de CNSS patronale non plus (la taxe patronale, elle, reste due)
+        emp_base = 0.0
     emp_amounts = _split_rounded(emp_base, c["employer_lines"], R)
     employer = [{"label": x["label"], "base": emp_base, "rate": x["rate"], "amount": amt, "kind": "cnss"}
                 for x, amt in zip(c["employer_lines"], emp_amounts)]
@@ -656,7 +721,9 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
         "net_raw": net_raw, "rounding_diff": rounding_diff, "net": net,
         "patriotic_support": patriotic, "patriotic_rate": ps["rate"] if ps["enabled"] else 0,
         "patriotic_label": ps["label"],
-        "deductions_total": ded_total, "net_to_pay": net_to_pay,
+        # « Retenues » du livre de paie = retenues du mois + rubriques SND / SFED / CENAMU (lot 84)
+        "deductions_total": ded_total + special_total, "special_total": special_total, "special_deductions": specials,
+        "cnss_exempt": cnss_exempt, "net_to_pay": net_to_pay,
         "employer_charges": employer, "employer_cnss_base": emp_base,
         "employer_cnss_rate": sum(x["rate"] for x in c["employer_lines"]),
         "employer_cnss": employer_cnss, "employer_tax": employer_tax,

@@ -112,6 +112,8 @@ async def construire_declaration(employer_id: str, annee: int, periodicite: str 
     par_salarie: Dict[str, Dict[str, Any]] = {}
     for b in sorted(retenus, key=lambda x: x["period_month"]):
         r = b.get("result") or {}
+        if r.get("cnss_exempt") or (b.get("employee") or {}).get("cnss_exempt"):
+            continue                      # lot 84 : agent exonéré de la CNSS → absent de la déclaration
         base = float(r.get("employer_cnss_base") if r.get("employer_cnss_base") is not None else (r.get("cnss_base") or 0))
         s = par_salarie.setdefault(b["employee_id"], {"base": 0.0, "mois": [], "employee": {}})
         s["base"] += base

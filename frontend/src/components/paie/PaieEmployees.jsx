@@ -10,7 +10,10 @@
     - calcul en direct avec les paramètres de l'employeur ;
     - lot 26 : avantage en nature mensuel (logement, véhicule… : dans le brut
       et l'IUTS, hors CNSS, retiré du net car non versé en argent) ; libellé
-      « FSP » (Prélèvement pour effort de paix) au lieu de « Soutien patriotique ».
+      « FSP » (Prélèvement pour effort de paix) au lieu de « Soutien patriotique » ;
+    - lot 84 : case « Exonéré de la cotisation CNSS » (le bulletin n'applique alors aucune CNSS, part salariale comme patronale) ;
+      rubriques de retenue SND, SFED et CENAMU : en pourcentage du brut, du salaire de base ou du net, ou en valeur fixe
+      (laisser vide = réglage du modèle de l'employeur, onglet Paramètres).
 */
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -19,21 +22,31 @@ import { Plus, Pencil, Trash2, X } from "lucide-react";
 import { EmployerSelect, useEmployers, fcfa, GREEN } from "@/components/paie/paieCommon";
 
 const empty = { full_name: "", role: "", matricule: "", cnss_number: "", category: "", grade: "", echelon: "", dependents: 0, hire_date: "",
-  pay_mode: "gross", base_salary: "", net_target: "", allowances: {}, non_exempt: [], in_kind: "", email: "", phone: "" };
+  pay_mode: "gross", base_salary: "", net_target: "", allowances: {}, non_exempt: [], in_kind: "", cnss_exempt: false, special_deductions: {}, email: "", phone: "" };
 const inp = "mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm";
+// Lot 84 : libellés des listes finies des rubriques SND / SFED / CENAMU (règle : liste finie = liste déroulante)
+const MODES_RUBRIQUE = [["percent", "% du…"], ["amount", "Valeur (FCFA)"]];
+const BASES_RUBRIQUE = [["gross", "salaire brut"], ["base", "salaire de base"], ["net", "salaire net"]];
+// Réglage du modèle de l'employeur affiché en indication (« 1 % du salaire brut » ou « 2 000 FCFA »)
+const texteReglage = (r) => (!Number(r.value) ? "non réglée" : r.mode === "amount" ? `${fcfa(r.value)} FCFA` : `${r.value} % du ${(BASES_RUBRIQUE.find(([k]) => k === r.base) || ["", "brut"])[1]}`);
 
 function EmployeeDialog({ employerId, params, officine, initial, onClose, onSaved }) {
-  const [f, setF] = useState({ ...empty, ...initial, hire_date: initial?.hire_date || "", allowances: initial?.allowances || {} });
+  const [f, setF] = useState({ ...empty, ...initial, hire_date: initial?.hire_date || "", allowances: initial?.allowances || {}, special_deductions: initial?.special_deductions || {} });
   const [calc, setCalc] = useState(null);
   const [busy, setBusy] = useState(false);
   const set = (patch) => setF((x) => ({ ...x, ...patch }));
   const cats = params?.flat_abatement?.mode === "by_category" ? params.flat_abatement.categories : [];
+  // Lot 84 : modifie une rubrique SND / SFED / CENAMU de CETTE fiche (le mode, la base et la valeur se règlent ensemble)
+  const setRubrique = (key, patch) => setF((x) => ({ ...x, special_deductions: { ...x.special_deductions, [key]: { ...(x.special_deductions[key] || {}), ...patch } } }));
+  // Corps envoyé au serveur : seules les rubriques dont une valeur est saisie (vide = le modèle de l'employeur s'applique)
+  const rubriquesEnvoyees = () => Object.fromEntries(Object.entries(f.special_deductions || {})
+    .filter(([, v]) => v && v.value !== "" && v.value != null).map(([k, v]) => [k, { mode: v.mode || "percent", base: v.base || "gross", value: Number(v.value) || 0 }]));
 
   // Calcul en direct (paramètres de l'employeur)
   useEffect(() => {
     const t = setTimeout(() => {
       apiClient.post("/hr/paie/simulate", { employer_id: employerId, period_month: new Date().toISOString().slice(0, 7),
-        employee: { ...f, base_salary: Number(f.base_salary) || 0, net_target: Number(f.net_target) || null, in_kind: Number(f.in_kind) || 0 } })
+        employee: { ...f, base_salary: Number(f.base_salary) || 0, net_target: Number(f.net_target) || null, in_kind: Number(f.in_kind) || 0, special_deductions: rubriquesEnvoyees() } })
         .then(({ data }) => setCalc(data)).catch(() => setCalc(null));
     }, 350);
     return () => clearTimeout(t);
@@ -43,7 +56,8 @@ function EmployeeDialog({ employerId, params, officine, initial, onClose, onSave
     if (!f.full_name.trim()) { toast.error("Nom du salarié requis"); return; }
     setBusy(true);
     const body = { ...f, tenant_id: employerId, base_salary: Number(f.base_salary) || 0, net_target: f.pay_mode === "net" ? Number(f.net_target) || null : null,
-      dependents: Number(f.dependents) || 0, hire_date: f.hire_date || null, category: f.category || null, in_kind: Number(f.in_kind) || 0 };
+      dependents: Number(f.dependents) || 0, hire_date: f.hire_date || null, category: f.category || null, in_kind: Number(f.in_kind) || 0,
+      cnss_exempt: !!f.cnss_exempt, special_deductions: rubriquesEnvoyees() };
     try {
       if (initial?.id) await apiClient.put(`/hr/paie/employees/${initial.id}`, body);
       else await apiClient.post("/hr/paie/employees", body);
@@ -110,6 +124,40 @@ function EmployeeDialog({ employerId, params, officine, initial, onClose, onSave
               <label className="mt-2 block max-w-xs" title="Imposable à l'IUTS, hors base CNSS, retiré du salaire net">
                 {params?.in_kind?.label || "Avantage en nature"} (valeur mensuelle)
                 <input type="number" min="0" value={f.in_kind || ""} onChange={(e) => set({ in_kind: e.target.value })} className={inp} data-testid="emp-in-kind" /></label>
+              {/* Lot 84 : exonération de la cotisation CNSS (prise en compte immédiate dans le calcul des bulletins) */}
+              <label className="mt-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700" data-testid="emp-cnss-exempt-label">
+                <input type="checkbox" className="mt-0.5" checked={!!f.cnss_exempt} onChange={(e) => set({ cnss_exempt: e.target.checked })} data-testid="emp-cnss-exempt" />
+                <span><b>Exonéré de la cotisation CNSS</b><br /><span className="text-slate-500">Aucune CNSS n'est retenue sur ses bulletins ni comptée à la charge de l'employeur
+                  (il n'apparaît plus dans la déclaration CNSS). La taxe patronale reste due.</span></span>
+              </label>
+              {/* Lot 84 : rubriques de retenue SND / SFED / CENAMU (pourcentage du brut, de la base ou du net, ou valeur) */}
+              {(params?.special_deductions || []).length > 0 && (
+                <div className="mt-3" data-testid="emp-rubriques">
+                  <p className="font-semibold text-slate-700 mb-1">Retenues {(params.special_deductions).map((r) => r.label).join(" / ")}</p>
+                  <div className="space-y-2">
+                    {params.special_deductions.map((r) => {
+                      const v = f.special_deductions[r.key] || {};
+                      const mode = v.mode || r.mode;
+                      return (
+                        <div key={r.key} className="grid grid-cols-[5rem_1fr_1fr_1fr] items-end gap-2" data-testid={`emp-rub-${r.key}`}>
+                          <span className="pb-2 font-medium text-slate-700" title={`Réglage du modèle : ${texteReglage(r)}`}>{r.label}</span>
+                          <label>Mode<select value={mode} onChange={(e) => setRubrique(r.key, { mode: e.target.value })} className={inp}>
+                            {MODES_RUBRIQUE.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
+                          <label>{mode === "percent" ? "Base" : " "}
+                            {mode === "percent" ? (
+                              <select value={v.base || r.base} onChange={(e) => setRubrique(r.key, { base: e.target.value })} className={inp}>
+                                {BASES_RUBRIQUE.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                            ) : <span className="mt-1 block h-9" />}</label>
+                          <label>{mode === "percent" ? "Taux (%)" : "Valeur"}
+                            <input type="number" min="0" step="any" value={v.value ?? ""} placeholder={texteReglage(r)}
+                              onChange={(e) => setRubrique(r.key, { value: e.target.value, mode, base: v.base || r.base })} className={inp} data-testid={`emp-rub-${r.key}-valeur`} /></label>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-1 text-slate-500">Champ vide : le réglage du modèle de l'employeur s'applique (indiqué en grisé).</p>
+                </div>
+              )}
               {/* Indemnités qui ne sont plus dans le modèle : visibles et supprimables */}
               {Object.keys(f.allowances || {}).filter((k) => !(params?.allowances || []).some((a) => a.key === k)).map((k) => (
                 <div key={k} className="mt-2 flex items-center gap-2 rounded border border-amber-300 bg-amber-50 px-2 py-1 text-amber-800">
@@ -127,8 +175,10 @@ function EmployeeDialog({ employerId, params, officine, initial, onClose, onSave
             {calc ? (
               <table className="w-full"><tbody>
                 {[["Salaire de base", calc.base_salary], [`Ancienneté (${calc.years_of_service} an(s), ${calc.seniority_rate} %)`, calc.seniority],
-                  ["Salaire brut", calc.gross, true], ["CNSS", calc.cnss], ["IUTS net", calc.iuts], ["Salaire net", calc.net, true],
-                  ["FSP (effort de paix)", calc.patriotic_support], ["Net à payer", calc.net_to_pay, true], ["Masse salariale", calc.employer_cost]].map(([l, v, b]) => (
+                  ["Salaire brut", calc.gross, true], [calc.cnss_exempt ? "CNSS (exonéré)" : "CNSS", calc.cnss], ["Base IUTS", calc.iuts_base], ["IUTS net", calc.iuts], ["Salaire net", calc.net, true],
+                  ["FSP (effort de paix)", calc.patriotic_support],
+                  ...(calc.special_deductions || []).map((r) => [r.label, r.amount]),
+                  ["Net à payer", calc.net_to_pay, true], ["Masse salariale", calc.employer_cost]].map(([l, v, b]) => (
                   <tr key={l} className={b ? "font-semibold" : ""}><td className="py-0.5 text-slate-600">{l}</td><td className="text-right tabular-nums">{fcfa(v)}</td></tr>
                 ))}
               </tbody></table>

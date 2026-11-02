@@ -27,13 +27,14 @@ export default function CabinetDocuments() {
 
   // Lot 51 — la page devient « Factures » : factures, proformas et reçus envoyés par le cabinet. Les autres documents
   // (rapports, déclarations, attestations, contrats, courriers…) restent accessibles dans l'onglet « Autres documents ».
+  // Lot 84 : un RAPPORT n'apparaît que dans la rubrique « Rapports » (il ne doit plus se retrouver aussi ici, dans « Autres documents »)
   const FACTURES = ["facture", "proforma", "recu"];
   const tabs = useMemo(() => {
-    const items = data?.items || [];
+    const items = (data?.items || []).filter((i) => i.category !== "rapport");
     const nFact = items.filter((i) => FACTURES.includes(i.category)).length;
     return [{ key: "factures", label: "Factures", n: nFact }, { key: "autres", label: "Autres documents", n: items.length - nFact }];
   }, [data]);
-  const shown = (data?.items || []).filter((i) => (tab === "factures") === ["facture", "proforma", "recu"].includes(i.category));
+  const shown = (data?.items || []).filter((i) => i.category !== "rapport" && (tab === "factures") === FACTURES.includes(i.category));
   const newCount = (data?.items || []).filter((i) => i.is_new).length;
 
   // Ouvre (ou télécharge) le fichier ; la première ouverture est notée côté cabinet

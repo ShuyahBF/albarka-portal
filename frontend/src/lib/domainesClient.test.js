@@ -18,6 +18,14 @@ test("chaque élément est rangé dans le bon domaine", () => {
   expect(r.documents.map((x) => x.id)).toEqual([3]);
 });
 
+test("lot 84 : un rapport n'est jamais rangé dans une page de domaine (il reste dans « Rapports »)", () => {
+  const donnees = { documents: [{ id: 1, category: "rapport", theme: "rh" }, { id: 2, category: "rapport", theme: "comptable" },
+    { id: 3, category: "rapport", theme: "fiscal" }, { id: 4, category: "facture" }, { id: 5, theme: "rh", category: "courrier" }] };
+  expect(elementsDuDomaine("rh", donnees).documents.map((x) => x.id)).toEqual([5]);
+  expect(elementsDuDomaine("comptabilite", donnees).documents.map((x) => x.id)).toEqual([4]);
+  expect(elementsDuDomaine("fiscalite", donnees).documents).toEqual([]);
+});
+
 test("domaine inconnu ou listes absentes : rien, sans erreur", () => {
   expect(elementsDuDomaine("autre", {})).toEqual({ missions: [], echeances: [], documents: [] });
   expect(elementsDuDomaine("rh")).toEqual({ missions: [], echeances: [], documents: [] });

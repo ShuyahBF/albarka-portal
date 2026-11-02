@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "83"
-LOT_LIBELLE = "Constructeur de formulaires : la colonne du milieu ne dépasse plus de l'écran, le volet de réglages du champ reste visible à droite."
+LOT = "84"
+LOT_LIBELLE = "Paie : base IUTS dans le livre de paie (PDF compris), case « exonéré de la cotisation CNSS » sur la fiche de l'agent, rubriques SND / SFED / CENAMU. Rapports : reçus seulement dans « Rapports ». Formulaires : PDF d'archivage des réponses."

@@ -6,13 +6,14 @@
     - tableau (date, répondant, origine + premières questions) ;
     - fiche détaillée d'une réponse : toutes les questions, tableaux,
       fichiers joints et signature ouverts par lien temporaire ;
-    - suppression d'une réponse ; export CSV (Excel) de la sélection.
+    - suppression d'une réponse ; export CSV (Excel) de la sélection ;
+    - lot 84 : PDF d'ARCHIVAGE (rendu qui suit la structure du formulaire) de toutes les réponses de la période, ou d'une seule.
 
   Props : apiBase ("/forms"), form
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Download, Search, Trash2, X, Paperclip, Loader2, Inbox } from "lucide-react";
+import { Download, Search, Trash2, X, Paperclip, Loader2, Inbox, FileText } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { errorText, formatDateTime, readableValue, isVisible, downloadBlob } from "./fieldTypes";
 import { ui, cx } from "./ui";
@@ -53,6 +54,16 @@ export default function FormResponses({ apiBase = "/forms", form }) {
       await downloadBlob(apiClient, `${apiBase}/${form.id}/export.csv${q ? `?${q}` : ""}`, `${form.number || "formulaire"}-reponses.csv`);
     } catch (e) { toast.error(errorText(e, "Export impossible")); }
   };
+  // Lot 84 : PDF d'archivage — toutes les réponses de la période (une par page) ou la réponse ouverte (`sid`)
+  const [pdfEnCours, setPdfEnCours] = useState(false);
+  const exportPdf = async (sid) => {
+    setPdfEnCours(true);
+    try {
+      const q = new URLSearchParams(params()).toString();
+      await downloadBlob(apiClient, sid ? `${apiBase}/${form.id}/submissions/${sid}/pdf` : `${apiBase}/${form.id}/submissions/pdf${q ? `?${q}` : ""}`,
+        `${form.number || "formulaire"}-${sid ? "reponse" : "reponses"}.pdf`);
+    } catch (e) { toast.error(errorText(e, "PDF impossible")); } finally { setPdfEnCours(false); }
+  };
   // Ouverture d'un fichier joint (lien temporaire obtenu par le serveur).
   const openFile = async (fileId) => {
     // Onglet ouvert tout de suite (sinon bloqué par le navigateur), puis dirigé vers le lien temporaire.
@@ -80,6 +91,9 @@ export default function FormResponses({ apiBase = "/forms", form }) {
         <div className="relative flex-1 min-w-[180px]"><Search className={ui.searchIcon} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher dans les réponses…" className={ui.searchInput} /></div>
         <button type="button" onClick={exportCsv} className={ui.act.emerald} data-testid="responses-export"><Download className="h-3.5 w-3.5" /> Export Excel (CSV)</button>
+        <button type="button" onClick={() => exportPdf()} disabled={pdfEnCours || !data.total} className={ui.act.emerald} data-testid="responses-export-pdf"
+          title="Une réponse par page, avec la structure du formulaire (archivage)">
+          {pdfEnCours ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />} PDF d'archivage</button>
       </div>
       <p className={ui.badge.sky}>{items.length} réponse(s){items.length !== data.total ? ` sur ${data.total}` : ""}</p>
       {loading ? <p className={ui.loading}><Loader2 className="h-4 w-4 animate-spin inline mr-1" /> Chargement…</p> : items.length === 0 ? (
@@ -131,7 +145,8 @@ export default function FormResponses({ apiBase = "/forms", form }) {
                 );
               })}
             </dl>
-            <div className={ui.modalFooter}><button type="button" onClick={() => setOpen(null)} className={ui.btnSecondary}>Fermer</button><button type="button" onClick={() => remove(open)} className={ui.btnDanger}><Trash2 className="h-4 w-4" /> Supprimer cette réponse</button></div>
+            <div className={ui.modalFooter}><button type="button" onClick={() => setOpen(null)} className={ui.btnSecondary}>Fermer</button>
+              <button type="button" onClick={() => exportPdf(open.id)} disabled={pdfEnCours} className={ui.btnSecondary} data-testid="response-pdf"><FileText className="h-4 w-4" /> PDF de cette réponse</button><button type="button" onClick={() => remove(open)} className={ui.btnDanger}><Trash2 className="h-4 w-4" /> Supprimer cette réponse</button></div>
           </div>
         </div>
       )}

@@ -16,6 +16,7 @@
       (soumis ou non à la CNSS), composantes du plafond fiscal de la CNSS
       (base + ancienneté + prime exceptionnelle) et de l'abattement forfaitaire
       (base + ancienneté + avantage en nature) ;
+    - lot 84 : rubriques de retenue SND, SFED et CENAMU (pourcentage du salaire brut, de base ou net, ou valeur fixe) ;
     - arrondis (pas : franc, 5, 10, 25, 50, 100… ; au plus proche / inférieur / supérieur).
   À droite : APERÇU du calcul en direct sur un salarié d'exemple (bulletin du
   fichier du cabinet), modifiable.
@@ -29,6 +30,11 @@ import { fcfa, GREEN } from "@/components/paie/paieCommon";
 
 const STEPS = [[0, "Aucun (décimales)"], [1, "Au franc"], [5, "5 F"], [10, "10 F"], [25, "25 F"], [50, "50 F"], [100, "Centaine"], [1000, "Millier"]];
 const MODES = [["nearest", "Au plus proche"], ["down", "Inférieur"], ["up", "Supérieur"]];
+// Lot 84 : listes finies des rubriques de retenue (liste déroulante, jamais de saisie libre)
+const RUB_MODES = [["percent", "Pourcentage"], ["amount", "Valeur (FCFA)"]];
+const RUB_BASES = [["gross", "du salaire brut"], ["base", "du salaire de base"], ["net", "du salaire net"]];
+// Rubriques proposées si le modèle enregistré n'en contient pas encore (modèles créés avant le lot 84)
+const RUBRIQUES_PAR_DEFAUT = ["SND", "SFED", "CENAMU"].map((l) => ({ key: l.toLowerCase(), label: l, mode: "percent", base: "gross", value: 0 }));
 const ROUNDING_LABELS = { amounts: "Montants (CNSS, IUTS, primes…)", iuts_base: "Base IUTS", net: "Salaire net" };
 
 // Clé unique pour une nouvelle ligne (évite les doublons après suppression)
@@ -122,6 +128,7 @@ function Preview({ params }) {
               ["Exonérations", res.exemptions_total], [`Abattement forfaitaire (${res.flat_abatement_rate} %)`, res.flat_abatement],
               ["Base IUTS", res.iuts_base], ["IUTS brut", res.iuts_gross], [`Abattement famille (${res.family_rate} %)`, res.family_abatement],
               ["IUTS net", res.iuts], ["Salaire net", res.net, true], ["FSP (effort de paix)", res.patriotic_support],
+              ...(res.special_deductions || []).map((r) => [r.label, r.amount]),
               ["Net à payer", res.net_to_pay, true], ["Charges patronales", res.employer_total], ["Masse salariale", res.employer_cost]].map(([l, v, b]) => (
               <tr key={l} className={b ? "font-semibold" : ""}><td className="py-0.5 text-slate-600">{l}</td><td className="text-right tabular-nums">{fcfa(v)}</td></tr>
             ))}
@@ -255,6 +262,28 @@ export default function PaieParamsEditor({ value, onChange }) {
             <label className="flex items-center gap-1">Taux <input type="number" value={p.patriotic_support.rate} onChange={(e) => setIn("patriotic_support", { rate: numOrEmpty(e) })} className={num} /> % du salaire net</label>
             <label className="flex items-center gap-1">Libellé <input value={p.patriotic_support.label} onChange={(e) => setIn("patriotic_support", { label: e.target.value })} className={`${txt} w-56`} /></label>
           </div>
+        </Section>
+
+        {/* Lot 84 : SND / SFED / CENAMU — réglage par défaut de l'employeur (chaque fiche salarié peut le remplacer) */}
+        <Section title="Retenues SND, SFED et CENAMU" testId="sec-rubriques"
+          hint={(p.special_deductions || RUBRIQUES_PAR_DEFAUT).filter((r) => Number(r.value)).map((r) => r.label).join(", ") || "aucune retenue réglée"}>
+          {(p.special_deductions || RUBRIQUES_PAR_DEFAUT).map((r, i, all) => {
+            const maj = (patch) => set({ special_deductions: all.map((x, k) => (k === i ? { ...x, ...patch } : x)) });
+            return (
+              <div key={r.key} className="flex flex-wrap items-center gap-2" data-testid={`rub-${r.key}`}>
+                <input value={r.label} onChange={(e) => maj({ label: e.target.value })} className={`${txt} w-28 font-medium`} aria-label="Libellé de la rubrique" />
+                <select value={r.mode} onChange={(e) => maj({ mode: e.target.value })} className={txt} data-testid={`rub-${r.key}-mode`}>
+                  {RUB_MODES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+                <input type="number" min="0" step="any" value={r.value ?? ""} onChange={(e) => maj({ value: numOrEmpty(e) })} className={num} data-testid={`rub-${r.key}-valeur`} />
+                {r.mode === "percent" ? (
+                  <><span>%</span><select value={r.base} onChange={(e) => maj({ base: e.target.value })} className={txt} data-testid={`rub-${r.key}-base`}>
+                    {RUB_BASES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></>
+                ) : <span>FCFA par mois</span>}
+              </div>
+            );
+          })}
+          <p className="text-[11px] text-slate-500">Retenues sur le salaire (après le net) : valeur 0 = rubrique inactive. Elles figurent sur le bulletin et dans la colonne « Retenues » du livre de paie.
+            Pour un salarié particulier, le réglage se fait sur sa fiche (onglet Salariés).</p>
         </Section>
 
         <Section title="Arrondis" hint="base IUTS à la centaine inférieure ; net au franc supérieur" testId="sec-rounding">
