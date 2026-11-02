@@ -237,7 +237,9 @@ export default function FormBuilder({ form, categories = [], onSave, saving = fa
       {tab === "settings" ? (
         <SettingsTab settings={draft.settings} set={(p) => change({ settings: { ...(draft.settings || {}), ...p } })} />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[190px_1fr_280px] gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[190px_minmax(0,1fr)_280px] gap-4">
+          {/* Lot 83 : « minmax(0,1fr) » et « min-w-0 » — sans eux, un libellé long élargit la colonne du milieu au-delà de l'écran et le volet de
+              réglages de droite sort de la fenêtre (les textes longs sont alors coupés par « … » au lieu d'élargir la page) */}
           {/* Palette */}
           <div className="space-y-1" data-testid="builder-palette">
             <p className={ui.label}>Ajouter une question</p>
@@ -253,7 +255,7 @@ export default function FormBuilder({ form, categories = [], onSave, saving = fa
           </div>
 
           {/* Canevas : pages + questions */}
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-1">
               {pages.map((p, i) => (
                 <button key={p.id} type="button" onClick={() => { setPageIdx(i); setSelected(null); }}

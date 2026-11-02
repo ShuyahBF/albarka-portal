@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "82"
-LOT_LIBELLE = "Les réponses aux formulaires et sondages reçus de SAWALI lui sont renvoyées automatiquement (chaque minute), sous le nom ALBARKA ; elles restent aussi dans ALBARKA."
+LOT = "83"
+LOT_LIBELLE = "Constructeur de formulaires : la colonne du milieu ne dépasse plus de l'écran, le volet de réglages du champ reste visible à droite."
