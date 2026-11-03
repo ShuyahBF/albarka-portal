@@ -40,7 +40,8 @@ function EmployeeDialog({ employerId, params, officine, initial, onClose, onSave
   const setRubrique = (key, patch) => setF((x) => ({ ...x, special_deductions: { ...x.special_deductions, [key]: { ...(x.special_deductions[key] || {}), ...patch } } }));
   // Corps envoyé au serveur : seules les rubriques dont une valeur est saisie (vide = le modèle de l'employeur s'applique)
   const rubriquesEnvoyees = () => Object.fromEntries(Object.entries(f.special_deductions || {})
-    .filter(([, v]) => v && v.value !== "" && v.value != null).map(([k, v]) => [k, { mode: v.mode || "percent", base: v.base || "gross", value: Number(v.value) || 0 }]));
+    .filter(([, v]) => v && (v.exempt || (v.value !== "" && v.value != null)))
+    .map(([k, v]) => [k, v.exempt ? { exempt: true } : { mode: v.mode || "percent", base: v.base || "gross", value: Number(v.value) || 0 }]));
 
   // Calcul en direct (paramètres de l'employeur)
   useEffect(() => {
@@ -139,18 +140,21 @@ function EmployeeDialog({ employerId, params, officine, initial, onClose, onSave
                       const v = f.special_deductions[r.key] || {};
                       const mode = v.mode || r.mode;
                       return (
-                        <div key={r.key} className="grid grid-cols-[5rem_1fr_1fr_1fr] items-end gap-2" data-testid={`emp-rub-${r.key}`}>
+                        <div key={r.key} className="grid grid-cols-[5rem_1fr_1fr_1fr_auto] items-end gap-2" data-testid={`emp-rub-${r.key}`}>
                           <span className="pb-2 font-medium text-slate-700" title={`Réglage du modèle : ${texteReglage(r)}`}>{r.label}</span>
-                          <label>Mode<select value={mode} onChange={(e) => setRubrique(r.key, { mode: e.target.value })} className={inp}>
+                          <label>Mode<select disabled={!!v.exempt} value={mode} onChange={(e) => setRubrique(r.key, { mode: e.target.value })} className={inp}>
                             {MODES_RUBRIQUE.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
                           <label>{mode === "percent" ? "Base" : " "}
                             {mode === "percent" ? (
-                              <select value={v.base || r.base} onChange={(e) => setRubrique(r.key, { base: e.target.value })} className={inp}>
+                              <select disabled={!!v.exempt} value={v.base || r.base} onChange={(e) => setRubrique(r.key, { base: e.target.value })} className={inp}>
                                 {BASES_RUBRIQUE.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
                             ) : <span className="mt-1 block h-9" />}</label>
                           <label>{mode === "percent" ? "Taux (%)" : "Valeur"}
-                            <input type="number" min="0" step="any" value={v.value ?? ""} placeholder={texteReglage(r)}
+                            <input type="number" min="0" step="any" disabled={!!v.exempt} value={v.value ?? ""} placeholder={texteReglage(r)}
                               onChange={(e) => setRubrique(r.key, { value: e.target.value, mode, base: v.base || r.base })} className={inp} data-testid={`emp-rub-${r.key}-valeur`} /></label>
+                          {/* Lot 85 : agent exonéré de la rubrique (comme la case « exonéré CNSS ») : aucune retenue, absent de la déclaration */}
+                          <label className="flex items-center gap-1 pb-2 whitespace-nowrap" title={`Aucune retenue ${r.label} pour cet agent`}>
+                            <input type="checkbox" checked={!!v.exempt} onChange={(e) => setRubrique(r.key, { exempt: e.target.checked })} data-testid={`emp-rub-${r.key}-exempt`} /> exonéré</label>
                         </div>
                       );
                     })}

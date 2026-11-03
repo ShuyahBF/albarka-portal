@@ -450,7 +450,12 @@ def _employee_fields(p: EmployeePaieIn) -> dict:
     # Lot 84 : on ne garde que les rubriques SND / SFED / CENAMU réellement renseignées sur la fiche
     spec = {}
     for k, v in (p.special_deductions or {}).items():
-        if not isinstance(v, dict) or v.get("value") in (None, ""):
+        if not isinstance(v, dict):
+            continue
+        if v.get("exempt"):                       # lot 85 : exonéré de cette rubrique (la valeur saisie est sans effet)
+            spec[str(k)[:40]] = {"exempt": True}
+            continue
+        if v.get("value") in (None, ""):
             continue
         try:
             spec[str(k)[:40]] = {k2: v2 for k2, v2 in _clean_special({"label": k, **v}, str(k)).items() if k2 in ("mode", "base", "value")}
@@ -863,6 +868,19 @@ def build_bulletin_pdf(b: dict, ctx: Optional[dict] = None) -> bytes:
         canvas.setStrokeColor(grid)
         canvas.setLineWidth(0.5)
         canvas.line(14 * mm, 12 * mm, pw - 14 * mm, 12 * mm)
+        # Signatures (chaque page du bulletin) : « l'Employeur » à gauche, « L'Employé » à droite, en gras et SOULIGNÉ ;
+        # la signature se place au-dessus de chaque mention
+        canvas.setFillColor(navy)
+        canvas.setStrokeColor(navy)
+        canvas.setLineWidth(0.7)
+        canvas.setFont(FB, 9.5)
+        for texte, x, droite in (("l'Employeur", 14 * mm, False), ("L'Employé", pw - 14 * mm, True)):
+            (canvas.drawRightString if droite else canvas.drawString)(x, 18 * mm, texte)
+            largeur = canvas.stringWidth(texte, FB, 9.5)
+            x0 = x - largeur if droite else x
+            canvas.line(x0, 16.7 * mm, x0 + largeur, 16.7 * mm)               # soulignement
+        canvas.setStrokeColor(grid)
+        canvas.setLineWidth(0.5)
         canvas.setFillColor(grey)
         canvas.setFont(F, 7.2)
         canvas.drawString(14 * mm, 8 * mm, f"Édité le {edited}")
@@ -870,7 +888,7 @@ def build_bulletin_pdf(b: dict, ctx: Optional[dict] = None) -> bytes:
         canvas.restoreState()
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm, topMargin=13 * mm, bottomMargin=16 * mm,
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=14 * mm, rightMargin=14 * mm, topMargin=13 * mm, bottomMargin=34 * mm,   # 34 mm : place des mentions de signature
                             title=f"Bulletin de paie {emp.get('full_name')} {b['period_month']}", author=e.get("name") or "")
 
     # ---- En-tête : employeur à gauche, titre et période à droite ----

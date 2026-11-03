@@ -67,11 +67,13 @@ test("la fiche propose la case CNSS et les trois rubriques, et les envoie à l'e
   await act(async () => { saisir(q("emp-name"), "OUEDRAOGO Paul"); saisir(q("emp-rub-snd-valeur"), "2");
     saisir(q("emp-rub-snd").querySelectorAll("select")[1], "base"); saisir(q("emp-rub-cenamu").querySelectorAll("select")[0], "amount"); });
   await act(async () => { saisir(q("emp-rub-cenamu-valeur"), "1500"); });
+  await act(async () => { q("emp-rub-sfed-exempt").click(); });         // lot 85 : exonéré de la SFED
+  expect(q("emp-rub-sfed-valeur").disabled).toBe(true);
   await attendre(450);                                             // le calcul en direct attend la fin de la saisie
 
   const sim = mockPost.mock.calls.filter(([u]) => u === "/hr/paie/simulate").pop()[1].employee;
   expect(sim.cnss_exempt).toBe(true);
-  expect(sim.special_deductions).toEqual({ snd: { mode: "percent", base: "base", value: 2 }, cenamu: { mode: "amount", base: "gross", value: 1500 } });
+  expect(sim.special_deductions).toEqual({ snd: { mode: "percent", base: "base", value: 2 }, sfed: { exempt: true }, cenamu: { mode: "amount", base: "gross", value: 1500 } });
   expect(q("emp-calc").textContent).toContain("CNSS (exonéré)");
   expect(q("emp-calc").textContent).toContain("Base IUTS");
   expect(q("emp-calc").textContent).toContain("SND");
@@ -79,7 +81,7 @@ test("la fiche propose la case CNSS et les trois rubriques, et les envoie à l'e
   await act(async () => { q("emp-save").click(); });
   const corps = mockPost.mock.calls.find(([u]) => u === "/hr/paie/employees")[1];
   expect(corps.cnss_exempt).toBe(true);
-  expect(corps.special_deductions.sfed).toBeUndefined();            // rubrique laissée vide : le modèle de l'employeur s'applique
+  expect(corps.special_deductions.sfed).toEqual({ exempt: true });  // exonéré : aucune retenue SFED pour cet agent
   expect(corps.special_deductions.snd.value).toBe(2);
   act(() => racine.unmount());
 });
