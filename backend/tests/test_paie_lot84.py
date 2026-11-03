@@ -25,6 +25,7 @@ import db as db_module  # noqa: E402
 import albarka_docgen  # noqa: E402
 import albarka_paie  # noqa: E402
 import albarka_paie_cnss  # noqa: E402
+import albarka_paie_retenues  # noqa: E402
 import albarka_paie_moteur as moteur  # noqa: E402
 from albarka_auth import get_current_user  # noqa: E402
 
@@ -118,7 +119,7 @@ def env(monkeypatch):
     asyncio.run(mock_db.users.insert_many([dict(u) for u in USERS.values()]))
     app = FastAPI()
     api = APIRouter(prefix="/api")
-    for r in (albarka_paie.router, albarka_paie_cnss.router, albarka_docgen.router, albarka_docgen.public_router):
+    for r in (albarka_paie.router, albarka_paie_cnss.router, albarka_paie_retenues.router, albarka_docgen.router, albarka_docgen.public_router):
         api.include_router(r)
     app.include_router(api)
 
@@ -186,3 +187,65 @@ def test_fiche_agent_rubriques_snd_sfed_cenamu_et_bulletin_pdf(env):
     # Réglage de l'employeur : SND à 1 % du brut pour tous les salariés
     cfg = c.get("/api/hr/paie/employeurs/c1", headers=H).json()
     assert [s["key"] for s in cfg["params"]["special_deductions"]] == ["snd", "sfed", "cenamu"]
+
+
+# ---------------------------------------------------------------- lot 85 : exonération par rubrique et déclaration
+def test_agent_exonere_dune_rubrique_nest_pas_retenu_de_celle_ci():
+    p = _params(snd={"mode": "percent", "base": "gross", "value": 1.0}, sfed={"mode": "amount", "value": 2000})
+    emp = {**BASE, "special_deductions": {"snd": {"exempt": True}}}
+    r = moteur.compute_payslip(emp, p, "2026-10")
+    assert {s["key"]: s["amount"] for s in r["special_deductions"]} == {"sfed": 2000}      # SND exonérée, SFED du modèle
+
+
+def test_declaration_des_retenues_par_rubrique_pdf_et_csv(env):
+    c = env.c
+    c.put("/api/hr/paie/employeurs/c1", headers=H, json={"officine": False})
+    cfg = c.get("/api/hr/paie/employeurs/c1", headers=H).json()
+    params = cfg["params"]
+    for s in params["special_deductions"]:
+        if s["key"] == "snd":
+            s.update(mode="percent", base="gross", value=1.0)
+        if s["key"] == "cenamu":
+            s.update(mode="amount", value=1500)
+    assert c.put("/api/hr/paie/employeurs/c1", headers=H, json={"custom_params": params}).status_code == 200
+    c.post("/api/hr/paie/employees", headers=H, json={**BASE, "tenant_id": "c1", "full_name": "KABORE Awa", "matricule": "M01"})
+    c.post("/api/hr/paie/employees", headers=H, json={**BASE, "tenant_id": "c1", "full_name": "OUEDRAOGO Paul",
+                                                      "special_deductions": {"snd": {"exempt": True}}})
+    c.post("/api/hr/paie/bulletins/prepare", headers=H, json={"employer_id": "c1", "period_month": "2026-10"})
+    for b in c.get("/api/hr/paie/bulletins?employer_id=c1&period_month=2026-10", headers=H).json()["items"]:
+        c.post(f"/api/hr/paie/bulletins/{b['id']}/validate", headers=H)
+    q = "employer_id=c1&annee=2026&numero=4&periodicite=trimestrielle"
+    d = c.get(f"/api/hr/paie/retenues/declaration?{q}", headers=H).json()
+    par = {r["key"]: r for r in d["rubriques"]}
+    assert set(par) == {"snd", "cenamu"}                                    # SFED non réglée : absente
+    assert [l["full_name"] for l in par["snd"]["lignes"]] == ["KABORE Awa"]  # Paul est exonéré de la SND
+    assert par["snd"]["total"] == 3000 and par["snd"]["lignes"][0]["base"] == 300000
+    assert par["cenamu"]["total"] == 3000 and len(par["cenamu"]["lignes"]) == 2
+    only = c.get(f"/api/hr/paie/retenues/declaration?{q}&rubrique=cenamu", headers=H).json()
+    assert [r["key"] for r in only["rubriques"]] == ["cenamu"]
+    texte = _texte(c.get(f"/api/hr/paie/retenues/pdf?{q}", headers=H).content)
+    assert "Retenues SND, SFED et CENAMU" in texte and "KABORE Awa" in texte and "TOTAL SND" in texte
+    csv = c.get(f"/api/hr/paie/retenues/csv?{q}", headers=H).content.decode("utf-8")
+    assert "CENAMU;TOTAL;;;;3000" in csv
+    assert c.get("/api/hr/paie/retenues/declaration?employer_id=c1&annee=2026&numero=9&periodicite=trimestrielle", headers=H).status_code == 422
+    vide = c.get("/api/hr/paie/retenues/declaration?employer_id=c1&annee=2026&numero=1&periodicite=trimestrielle", headers=H).json()
+    assert vide["rubriques"] == [] and vide["alertes"]
+
+
+def test_bulletin_affiche_en_bas_les_mentions_de_signature(env):
+    c = env.c
+    c.post("/api/hr/paie/employees", headers=H, json={**BASE, "tenant_id": "c1", "full_name": "KABORE Awa",
+                                                      "allowances": {"housing": 50000}})
+    c.post("/api/hr/paie/bulletins/prepare", headers=H, json={"employer_id": "c1", "period_month": "2026-10"})
+    b = c.get("/api/hr/paie/bulletins?employer_id=c1&period_month=2026-10", headers=H).json()["items"][0]
+    pdf = c.get(f"/api/hr/paie/bulletins/{b['id']}/pdf", headers=H).content
+    with fitz.open("pdf", pdf) as d:
+        assert d.page_count == 1                                   # le bloc de signature ne fait pas déborder le bulletin
+        mots = {m[4]: m for m in d[0].get_text("words")}
+        employeur, employe = mots["l'Employeur"], mots["L'Employé"]
+        assert employeur[0] < 100 and employe[2] > d[0].rect.width - 100      # à gauche / à droite
+        assert employeur[1] > d[0].rect.height * 0.85 and employe[1] > d[0].rect.height * 0.85     # en bas de page
+        gras = [sp["font"] for bl in d[0].get_text("dict")["blocks"] if "lines" in bl for ln in bl["lines"] for sp in ln["spans"]
+                if sp["text"] in ("l'Employeur", "L'Employé")]
+        assert gras and all("Bold" in f for f in gras)
+        assert len(d[0].get_drawings()) > 0

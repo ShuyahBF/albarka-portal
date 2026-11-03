@@ -537,7 +537,7 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
     exceptional = true : prime exceptionnelle, hors base CNSS),
     deductions [{label, amount}] (acomptes, prêts, autres retenues),
     cnss_exempt (lot 84 : agent exonéré de la cotisation CNSS, part salariale ET patronale à zéro),
-    special_deductions {clé: {mode, base, value}} (lot 84 : SND / SFED / CENAMU propres au salarié,
+    special_deductions {clé: {mode, base, value, exempt}} (lot 84 ; exempt = agent exonéré de la rubrique, lot 85 : SND / SFED / CENAMU propres au salarié,
     qui remplacent le réglage du modèle de l'employeur).
     """
     p = normalize_params(params)
@@ -670,6 +670,8 @@ def compute_payslip(employee: Dict[str, Any], params: Optional[Dict[str, Any]] =
     specials, special_total = [], 0.0
     for sd in p["special_deductions"]:
         ov = own.get(sd["key"]) or {}
+        if ov.get("exempt"):             # lot 85 : agent exonéré de cette rubrique (comme la case « exonéré CNSS »)
+            continue
         mode = ov.get("mode") if ov.get("mode") in SPECIAL_MODES else sd["mode"]
         base_key = ov.get("base") if ov.get("base") in SPECIAL_BASES else sd["base"]
         value = _num(ov.get("value")) if ov.get("value") not in (None, "") else sd["value"]

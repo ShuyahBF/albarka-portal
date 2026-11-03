@@ -15,6 +15,7 @@ import PaieEmployees from "@/components/paie/PaieEmployees";
 import { PaieBulletins, PaieLivre } from "@/components/paie/PaieBulletins";
 import PaieSettings from "@/components/paie/PaieSettings";
 // Lot 68 : déclarations CNSS (BTN et DECLARATION)
+import PaieRetenues from "@/components/paie/PaieRetenues";   // lot 85 : déclaration des retenues SND / SFED / CENAMU
 import PaieCnss, { CHOIX_CNSS_INITIAL } from "@/components/paie/PaieCnss";
 
 export default function AdminHR() {
@@ -74,6 +75,8 @@ export default function AdminHR() {
           {/* Lot 68 : déclarations CNSS (feuilles BTN et DECLARATION du classeur) */}
           <TabsTrigger value="btn" data-testid="tab-hr-btn" title="Déclaration CNSS : bordereau nominatif des travailleurs salariés" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><ClipboardList className="w-4 h-4 mr-2" />BTN</TabsTrigger>
           <TabsTrigger value="recap" data-testid="tab-hr-recap" title="Déclaration CNSS : récapitulatif des salaires et des cotisations" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><FileSpreadsheet className="w-4 h-4 mr-2" />DECLARATION</TabsTrigger>
+          {/* Lot 85 : déclaration des retenues SND, SFED et CENAMU */}
+          <TabsTrigger value="retenues" data-testid="tab-hr-retenues" title="Déclaration des retenues SND, SFED et CENAMU" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><FileSpreadsheet className="w-4 h-4 mr-2" />Retenues SND / SFED / CENAMU</TabsTrigger>
           <TabsTrigger value="settings" data-testid="tab-hr-settings" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><SlidersHorizontal className="w-4 h-4 mr-2" />Paramètres de paie</TabsTrigger>
           {payslips.length > 0 && <TabsTrigger value="payslips" data-testid="tab-hr-payslips" className="justify-start whitespace-normal text-left sm:whitespace-nowrap"><FileText className="w-4 h-4 mr-2" />Anciens bulletins</TabsTrigger>}
         </TabsList>
@@ -82,6 +85,7 @@ export default function AdminHR() {
         <TabsContent value="livre" className="pt-4"><PaieLivre /></TabsContent>
         <TabsContent value="btn" className="pt-4"><PaieCnss vue="btn" choix={choixCnss} setChoix={setChoixCnss} /></TabsContent>
         <TabsContent value="recap" className="pt-4"><PaieCnss vue="recap" choix={choixCnss} setChoix={setChoixCnss} /></TabsContent>
+        <TabsContent value="retenues" className="pt-4"><PaieRetenues /></TabsContent>
         <TabsContent value="settings" className="pt-4"><PaieSettings /></TabsContent>
 
         <TabsContent value="table" className="pt-4">
