@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight, Send, RotateCcw, CheckCircle2, MapPin } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
+import { EXEMPLE_NOM, EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
@@ -95,11 +96,11 @@ export default function PublicForm() {
         <div className="rounded-xl bg-white/5 ring-1 ring-white/10 p-5 grid sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Votre nom (optionnel)</label>
-            <input value={meta.respondent_name} onChange={(e) => setMeta({ ...meta, respondent_name: e.target.value })} className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 text-sm" placeholder="Jean Dupont" data-testid="public-form-name" />
+            <input value={meta.respondent_name} onChange={(e) => setMeta({ ...meta, respondent_name: e.target.value })} className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 text-sm" placeholder={`Ex. ${EXEMPLE_NOM}`} data-testid="public-form-name" />
           </div>
           <div>
             <label className="block text-[11px] font-semibold uppercase text-slate-400 mb-1">Votre email (optionnel)</label>
-            <input type="email" value={meta.respondent_email} onChange={(e) => setMeta({ ...meta, respondent_email: e.target.value })} className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 text-sm" placeholder="jean@entreprise.fr" data-testid="public-form-email" />
+            <input type="email" value={meta.respondent_email} onChange={(e) => setMeta({ ...meta, respondent_email: e.target.value })} className="w-full rounded-lg bg-white/10 border border-white/20 px-3 py-2 text-sm" placeholder={`Ex. ${EXEMPLE_EMAIL}`} data-testid="public-form-email" />
           </div>
         </div>
 

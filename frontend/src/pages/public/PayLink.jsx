@@ -6,6 +6,7 @@ import {
   CreditCard, ShieldCheck, CheckCircle2, AlertCircle, Clock, Loader2, Lock,
 } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
+import { EXEMPLE_NOM } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 /*
   Public branded payment landing page.
@@ -252,7 +253,7 @@ export default function PayLink() {
               <input
                 value={payerName}
                 onChange={(e) => setPayerName(e.target.value.slice(0, 80))}
-                placeholder="Pour vous identifier sur le reçu"
+                placeholder={`Ex. ${EXEMPLE_NOM}`}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                 data-testid="pay-name"
               />

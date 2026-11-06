@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { officineApi, saveOfficineSession } from "@/lib/officineApi";
 import { LOGO_URL } from "@/lib/brand";
 import { MessageCircle, Smartphone, Mail, UserPlus, LogIn, ShieldCheck } from "lucide-react";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 const TABS = [
   { id: "otp", label: "Code OTP", icon: Smartphone },
@@ -324,7 +325,7 @@ function RegisterForm({ onDone }) {
         <input value={form.contact_name} onChange={set("contact_name")} className="w-full border rounded px-3 py-2 text-sm" />
       </Field>
       <Field label="Email d'un client CRM associé (optionnel)" testid="register-linked">
-        <input type="email" value={form.linked_client_email} onChange={set("linked_client_email")} placeholder="client@example.com" className="w-full border rounded px-3 py-2 text-sm" />
+        <input type="email" value={form.linked_client_email} onChange={set("linked_client_email")} placeholder={`Ex. ${EXEMPLE_EMAIL}`} className="w-full border rounded px-3 py-2 text-sm" />
       </Field>
       {/* Lot 28 : consentement WhatsApp facultatif (décoché par défaut) */}
       <label className="flex items-start gap-2 text-xs text-slate-700" data-testid="register-accepte-whatsapp">

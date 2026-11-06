@@ -32,6 +32,7 @@ import {
   Trophy,
   Send,
 } from "lucide-react";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 // Iter38r-fix9w — Admin page to manage paid advertising banners.
 
@@ -1150,7 +1151,7 @@ function BannerContactReminderBlock({ draft, setDraft }) {
           <input
             type="email" value={draft.advertiser_email}
             onChange={(e) => setDraft({ ...draft, advertiser_email: e.target.value })}
-            placeholder="contact@entreprise.com"
+            placeholder={`Ex. ${EXEMPLE_EMAIL}`}
             className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 bg-white"
             data-testid="ad-contact-email"
           />
