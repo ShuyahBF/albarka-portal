@@ -42,6 +42,7 @@ import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSectio
 import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
 import QdrantRagSection from "@/components/QdrantRagSection";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -3217,7 +3218,7 @@ const ClientDataDiagnosticSection = () => {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && inspect()}
-          placeholder="user@exemple.com"
+          placeholder={`Ex. ${EXEMPLE_EMAIL}`}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
           data-testid="cdd-email-input"
         />

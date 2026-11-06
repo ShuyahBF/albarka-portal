@@ -7,6 +7,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 import VersionStamp from "@/components/VersionStamp";
+import { EXEMPLE_EMAIL } from "@/lib/exemplesIdentite";   // exemples locaux (règle 13)
 
 export default function Login() {
   const { login, user } = useAuth();
@@ -229,7 +230,7 @@ export default function Login() {
                       <input
                         required type="email" value={email} onChange={(e) => setEmail(e.target.value)}
                         className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/20"
-                        placeholder="vous@entreprise.com"
+                        placeholder={`Ex. ${EXEMPLE_EMAIL}`}
                         data-testid="login-email"
                       />
                     </div>
