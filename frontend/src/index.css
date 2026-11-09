@@ -245,3 +245,29 @@ table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td :is(spa
 html, body { max-width: 100%; overflow-x: clip; }
 body.portal-ui main { min-width: 0; max-width: 100%; overflow-x: auto; }
 body.portal-ui main img, body.portal-ui main video { max-width: 100%; height: auto; }
+
+
+/* ============================================================================================================
+   Cadre bleu mince autour de TOUS les blocs d'information du site (demande du propriétaire, 09/11/2026 :
+   « pour bien rendre visible chaque bloc »). Une seule règle pour tout le site, portail, administration et pages publiques :
+   - cartes (.albarka-card), composant Card et tout bloc « bordure + coins arrondis » (div, section, article, aside…) ;
+   - blocs à anneau (« ring-1 ») : l'anneau passe aussi en bleu ;
+   Sont exclus : boutons, liens, champs de saisie (jamais des blocs), zones de dépôt en pointillés, simples filets (border-t, border-b…),
+   et les fonds sombres de la page d'accueil publique (.albarka-hero).
+   Couleur modifiable en un seul endroit : --cadre-bloc. */
+:root {
+    --cadre-bloc: #2563eb;          /* bleu 600 */
+    --cadre-bloc-survol: #1d4ed8;   /* bleu 700 au survol d'une carte */
+}
+.albarka-card:not(.albarka-hero *),
+:is(div, section, article, aside, fieldset, details, ul, ol, table)[class~="border"]:is([class*="rounded-lg"], [class*="rounded-xl"], [class*="rounded-2xl"], [class*="rounded-md"]):not([class*="border-dashed"], [class*="border-t"], [class*="border-b"], [class*="border-l"], [class*="border-r"], .albarka-hero *) {
+    border-style: solid !important;
+    border-width: 1px !important;
+    border-color: var(--cadre-bloc) !important;
+}
+.albarka-card:hover:not(.albarka-hero *) {
+    border-color: var(--cadre-bloc-survol) !important;
+}
+:is(div, section, article, aside, fieldset, details)[class*="ring-1"]:is([class*="rounded-lg"], [class*="rounded-xl"], [class*="rounded-2xl"], [class*="rounded-md"]):not(.albarka-hero *) {
+    --tw-ring-color: var(--cadre-bloc) !important;
+}
