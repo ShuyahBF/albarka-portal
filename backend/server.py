@@ -35,6 +35,7 @@ from albarka_maintenance import router as maintenance_router  # noqa: E402  (lot
 from albarka_support_sawali import router as support_sawali_router  # noqa: E402  (lot 23 : assistance SAWALI)
 from albarka_settings_tests import router as settings_tests_router  # noqa: E402
 from albarka_myaccount import router as myaccount_router  # noqa: E402
+from albarka_taches import router as taches_router  # noqa: E402  (lot 86 : tâches du personnel)
 from albarka_ohada import router as ohada_router, me_router as ohada_me_router  # noqa: E402
 from albarka_payments import router as payments_router, webhook_router as payments_webhook_router  # noqa: E402
 # Lot 14 : encaissement PI-SPI (paramètres, transactions, notification désactivée)
@@ -133,6 +134,7 @@ api_router.include_router(documents_router)
 api_router.include_router(echeances_router)
 api_router.include_router(missions_router)
 api_router.include_router(myaccount_router)
+api_router.include_router(taches_router)
 api_router.include_router(payments_router)
 api_router.include_router(payments_webhook_router)
 api_router.include_router(pispi_router)

@@ -134,6 +134,13 @@ async def boucle_planificateur() -> None:
                 await envoyer_reponses_en_attente(base_albarka)
             except Exception:  # noqa: BLE001
                 logger.exception("Planificateur : retour des réponses vers SAWALI en erreur")
+        # 2 ter) Lot 86 : rappel quotidien des tâches du personnel, à l'heure choisie par chacun (chaque minute, envois actifs seulement)
+        if envois:
+            try:
+                from albarka_taches import envoyer_rappels_taches
+                await envoyer_rappels_taches(maintenant)
+            except Exception:  # noqa: BLE001
+                logger.exception("Planificateur : rappels de tâches du personnel en erreur")
         # 3) Envois WhatsApp planifiés (toutes les 5 minutes) — seulement si les envois sont actifs
         horloge = asyncio.get_running_loop().time()
         if envois and horloge - dernier_envoi_wa >= INTERVALLE_WA_SECONDES:

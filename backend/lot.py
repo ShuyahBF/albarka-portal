@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "85"
-LOT_LIBELLE = "Paie : signatures « l'Employeur » / « L'Employé » en bas de chaque bulletin ; déclaration des retenues SND, SFED et CENAMU (PDF, Excel) ; exonération possible par agent et par rubrique."
+LOT = "86"
+LOT_LIBELLE = "Mon compte : tâches du personnel (création, modification, rappel quotidien à l'heure choisie) ; DG, Direction et Secrétariat consultent les tâches de chaque membre du personnel."
