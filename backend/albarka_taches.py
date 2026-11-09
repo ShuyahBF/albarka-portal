@@ -75,10 +75,20 @@ def _date_valide(valeur: Optional[str]) -> Optional[str]:
 # ---------------------------------------------------------------------
 # Modèles
 # ---------------------------------------------------------------------
+class ElementListe(BaseModel):
+    """Un élément de la liste à cocher (comme les listes de Google Keep / de SAWALI)."""
+    id: Optional[str] = None
+    texte: str = Field(..., min_length=1, max_length=300)
+    fait: bool = False
+    fait_le: Optional[str] = None
+
+
 class TacheCreate(BaseModel):
+    """Une tâche = texte libre (titre, détails) ET/OU liste à cocher (éléments)."""
     titre: str = Field(..., min_length=1, max_length=200)
     details: Optional[str] = Field(None, max_length=4000)
     echeance: Optional[str] = None  # AAAA-MM-JJ
+    elements: Optional[List[ElementListe]] = Field(None, max_length=100)
 
 
 class TacheUpdate(BaseModel):
@@ -86,6 +96,29 @@ class TacheUpdate(BaseModel):
     details: Optional[str] = Field(None, max_length=4000)
     echeance: Optional[str] = None  # chaîne vide = retirer l'échéance
     statut: Optional[str] = None
+    elements: Optional[List[ElementListe]] = Field(None, max_length=100)  # remplace toute la liste
+
+
+def _normaliser_elements(elements: Optional[List[ElementListe]], anciens: Optional[List[dict]] = None) -> List[dict]:
+    """Éléments propres : identifiant, ordre, et date de réalisation posée en cochant / retirée en décochant."""
+    deja = {e.get("id"): e for e in (anciens or [])}
+    sortie = []
+    for i, e in enumerate(elements or []):
+        texte = e.texte.strip()
+        if not texte:
+            continue
+        ident = e.id or str(uuid.uuid4())
+        avant = deja.get(ident) or {}
+        fait_le = (avant.get("fait_le") or _maintenant()) if e.fait else None
+        sortie.append({"id": ident, "texte": texte, "fait": bool(e.fait), "fait_le": fait_le, "ordre": i})
+    return sortie
+
+
+def _statut_depuis_elements(elements: List[dict], statut_demande: str) -> str:
+    """Une tâche à liste est réalisée quand TOUS ses éléments sont cochés ; sans liste, le statut demandé s'applique."""
+    if elements:
+        return "fait" if all(e["fait"] for e in elements) else "a_faire"
+    return statut_demande
 
 
 class RappelPrefs(BaseModel):
@@ -120,11 +153,15 @@ async def creer_tache(payload: TacheCreate, user: dict = Depends(get_current_use
         "titre": titre,
         "details": (payload.details or "").strip(),
         "echeance": _date_valide(payload.echeance),
+        "elements": _normaliser_elements(payload.elements),
         "statut": "a_faire",
         "realisee_le": None,
         "created_at": _maintenant(),
         "updated_at": _maintenant(),
     }
+    doc["statut"] = _statut_depuis_elements(doc["elements"], "a_faire")
+    if doc["statut"] == "fait":
+        doc["realisee_le"] = _maintenant()
     await db.taches_personnel.insert_one(doc.copy())
     return doc
 
@@ -145,14 +182,18 @@ async def modifier_tache(tache_id: str, payload: TacheUpdate, user: dict = Depen
         modif["details"] = payload.details.strip()
     if payload.echeance is not None:
         modif["echeance"] = _date_valide(payload.echeance)
-    if payload.statut is not None:
-        if payload.statut not in STATUTS:
-            raise HTTPException(status_code=400, detail="Statut inconnu")
-        modif["statut"] = payload.statut
+    if payload.statut is not None and payload.statut not in STATUTS:
+        raise HTTPException(status_code=400, detail="Statut inconnu")
+    elements = tache.get("elements") or []
+    if payload.elements is not None:
+        elements = _normaliser_elements(payload.elements, tache.get("elements"))
+        modif["elements"] = elements
+    if payload.statut is not None or payload.elements is not None:
+        modif["statut"] = _statut_depuis_elements(elements, payload.statut or tache.get("statut") or "a_faire")
         # La date de réalisation est posée en cochant, retirée en décochant
-        if payload.statut == "fait" and tache.get("statut") != "fait":
+        if modif["statut"] == "fait" and tache.get("statut") != "fait":
             modif["realisee_le"] = _maintenant()
-        elif payload.statut == "a_faire":
+        elif modif["statut"] == "a_faire":
             modif["realisee_le"] = None
     modif["updated_at"] = _maintenant()
     await db.taches_personnel.update_one({"id": tache_id}, {"$set": modif})
@@ -247,7 +288,13 @@ def _texte_rappel(nom: str, taches: List[dict], aujourdhui: str) -> str:
         suite = ""
         if t.get("echeance"):
             suite = f" — échéance {t['echeance']}" + (" (EN RETARD)" if t["echeance"] < aujourdhui else "")
+        el = t.get("elements") or []
+        reste = [e for e in el if not e.get("fait")]
+        if el:
+            suite = f" ({len(el) - len(reste)}/{len(el)} faits)" + suite
         lignes.append(f"{i}. {t['titre']}{suite}")
+        for e in reste[:5]:                      # les éléments restants de la liste, pour ne pas ouvrir le portail
+            lignes.append(f"    - {e['texte']}")
     if len(taches) > 25:
         lignes.append(f"… et {len(taches) - 25} autre(s).")
     lignes += ["", "Portail ALBARKA — Mon compte › Mes tâches"]

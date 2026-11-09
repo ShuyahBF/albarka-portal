@@ -162,3 +162,37 @@ def test_rappel_par_email_si_pas_de_whatsapp(monkeypatch):
         assert await t.envoyer_rappels_taches(datetime(2026, 11, 9, 9, 0, tzinfo=timezone.utc)) == 1
         assert envoyes[0][0] == "mail"
     run(scenario(t.db))
+
+
+def test_liste_a_cocher_statut_et_dates():
+    """Tâche à liste (comme SAWALI / Keep) : réalisée seulement quand tous les éléments sont cochés."""
+    async def scenario():
+        moi = _u("a1", ["comptable"])
+        tache = await t.creer_tache(t.TacheCreate(titre="Clôture", elements=[
+            t.ElementListe(texte="Relever les banques"), t.ElementListe(texte="  "), t.ElementListe(texte="Lettrage")]), moi)
+        assert [e["texte"] for e in tache["elements"]] == ["Relever les banques", "Lettrage"] and tache["statut"] == "a_faire"
+        els = [t.ElementListe(**e) for e in tache["elements"]]
+        els[0].fait = True
+        m1 = await t.modifier_tache(tache["id"], t.TacheUpdate(elements=els), moi)
+        assert m1["statut"] == "a_faire" and m1["elements"][0]["fait_le"]
+        els = [t.ElementListe(**e) for e in m1["elements"]]
+        els[1].fait = True
+        m2 = await t.modifier_tache(tache["id"], t.TacheUpdate(elements=els), moi)
+        assert m2["statut"] == "fait" and m2["realisee_le"]
+        els = [t.ElementListe(**e) for e in m2["elements"]]
+        els[1].fait = False                                    # décocher rouvre la tâche
+        m3 = await t.modifier_tache(tache["id"], t.TacheUpdate(elements=els), moi)
+        assert m3["statut"] == "a_faire" and m3["realisee_le"] is None
+    run(scenario())
+
+
+def test_rappel_detaille_les_elements_restants(monkeypatch):
+    envoyes = _fake_envois(monkeypatch)
+
+    async def scenario(base):
+        await base.users.insert_one(_u("a1", ["rh"], taches_rappel_actif=True, taches_rappel_heure="08:00", whatsapp_number="+22670000001"))
+        await t.creer_tache(t.TacheCreate(titre="Paie", elements=[t.ElementListe(texte="Bulletins", fait=True), t.ElementListe(texte="Déclaration CNSS")]), _u("a1", ["rh"]))
+        await t.envoyer_rappels_taches(datetime(2026, 11, 9, 8, 0, tzinfo=timezone.utc))
+        message = envoyes[0][2]
+        assert "(1/2 faits)" in message and "- Déclaration CNSS" in message and "Bulletins" not in message
+    run(scenario(t.db))

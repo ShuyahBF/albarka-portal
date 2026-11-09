@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "86"
-LOT_LIBELLE = "Mon compte : tâches du personnel (création, modification, rappel quotidien à l'heure choisie) ; DG, Direction et Secrétariat consultent les tâches de chaque membre du personnel."
+LOT = "87"
+LOT_LIBELLE = "Tâches du personnel : texte libre et liste à cocher (comme SAWALI), saisie par la touche Entrée, blocs encadrés d'un filet bleu."
