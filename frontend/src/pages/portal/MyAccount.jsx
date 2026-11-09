@@ -8,11 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/AuthContext";
+import TachesPersonnel from "@/pages/portal/TachesPersonnel";
 
 // Accessible à TOUT utilisateur connecté, staff comme client — contrairement
 // au reste de l'admin, réservé au cabinet (voir PortalLayout.jsx).
 export default function MyAccount() {
-  const { user, isClient, refresh } = useAuth();
+  const { user, isClient, isStaff, refresh } = useAuth();
   const [form, setForm] = useState({
     full_name: "", phone: "", whatsapp_number: "", can_receive_notifications: true,
   });
@@ -115,6 +116,9 @@ export default function MyAccount() {
           </>
         )}
       </div>
+
+      {/* Lot 86 : tâches du personnel — réservé au personnel, replié à l'origine, avant « Changer le mot de passe » */}
+      {isStaff && <TachesPersonnel user={user} />}
 
       <div className="albarka-card p-6 space-y-4 max-w-2xl">
         <div className="font-semibold flex items-center gap-2"><KeyRound className="w-4 h-4" />Changer le mot de passe</div>
