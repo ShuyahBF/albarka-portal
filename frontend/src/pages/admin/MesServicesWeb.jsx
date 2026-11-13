@@ -37,7 +37,7 @@ export default function MesServicesWeb() {
       <div>
         <h1 className="text-2xl font-semibold flex items-center gap-2"><Globe className="w-6 h-6 text-[#0F6B4A]" /> Mes Services Web</h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-          Frais des services web du cabinet. Vous êtes rappelé 7 jours avant, 3 jours avant et le jour même de l'échéance.
+          Frais des services web du cabinet. Paiements mensuels : vous êtes rappelé 7 jours avant, 3 jours avant et le jour même de l'échéance, chaque mois.
         </p>
       </div>
       <div className="albarka-card overflow-x-auto">
@@ -46,7 +46,7 @@ export default function MesServicesWeb() {
             <tr className="text-left border-b">
               <th className="p-3">Service</th>
               <th className="p-3 text-right">Montant</th>
-              <th className="p-3">Payable avant le</th>
+              <th className="p-3">Payable le</th>
               <th className="p-3">État</th>
               <th className="p-3">Dernier paiement</th>
               <th className="p-3 text-right">Montant payé</th>
@@ -58,7 +58,7 @@ export default function MesServicesWeb() {
               <tr key={s.id} className="border-b last:border-0" data-testid={`service-${s.id}`}>
                 <td className="p-3 font-medium">{s.service}</td>
                 <td className="p-3 text-right tabular-nums">{fmtMontant(s.montant, s.devise)}</td>
-                <td className="p-3">{fmtDate(s.payable_avant)}</td>
+                <td className="p-3">Le {s.jour_du_mois} de chaque mois<div className="text-xs text-muted-foreground">Prochaine échéance : {fmtDate(s.payable_avant)}</div></td>
                 <td className="p-3"><EtatService s={s} /></td>
                 <td className="p-3">{fmtHeure(s.dernier_paiement_le)}</td>
                 <td className="p-3 text-right tabular-nums">{s.dernier_paiement_le ? fmtMontant(s.dernier_paiement_montant, s.devise) : "—"}</td>
