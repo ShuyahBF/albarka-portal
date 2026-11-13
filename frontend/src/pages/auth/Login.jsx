@@ -13,6 +13,7 @@ import MentionVersion from "@/components/MentionVersion";
 import BandeauAlerte from "@/components/BandeauAlerte";   // lot 44
 import LiensJuridiques from "@/components/LiensJuridiques";
 import EtatServeur from "@/components/EtatServeur";
+import ConnexionEmpreinte from "@/components/ConnexionEmpreinte";   // lot 89
 import InstallerApplication from "@/components/InstallerApplication";
 
 // Champ secret (mot de passe ou code PIN) avec pictogramme « œil » pour
@@ -213,6 +214,12 @@ export default function Login() {
           </div>
 
           {step === "credentials" ? (
+            <>
+            {/* Lot 89 : connexion par empreinte digitale (visible seulement si le super-admin l'a activée) */}
+            <ConnexionEmpreinte onConnecte={(user) => {
+              const staff = !(user.roles?.length === 1 && user.roles[0] === "client");
+              navigate(staff ? "/admin" : "/portal", { replace: true });
+            }} />
             <form onSubmit={submitCredentials} className="space-y-5" data-testid="login-form">
               <div>
                 <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">
@@ -334,6 +341,7 @@ export default function Login() {
                 </Link>
               </div>
             </form>
+            </>
           ) : (
             <form onSubmit={submitOtp} className="space-y-5" data-testid="otp-form">
               <div>

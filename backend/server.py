@@ -15,6 +15,7 @@ from starlette.middleware.cors import CORSMiddleware
 load_dotenv(Path(__file__).parent / ".env")
 
 from albarka_auth import router as auth_router, require_roles  # noqa: E402
+from albarka_passkeys import router as passkeys_router  # noqa: E402  (lot 89 : connexion par empreinte)
 from albarka_admin_settings import router as admin_settings_router  # noqa: E402
 from albarka_branding import router as branding_router  # noqa: E402
 from albarka_chat_extra import router as chat_extra_router  # noqa: E402
@@ -36,6 +37,7 @@ from albarka_support_sawali import router as support_sawali_router  # noqa: E402
 from albarka_settings_tests import router as settings_tests_router  # noqa: E402
 from albarka_myaccount import router as myaccount_router  # noqa: E402
 from albarka_taches import router as taches_router  # noqa: E402  (lot 86 : tâches du personnel)
+from albarka_services_web import router as services_web_router  # noqa: E402  (lot 90 : Mes Services Web, rappels au DG)
 from albarka_ohada import router as ohada_router, me_router as ohada_me_router  # noqa: E402
 from albarka_payments import router as payments_router, webhook_router as payments_webhook_router  # noqa: E402
 # Lot 14 : encaissement PI-SPI (paramètres, transactions, notification désactivée)
@@ -117,6 +119,7 @@ async def _services_suspendus(request, call_next):
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
+api_router.include_router(passkeys_router)   # lot 89 : connexion par empreinte (activée par le super-admin, enrôlements par le DG)
 # Lot 16 : connexion du personnel par WhatsApp (numéro + PIN, puis code OTP)
 # et gestion des codes PIN dans « Personnels » (voir albarka_connexion_whatsapp.py)
 from albarka_connexion_whatsapp import auth_router as connexion_wa_router, router as staff_pin_router  # noqa: E402
@@ -135,6 +138,7 @@ api_router.include_router(echeances_router)
 api_router.include_router(missions_router)
 api_router.include_router(myaccount_router)
 api_router.include_router(taches_router)
+api_router.include_router(services_web_router)   # lot 90 : services web (super-admin configure, DG rappelé)
 api_router.include_router(payments_router)
 api_router.include_router(payments_webhook_router)
 api_router.include_router(pispi_router)

@@ -182,6 +182,13 @@ async def login(payload: LoginRequest):
     return LoginResponse(needs_otp=True, session_token=session_token, message=message, dev_otp=dev_otp)
 
 
+async def clients_sans_contrat_interdits() -> bool:
+    """Lot 89 : vrai seulement si le super-admin a activé « Interdire l'accès aux clients sans contrat actif ».
+    Lecture directe du document de réglages (évite un import circulaire) ; réglage absent = FAUX (accès autorisé)."""
+    doc = await db.settings.find_one({"_id": "global"}, {"interdire_clients_sans_contrat": 1}) or {}
+    return bool(doc.get("interdire_clients_sans_contrat"))
+
+
 @router.post("/verify-otp", response_model=AuthTokenResponse)
 async def verify_otp(payload: OtpVerifyRequest, request: Request):
     otp = await db.otps.find_one({"session_token": payload.session_token, "used": False})
@@ -212,9 +219,10 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
     from albarka_access import check_staff_access
     access_until = await check_staff_access(user, request=request, device_id=payload.device_id,
                                             access_code=payload.access_code)
-    # Feature 14 — clients cannot log in without an active contract.
+    # Feature 14 — blocage des clients sans contrat actif. Lot 89 : ce blocage est désormais un RÉGLAGE du super-admin
+    # (« interdire_clients_sans_contrat », FAUX par défaut) : par défaut, un client sans contrat peut se connecter.
     roles = set(user.get("roles") or [])
-    if "client" in roles and len(roles) == 1:
+    if "client" in roles and len(roles) == 1 and await clients_sans_contrat_interdits():
         from albarka_contracts import has_active_contract
         if not await has_active_contract(user["id"]):
             # Lot 77 : le code n'est PAS consommé par ce refus. Avant, il était déjà marqué « utilisé » : au deuxième essai

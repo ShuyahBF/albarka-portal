@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "88"
-LOT_LIBELLE = "Cadre bleu mince autour de chaque bloc d'information sur tout le site (Mon compte, portail, administration, pages publiques)."
+LOT = "90"
+LOT_LIBELLE = "Mes Services Web : frais des services web configurés par le super-admin, rappelés au DG (7 jours, 3 jours, jour même) ; clients sans contrat autorisés par défaut ; connexion par empreinte digitale."

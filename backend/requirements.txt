@@ -35,3 +35,4 @@ pyHanko>=0.25.0
 Pillow>=10.0.0
 qrcode>=7.4.0
 PyMuPDF>=1.23.0
+webauthn==2.7.1
