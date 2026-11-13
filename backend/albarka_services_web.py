@@ -303,6 +303,33 @@ async def admin_paiement(service_id: str, payload: PaiementCorps, user: dict = D
     return _vue(await db.services_web.find_one({"id": service_id}, {"_id": 0}))
 
 
+def preparer_transactions_sms(transactions: List[dict], services: List[dict]) -> List[dict]:
+    """Lot 93 — Logique pure (testée) : transactions reçues de SAWALI (paiements lus dans les SMS, associés à ce cabinet), prêtes à choisir.
+    `reference_proposee` = numéro de transaction de l'opérateur, sinon une référence construite (SMS + date + montant) ;
+    `deja_enregistre` = cette référence est déjà celle du dernier paiement d'un service (on ne la propose pas deux fois)."""
+    deja = {(d.get("dernier_paiement_reference") or "").strip() for d in services if d.get("dernier_paiement_reference")}
+    sortie = []
+    for t in transactions or []:
+        if not isinstance(t, dict) or not t.get("recu_le") or not t.get("montant"):
+            continue
+        reference = (t.get("reference") or "").strip() or f"SMS {str(t['recu_le'])[:16]} {int(t['montant'])}"
+        sortie.append({"id": t.get("id"), "recu_le": str(t["recu_le"])[:16], "montant": t["montant"], "tiers": t.get("tiers") or "",
+                       "numero": t.get("numero"), "operateur": t.get("operateur"), "client": t.get("client"),
+                       "reference_proposee": reference[:120], "deja_enregistre": reference in deja})
+    return sortie
+
+
+@router.get("/admin/services-web/paiements-sms")
+async def admin_paiements_sms(user: dict = Depends(get_current_user)):
+    """Lot 93 — Paiements REÇUS lus dans les SMS (SAWALI → Transactions SMS), pour les numéros associés à ALBARKA : le super-admin en choisit un pour
+    remplir « dernier paiement » sans le ressaisir. Relecture signée auprès de SAWALI ; seuls les champs structurés sont reçus (jamais le texte des SMS)."""
+    _exiger_super_admin(user)
+    import albarka_support_sawali                       # appelé par son module : remplaçable dans les tests
+    reponse = await albarka_support_sawali.appeler_sawali("/webhook/plateforme-paiements", {"sens": "entree", "limite": 60})
+    services = await db.services_web.find({}, {"_id": 0}).to_list(500)
+    return {"transactions": preparer_transactions_sms(reponse.get("transactions") or [], services)}
+
+
 @router.delete("/admin/services-web/{service_id}")
 async def admin_supprimer(service_id: str, user: dict = Depends(get_current_user)):
     _exiger_super_admin(user)

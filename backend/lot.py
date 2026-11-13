@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "92.2"
-LOT_LIBELLE = "Règle ajoutée au CLAUDE.md : compte rendu par e-mail après chaque livraison, même insignifiante (aucun changement fonctionnel)."
+LOT = "93"
+LOT_LIBELLE = "Services Web : le super-admin choisit un paiement reçu par SMS (lu par Concentration, associé à ALBARKA dans SAWALI) au lieu de le ressaisir."

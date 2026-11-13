@@ -18,6 +18,8 @@ export default function ServicesWebPanel() {
   const [services, setServices] = useState([]);
   const [nouveau, setNouveau] = useState(vide);
   const [paiement, setPaiement] = useState(null);   // { id, paye_le, montant, reference } : formulaire de paiement ouvert
+  const [sms, setSms] = useState(null);             // lot 93 : paiements reçus lus dans les SMS (SAWALI), null = liste fermée
+  const [smsOccupe, setSmsOccupe] = useState(false);
 
   const charger = () => apiClient.get("/admin/services-web").then(({ data }) => setServices(data.services)).catch((e) => toast.error(extractError(e)));
   useEffect(() => { charger(); }, []);
@@ -48,6 +50,15 @@ export default function ServicesWebPanel() {
       charger();
     } catch (e) { toast.error(extractError(e)); }
   };
+
+  // Lot 93 — charge les paiements reçus par SMS (associés à ALBARKA dans SAWALI → Transactions SMS)
+  const chargerSms = async () => {
+    setSmsOccupe(true);
+    try { const { data } = await apiClient.get("/admin/services-web/paiements-sms"); setSms(data.transactions); }
+    catch (e) { toast.error(extractError(e)); } finally { setSmsOccupe(false); }
+  };
+  // Un paiement choisi remplit le formulaire (date et heure, montant, référence) : rien à ressaisir
+  const choisirSms = (t) => { setPaiement((p) => ({ ...p, paye_le: t.recu_le, montant: String(t.montant), reference: t.reference_proposee })); setSms(null); };
 
   const supprimer = async (s) => {
     if (!window.confirm(`Supprimer le service « ${s.service} » ?`)) return;
@@ -103,6 +114,27 @@ export default function ServicesWebPanel() {
           <div className="flex gap-2">
             <Button onClick={enregistrerPaiement} disabled={!paiement.paye_le || !paiement.reference}><Save className="w-4 h-4 mr-1" /> Enregistrer</Button>
             <Button variant="ghost" onClick={() => setPaiement(null)}>Annuler</Button>
+          </div>
+          {/* Lot 93 : choisir un paiement reçu par SMS (SAWALI → Transactions SMS) au lieu de le ressaisir */}
+          <div className="sm:col-span-4 space-y-2">
+            <Button variant="outline" onClick={chargerSms} disabled={smsOccupe} data-testid="btn-paiements-sms">{smsOccupe ? "Chargement…" : "Choisir un paiement reçu par SMS"}</Button>
+            {sms && (sms.length === 0
+              ? <p className="text-sm text-muted-foreground">Aucun paiement reçu n'est associé à ALBARKA. Dans SAWALI → Transactions SMS, associez le numéro du payeur à ALBARKA.</p>
+              : (
+                <div className="overflow-x-auto border rounded" data-testid="liste-paiements-sms">
+                  <table className="w-full text-sm tableau">
+                    <thead><tr className="text-left border-b"><th className="p-2">Reçu le</th><th className="p-2">De</th><th className="p-2">Référence</th><th className="p-2 text-right">Montant (FCFA)</th><th className="p-2" /></tr></thead>
+                    <tbody>{sms.map((t) => (
+                      <tr key={t.id} className="border-b last:border-0">
+                        <td className="p-2 whitespace-nowrap">{new Date(t.recu_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</td>
+                        <td className="p-2">{t.client || t.tiers}{t.numero ? <span className="text-xs text-muted-foreground"> · {t.numero}</span> : null}</td>
+                        <td className="p-2 font-mono text-xs">{t.reference_proposee}</td>
+                        <td className="p-2 text-right tabular-nums">{Number(t.montant).toLocaleString("fr-FR")}</td>
+                        <td className="p-2 text-right">{t.deja_enregistre ? <span className="text-xs text-muted-foreground">déjà enregistré</span> : <Button size="sm" onClick={() => choisirSms(t)}>Choisir</Button>}</td>
+                      </tr>))}</tbody>
+                  </table>
+                </div>
+              ))}
           </div>
         </div>
       )}
