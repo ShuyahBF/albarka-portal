@@ -86,11 +86,15 @@ def _exiger_super_admin(user: dict) -> None:
 
 
 # ---------------------------------------------------------------- modèles
+MODES = ("mensuel", "unique")     # lot 94 : paiement récurrent chaque mois, ou montant UNIQUE (réglé en une ou plusieurs fois)
+
+
 class ServiceCorps(BaseModel):
     service: str = Field(..., min_length=1, max_length=120)
-    montant: float = Field(..., ge=0)
+    montant: float = Field(..., ge=0)               # mensuel : montant de chaque échéance ; unique : montant TOTAL à payer
     devise: str = Field(default="FCFA", max_length=8)
-    jour_du_mois: int = Field(..., ge=1, le=31)      # jour de chaque mois où le paiement est dû (ex. 8)
+    mode: str = Field(default="mensuel", max_length=10)
+    jour_du_mois: Optional[int] = Field(default=None, ge=1, le=31)      # mensuel seulement : jour de chaque mois où le paiement est dû (ex. 8)
 
 
 class ServiceModif(BaseModel):
@@ -105,6 +109,10 @@ class PaiementCorps(BaseModel):
     montant: float = Field(..., ge=0)
     reference: str = Field(..., min_length=1, max_length=120)
     echeance_reglee: bool = True            # ce paiement règle-t-il l'échéance en cours (plus de rappel) ?
+
+
+class SmsCorps(BaseModel):
+    sms_ids: List[str] = Field(..., min_length=1, max_length=50)       # paiements reçus par SMS à utiliser pour ce service
 
 
 class AckCorps(BaseModel):
@@ -124,6 +132,30 @@ def _date_valide(texte: str) -> str:
 
 def aujourdhui() -> date:
     return datetime.now(timezone.utc).date()
+
+
+def est_unique(doc: dict) -> bool:
+    """Service à montant UNIQUE (lot 94) : pas d'échéance mensuelle ni de rappel ; on suit le payé et le reste à payer."""
+    return doc.get("mode") == "unique"
+
+
+def historique(doc: dict) -> List[dict]:
+    """Paiements enregistrés pour ce service (lot 94), dans l'ordre d'enregistrement."""
+    return list(doc.get("paiements") or [])
+
+
+def total_paye(doc: dict) -> float:
+    return float(sum(float(p.get("montant") or 0) for p in historique(doc)))
+
+
+def reste_a_payer(doc: dict) -> float:
+    """Montant unique − total payé (jamais négatif)."""
+    return max(0.0, float(doc.get("montant") or 0) - total_paye(doc))
+
+
+def sms_utilises(services: List[dict]) -> dict:
+    """Paiements reçus par SMS déjà utilisés : {identifiant SMS: nom du service}. Un paiement SMS ne sert qu'UNE fois, pour UN seul service."""
+    return {p["sms_id"]: d.get("service") for d in services for p in historique(d) if p.get("sms_id")}
 
 
 def occurrence(annee: int, mois: int, jour_du_mois: int) -> date:
@@ -162,6 +194,10 @@ def etat_service(doc: dict, jour: Optional[date] = None) -> dict:
     """Jours restants avant l'échéance en cours et état : « a_jour » (échéance éloignée), « bientot » (≤ 7 jours),
     « aujourdhui » (échéance ce jour), « en_retard » (échéance passée et non réglée)."""
     jour = jour or aujourdhui()
+    if est_unique(doc):                                  # lot 94 : pas d'échéance ; payé / partiel / impayé
+        paye = total_paye(doc)
+        etat = "paye" if (doc.get("montant") or 0) > 0 and reste_a_payer(doc) <= 0 else ("partiel" if paye > 0 else "impaye")
+        return {"jours_restants": None, "etat": etat, "en_retard": False, "echeance": None}
     echeance = echeance_courante(doc)
     restants = (echeance - jour).days
     if restants < 0:
@@ -179,6 +215,8 @@ def palier_courant(doc: dict, jour: Optional[date] = None) -> Optional[str]:
     """Palier de rappel à afficher aujourd'hui : « 7 » (de 7 à 4 jours), « 3 » (de 3 à 1 jour), « 0 » (jour même),
     « retard-AAAA-MM-JJ » (chaque jour de retard) ; None si échéance lointaine."""
     jour = jour or aujourdhui()
+    if est_unique(doc):                                  # lot 94 : aucun rappel mensuel pour un montant unique
+        return None
     e = etat_service(doc, jour)
     if e["etat"] == "a_jour":
         return None
@@ -191,9 +229,23 @@ def palier_courant(doc: dict, jour: Optional[date] = None) -> Optional[str]:
 
 
 def _vue(doc: dict, jour: Optional[date] = None) -> dict:
-    """Un service tel qu'affiché (jamais les acquittements internes) ; `payable_avant` = échéance en cours."""
+    """Un service tel qu'affiché (jamais les acquittements internes) ; `payable_avant` = échéance en cours (None pour un montant unique)."""
     sortie = {k: doc.get(k) for k in ("id", "service", "montant", "devise", "dernier_paiement_le",
                                       "dernier_paiement_montant", "dernier_paiement_reference")}
+    sortie["mode"] = "unique" if est_unique(doc) else "mensuel"
+    # Historique des paiements (lot 94) : jamais les champs internes (échéance précédente)
+    sortie["paiements"] = [{k: p.get(k) for k in ("id", "paye_le", "montant", "reference", "source", "sms_id")} for p in historique(doc)]
+    sortie["total_paye"] = total_paye(doc)
+    sortie["reste_a_payer"] = reste_a_payer(doc) if est_unique(doc) else None
+    if est_unique(doc):
+        dernier = historique(doc)[-1] if historique(doc) else None
+        sortie["dernier_paiement_le"] = dernier.get("paye_le") if dernier else None
+        sortie["dernier_paiement_montant"] = dernier.get("montant") if dernier else None
+        sortie["dernier_paiement_reference"] = dernier.get("reference") if dernier else None
+        sortie["jour_du_mois"] = None
+        sortie.update(etat_service(doc, jour))
+        sortie["payable_avant"] = None
+        return sortie
     sortie["jour_du_mois"] = jour_du_service(doc)
     etat = etat_service(doc, jour)
     sortie.update(etat)
@@ -221,7 +273,8 @@ def rappels_a_afficher(docs: List[dict], jour: Optional[date] = None) -> List[di
 
 async def _tous() -> List[dict]:
     docs = await db.services_web.find({}, {"_id": 0}).to_list(500)
-    docs.sort(key=echeance_courante)                    # les échéances les plus proches (ou en retard) d'abord
+    # les échéances les plus proches (ou en retard) d'abord ; les montants uniques à la suite (lot 94)
+    docs.sort(key=lambda d: (1, "") if est_unique(d) else (0, echeance_courante(d).isoformat()))
     return docs
 
 
@@ -270,19 +323,23 @@ async def admin_liste(user: dict = Depends(get_current_user)):
 
 @router.post("/admin/services-web")
 async def admin_creer(payload: ServiceCorps, user: dict = Depends(get_current_user)):
-    """Crée un service récurrent : la 1re échéance est la prochaine occurrence du jour du mois (aujourd'hui compris)."""
+    """Crée un service : MENSUEL (la 1re échéance est la prochaine occurrence du jour du mois, aujourd'hui compris) ou à MONTANT UNIQUE (lot 94 : montant total
+    réglé en une ou plusieurs fois, avec reste à payer)."""
     _exiger_super_admin(user)
-    auj = aujourdhui()
-    premiere = occurrence(auj.year, auj.month, payload.jour_du_mois)
-    if premiere < auj:
-        premiere = mois_suivant(premiere, payload.jour_du_mois)
-    doc = {
-        "id": str(uuid.uuid4()), "service": payload.service.strip(), "montant": payload.montant,
-        "devise": (payload.devise or "FCFA").strip() or "FCFA", "jour_du_mois": payload.jour_du_mois,
-        "premiere_echeance": premiere.isoformat(), "echeance_payee": None, "dernier_paiement_le": None,
-        "dernier_paiement_montant": None, "dernier_paiement_reference": None, "acquittements": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
+    if payload.mode not in MODES:
+        raise HTTPException(status_code=422, detail="Type attendu : mensuel ou unique")
+    doc = {"id": str(uuid.uuid4()), "service": payload.service.strip(), "montant": payload.montant, "mode": payload.mode,
+           "devise": (payload.devise or "FCFA").strip() or "FCFA", "paiements": [], "acquittements": [],
+           "dernier_paiement_le": None, "dernier_paiement_montant": None, "dernier_paiement_reference": None,
+           "created_at": datetime.now(timezone.utc).isoformat()}
+    if payload.mode == "mensuel":
+        if not payload.jour_du_mois:
+            raise HTTPException(status_code=422, detail="Indiquez le jour du mois (1 à 31) du paiement mensuel")
+        auj = aujourdhui()
+        premiere = occurrence(auj.year, auj.month, payload.jour_du_mois)
+        if premiere < auj:
+            premiere = mois_suivant(premiere, payload.jour_du_mois)
+        doc.update({"jour_du_mois": payload.jour_du_mois, "premiere_echeance": premiere.isoformat(), "echeance_payee": None})
     await db.services_web.insert_one(dict(doc))
     return _vue(doc)
 
@@ -317,6 +374,8 @@ async def admin_modifier(service_id: str, payload: ServiceModif, user: dict = De
     if not doc:
         raise HTTPException(status_code=404, detail="Service introuvable")
     maj = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
+    if est_unique(doc):
+        maj.pop("jour_du_mois", None)                    # lot 94 : pas de jour du mois pour un montant unique
     if "service" in maj:
         maj["service"] = maj["service"].strip()
     if "jour_du_mois" in maj and not doc.get("echeance_payee"):
@@ -344,29 +403,36 @@ async def admin_paiement(service_id: str, payload: PaiementCorps, user: dict = D
     doc = await db.services_web.find_one({"id": service_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Service introuvable")
+    entree = {"id": str(uuid.uuid4()), "paye_le": payload.paye_le, "montant": payload.montant, "reference": payload.reference.strip(), "source": "manuel"}
     maj = {"dernier_paiement_le": payload.paye_le, "dernier_paiement_montant": payload.montant,
            "dernier_paiement_reference": payload.reference.strip()}
-    if payload.echeance_reglee:
-        maj["echeance_payee"] = echeance_courante(doc).isoformat()
-        if not doc.get("premiere_echeance"):
-            maj["premiere_echeance"] = echeance_courante(doc).isoformat()
-    await db.services_web.update_one({"id": service_id}, {"$set": maj})
+    if not est_unique(doc):
+        entree["echeance_avant"] = doc.get("echeance_payee")           # pour pouvoir annuler ce paiement (lot 94)
+        if payload.echeance_reglee:
+            maj["echeance_payee"] = echeance_courante(doc).isoformat()
+            if not doc.get("premiere_echeance"):
+                maj["premiere_echeance"] = echeance_courante(doc).isoformat()
+    await db.services_web.update_one({"id": service_id}, {"$set": maj, "$push": {"paiements": entree}})
     return _vue(await db.services_web.find_one({"id": service_id}, {"_id": 0}))
 
 
 def preparer_transactions_sms(transactions: List[dict], services: List[dict]) -> List[dict]:
-    """Lot 93 — Logique pure (testée) : transactions reçues de SAWALI (paiements lus dans les SMS, associés à ce cabinet), prêtes à choisir.
-    `reference_proposee` = numéro de transaction de l'opérateur, sinon une référence construite (SMS + date + montant) ;
-    `deja_enregistre` = cette référence est déjà celle du dernier paiement d'un service (on ne la propose pas deux fois)."""
-    deja = {(d.get("dernier_paiement_reference") or "").strip() for d in services if d.get("dernier_paiement_reference")}
+    """Logique pure (testée) : transactions reçues de SAWALI (paiements lus dans les SMS, associés à ce cabinet), prêtes à choisir.
+    `reference_proposee` = numéro de transaction de l'opérateur, sinon une référence construite (SMS + date + montant).
+    Lot 94 : un paiement SMS ne sert qu'UNE fois, pour UN seul service : `deja_utilise` (et `utilise_par` = nom du service) dès qu'il a été utilisé ;
+    `deja_enregistre` (lot 93) reste égal à `deja_utilise` et couvre aussi un paiement saisi à la main avec la même référence."""
+    utilises = {k: (v or "un service") for k, v in sms_utilises(services).items()}
+    references = {(d.get("dernier_paiement_reference") or "").strip(): (d.get("service") or "un service") for d in services if d.get("dernier_paiement_reference")}
+    references.update({(p.get("reference") or "").strip(): (d.get("service") or "un service") for d in services for p in historique(d) if p.get("reference")})
     sortie = []
     for t in transactions or []:
         if not isinstance(t, dict) or not t.get("recu_le") or not t.get("montant"):
             continue
         reference = (t.get("reference") or "").strip() or f"SMS {str(t['recu_le'])[:16]} {int(t['montant'])}"
+        par = utilises.get(t.get("id")) or references.get(reference)
         sortie.append({"id": t.get("id"), "recu_le": str(t["recu_le"])[:16], "montant": t["montant"], "tiers": t.get("tiers") or "",
                        "numero": t.get("numero"), "operateur": t.get("operateur"), "client": t.get("client"),
-                       "reference_proposee": reference[:120], "deja_enregistre": reference in deja})
+                       "reference_proposee": reference[:120], "deja_utilise": par is not None, "deja_enregistre": par is not None, "utilise_par": par})
     return sortie
 
 
@@ -376,9 +442,75 @@ async def admin_paiements_sms(user: dict = Depends(get_current_user)):
     remplir « dernier paiement » sans le ressaisir. Relecture signée auprès de SAWALI ; seuls les champs structurés sont reçus (jamais le texte des SMS)."""
     _exiger_super_admin(user)
     import albarka_support_sawali                       # appelé par son module : remplaçable dans les tests
-    reponse = await albarka_support_sawali.appeler_sawali("/webhook/plateforme-paiements", {"sens": "entree", "limite": 60})
+    reponse = await albarka_support_sawali.appeler_sawali("/webhook/plateforme-paiements", {"sens": "entree", "limite": 300})
     services = await db.services_web.find({}, {"_id": 0}).to_list(500)
     return {"transactions": preparer_transactions_sms(reponse.get("transactions") or [], services)}
+
+
+@router.post("/admin/services-web/{service_id}/paiements-sms")
+async def admin_utiliser_paiements_sms(service_id: str, payload: SmsCorps, user: dict = Depends(get_current_user)):
+    """Lot 94 — utilise un OU PLUSIEURS paiements reçus par SMS pour ce service (ex. 4 paiements de 50 000 F sur un total de 250 000 F : reste à payer 50 000 F).
+    Les montants, dates et références viennent de SAWALI (jamais du navigateur). Un paiement SMS déjà utilisé pour un service ne peut plus servir pour un autre.
+    Service mensuel : chaque paiement règle l'échéance en cours, la plus ancienne d'abord."""
+    _exiger_super_admin(user)
+    doc = await db.services_web.find_one({"id": service_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Service introuvable")
+    import albarka_support_sawali
+    reponse = await albarka_support_sawali.appeler_sawali("/webhook/plateforme-paiements", {"sens": "entree", "limite": 500})
+    services = await db.services_web.find({}, {"_id": 0}).to_list(500)
+    disponibles = {t["id"]: t for t in preparer_transactions_sms(reponse.get("transactions") or [], services) if t.get("id")}
+    choisis = []
+    for sid in dict.fromkeys(payload.sms_ids):                      # sans doublon, dans l'ordre
+        t = disponibles.get(sid)
+        if not t:
+            raise HTTPException(status_code=404, detail="Paiement SMS introuvable (il n'est pas associé à ce compte dans SAWALI)")
+        if t["deja_utilise"]:
+            raise HTTPException(status_code=409, detail=f"Ce paiement SMS est déjà utilisé pour « {t['utilise_par']} » : il ne peut plus servir pour un autre service")
+        choisis.append(t)
+    choisis.sort(key=lambda t: t["recu_le"])
+    courant = dict(doc)
+    nouvelles = []
+    for t in choisis:
+        entree = {"id": str(uuid.uuid4()), "paye_le": t["recu_le"], "montant": t["montant"], "reference": t["reference_proposee"], "source": "sms", "sms_id": t["id"]}
+        if not est_unique(courant):
+            entree["echeance_avant"] = courant.get("echeance_payee")
+            courant["echeance_payee"] = echeance_courante(courant).isoformat()                       # chaque paiement règle l'échéance en cours
+            courant.setdefault("premiere_echeance", courant["echeance_payee"])
+        nouvelles.append(entree)
+    dernier = nouvelles[-1]
+    maj = {"dernier_paiement_le": dernier["paye_le"], "dernier_paiement_montant": dernier["montant"], "dernier_paiement_reference": dernier["reference"]}
+    if not est_unique(doc):
+        maj["echeance_payee"] = courant["echeance_payee"]
+        if not doc.get("premiere_echeance"):
+            maj["premiere_echeance"] = courant["premiere_echeance"]
+    await db.services_web.update_one({"id": service_id}, {"$set": maj, "$push": {"paiements": {"$each": nouvelles}}})
+    return _vue(await db.services_web.find_one({"id": service_id}, {"_id": 0}))
+
+
+@router.delete("/admin/services-web/{service_id}/paiements/{paiement_id}")
+async def admin_annuler_paiement(service_id: str, paiement_id: str, user: dict = Depends(get_current_user)):
+    """Lot 94 — annule un paiement enregistré par erreur (un paiement SMS redevient disponible). Service mensuel : seul le DERNIER paiement s'annule (il rend
+    l'échéance qu'il avait réglée)."""
+    _exiger_super_admin(user)
+    doc = await db.services_web.find_one({"id": service_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Service introuvable")
+    liste = historique(doc)
+    index = next((i for i, p in enumerate(liste) if p.get("id") == paiement_id), None)
+    if index is None:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    maj: dict = {}
+    if not est_unique(doc):
+        if index != len(liste) - 1:
+            raise HTTPException(status_code=409, detail="Annulez d'abord les paiements plus récents : seul le dernier paiement d'un service mensuel peut être annulé")
+        maj["echeance_payee"] = liste[index].get("echeance_avant")
+    reste = liste[:index] + liste[index + 1:]
+    dernier = reste[-1] if reste else None
+    maj.update({"paiements": reste, "dernier_paiement_le": dernier.get("paye_le") if dernier else None,
+                "dernier_paiement_montant": dernier.get("montant") if dernier else None, "dernier_paiement_reference": dernier.get("reference") if dernier else None})
+    await db.services_web.update_one({"id": service_id}, {"$set": maj})
+    return _vue(await db.services_web.find_one({"id": service_id}, {"_id": 0}))
 
 
 @router.delete("/admin/services-web/{service_id}")
