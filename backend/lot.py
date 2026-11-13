@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "91.2"
-LOT_LIBELLE = "Menu : retour de l'étoile 🌟 pendant 7 jours sur les options récentes (sous-menus compris)."
+LOT = "92"
+LOT_LIBELLE = "Demandes à SAWALI : option de la barre latérale pour le DG, la Direction et le Secrétariat, avec ajout, modification et suppression tant que SAWALI n'a pas validé."

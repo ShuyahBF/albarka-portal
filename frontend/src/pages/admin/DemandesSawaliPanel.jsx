@@ -1,12 +1,13 @@
 /*
-  Lot 91 — Paramètres → « Demandes à SAWALI » (super-admin) : liste horodatée des corrections et nouvelles fonctionnalités
+  Lot 91/92 — Barre latérale → « Demandes à SAWALI » (DG, Direction, Secrétariat) : liste horodatée des corrections et nouvelles fonctionnalités
   demandées à SAWALI. « Envoyer à SAWALI » remonte les nouvelles demandes ; SAWALI renvoie un numéro, un statut, un commentaire
   et la date de réalisation (ou la date prévue). La zone de recherche, EN HAUT, retrouve aussi les demandes refusées.
+  Modification et suppression possibles tant que SAWALI n'a pas validé la demande (réalisée ou refusée).
   API : /demandes-sawali (albarka_demandes_sawali.py)
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Search, Send, Plus, Trash2, RefreshCw } from "lucide-react";
+import { Search, Send, Plus, Trash2, RefreshCw, Pencil } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ export default function DemandesSawaliPanel() {
   const [type, setType] = useState("correction");
   const [texte, setTexte] = useState("");
   const [envoi, setEnvoi] = useState(false);
+  const [edition, setEdition] = useState(null);   // { id, type, texte } : demande en cours de modification
 
   const charger = useCallback(() => apiClient.get("/demandes-sawali", { params: { q } }).then(({ data: d }) => setData(d)).catch((e) => toast.error(extractError(e))), [q]);
   useEffect(() => { const t = setTimeout(charger, 250); return () => clearTimeout(t); }, [charger]);   // recherche en direct
@@ -45,8 +47,19 @@ export default function DemandesSawaliPanel() {
       charger();
     } catch (e) { toast.error(extractError(e)); }
   };
+  // Suppression possible tant que SAWALI n'a pas validé (le serveur relaie à SAWALI si la demande est déjà remontée)
   const supprimer = async (d) => {
-    try { await apiClient.delete(`/demandes-sawali/${d.id}`); charger(); } catch (e) { toast.error(extractError(e)); }
+    if (!window.confirm("Supprimer cette demande ?")) return;
+    try { await apiClient.delete(`/demandes-sawali/${d.id}`); charger(); } catch (e) { toast.error(extractError(e)); charger(); }
+  };
+  // Modification du type et du texte (même règle)
+  const enregistrerEdition = async () => {
+    try {
+      await apiClient.put(`/demandes-sawali/${edition.id}`, { type: edition.type, texte: edition.texte });
+      setEdition(null);
+      toast.success("Demande modifiée");
+      charger();
+    } catch (e) { toast.error(extractError(e)); charger(); }
   };
   // Remonte les nouvelles demandes puis relit les numéros, statuts et commentaires
   const envoyer = async () => {
@@ -86,6 +99,23 @@ export default function DemandesSawaliPanel() {
         <Button onClick={ajouter} disabled={texte.trim().length < 3} data-testid="btn-ajouter-demande"><Plus className="w-4 h-4 mr-1" /> Ajouter</Button>
       </div>
 
+      {edition && (
+        <div className="albarka-card p-4 grid gap-3 sm:grid-cols-[200px_1fr_auto] items-end" data-testid="demande-edition">
+          <div>
+            <Label>Type</Label>
+            <select className="w-full border rounded-md h-10 px-2 bg-background" value={edition.type} onChange={(e) => setEdition({ ...edition, type: e.target.value })}>
+              <option value="correction">Correction</option>
+              <option value="nouveaute">Nouvelle fonctionnalité</option>
+            </select>
+          </div>
+          <div><Label>Modifier la demande</Label><Textarea rows={2} value={edition.texte} onChange={(e) => setEdition({ ...edition, texte: e.target.value })} /></div>
+          <div className="flex gap-2">
+            <Button onClick={enregistrerEdition} disabled={edition.texte.trim().length < 3}>Enregistrer</Button>
+            <Button variant="ghost" onClick={() => setEdition(null)}>Annuler</Button>
+          </div>
+        </div>
+      )}
+
       <div className="albarka-card overflow-x-auto">
         <table className="w-full text-sm tableau">
           <thead><tr className="text-left border-b">
@@ -101,7 +131,14 @@ export default function DemandesSawaliPanel() {
                 <td className="p-3 max-w-md">{d.texte}</td>
                 <td className={`p-3 font-medium ${COULEUR[d.statut] || ""}`}>{d.statut_libelle}</td>
                 <td className="p-3"><Suivi d={d} /></td>
-                <td className="p-3 text-right">{d.statut === "a_remonter" && <Button size="sm" variant="ghost" className="text-red-700" onClick={() => supprimer(d)}><Trash2 className="w-4 h-4" /></Button>}</td>
+                <td className="p-3 text-right whitespace-nowrap">
+                  {(d.statut === "a_remonter" || d.statut === "remontee") && (
+                    <>
+                      <Button size="sm" variant="ghost" title="Modifier" onClick={() => setEdition({ id: d.id, type: d.type, texte: d.texte })} data-testid={`modifier-${d.id}`}><Pencil className="w-4 h-4" /></Button>
+                      <Button size="sm" variant="ghost" title="Supprimer" className="text-red-700" onClick={() => supprimer(d)} data-testid={`supprimer-${d.id}`}><Trash2 className="w-4 h-4" /></Button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
             {data.demandes.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">Aucune demande{q ? " pour cette recherche" : ""}.</td></tr>}

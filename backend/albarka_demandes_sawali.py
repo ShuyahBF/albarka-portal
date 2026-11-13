@@ -15,10 +15,15 @@ EN RÉSUMÉ (pour un développeur WinDev)
    4. Statuts : « a_remonter » (pas encore envoyée), « remontee » (numérotée, en attente), « realisee », « refusee » (niée).
    5. La recherche (zone en haut) parcourt le texte, le commentaire, le numéro et le statut, refusées comprises.
 
-ROUTES (super-admin « superviseur » uniquement), sous /api
+DROITS (lot 92, 14/11/2026) : le DG, la Direction et le Secrétariat (mêmes droits, + le super-admin) ouvrent « Demandes à SAWALI » depuis la
+barre latérale (plus depuis les Paramètres) : ajout, modification et suppression, tant que SAWALI n'a pas VALIDÉ la demande (réalisée ou refusée).
+Une demande déjà remontée est modifiée / supprimée chez SAWALI d'abord (qui peut refuser si elle vient d'être validée).
+
+ROUTES (DG, Direction, Secrétariat, super-admin), sous /api
    GET    /demandes-sawali?q=…            — liste (filtrée par la recherche) + compteurs
    POST   /demandes-sawali                — nouvelle demande {type, texte}
-   DELETE /demandes-sawali/{id}           — supprimer une demande pas encore remontée
+   PUT    /demandes-sawali/{id}           — modifier {type, texte} tant que SAWALI n'a pas validé
+   DELETE /demandes-sawali/{id}           — supprimer tant que SAWALI n'a pas validé
    POST   /demandes-sawali/envoyer        — remonter les demandes à SAWALI et relire les statuts
 
 Collection `demandes_sawali` (quelques dizaines de documents).
@@ -46,9 +51,13 @@ STATUTS = {"a_remonter": "À remonter", "remontee": "Remontée à SAWALI", "real
 CHEMIN_SAWALI = "/webhook/plateforme-demandes"
 
 
+DEMANDES_ROLES = {"dg", "direction", "secretariat", "superviseur"}   # mêmes droits pour ces rôles
+
+
 def _exiger_super_admin(user: dict) -> None:
-    if "superviseur" not in (user.get("roles") or []):
-        raise HTTPException(status_code=403, detail="Réservé au super-admin")
+    """Accès à « Demandes à SAWALI » : DG, Direction, Secrétariat (mêmes droits) et super-admin."""
+    if not (set(user.get("roles") or []) & DEMANDES_ROLES):
+        raise HTTPException(status_code=403, detail="Réservé au DG, à la Direction et au Secrétariat")
 
 
 class DemandeCorps(BaseModel):
@@ -112,13 +121,52 @@ async def creer(payload: DemandeCorps, user: dict = Depends(get_current_user)):
     return _vue(doc)
 
 
+def _validee(d: dict) -> bool:
+    """Validée côté SAWALI (réalisée ou refusée) : plus modifiable ni supprimable."""
+    return d.get("statut") in ("realisee", "refusee")
+
+
+async def _relayer(corps: Dict[str, Any], ref: str) -> None:
+    """Transmet une modification / suppression à SAWALI ; si SAWALI la refuse (déjà validée), on relit les statuts et on prévient."""
+    from albarka_support_sawali import appeler_sawali
+    reponse = await appeler_sawali(CHEMIN_SAWALI, corps)
+    toutes = await db.demandes_sawali.find({}, {"_id": 0}).to_list(2000)
+    for r, champs in appliquer_reponse(toutes, reponse.get("demandes") or []).items():
+        await db.demandes_sawali.update_one({"id": r}, {"$set": champs})
+    for refus in reponse.get("refus") or []:
+        if refus.get("ref_locale") == ref:
+            raise HTTPException(status_code=409, detail=refus.get("motif") or "Demande déjà validée par SAWALI")
+
+
+@router.put("/{demande_id}")
+async def modifier(demande_id: str, payload: DemandeCorps, user: dict = Depends(get_current_user)):
+    """Modifie le type et le texte tant que SAWALI n'a pas validé la demande (réalisée / refusée)."""
+    _exiger_super_admin(user)
+    if payload.type not in TYPES:
+        raise HTTPException(status_code=422, detail="Type attendu : correction ou nouveaute")
+    d = await db.demandes_sawali.find_one({"id": demande_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    if _validee(d):
+        raise HTTPException(status_code=409, detail="Demande déjà validée par SAWALI : elle ne peut plus être modifiée")
+    if d.get("statut") != "a_remonter":    # déjà remontée : SAWALI d'abord
+        await _relayer({"demandes": [], "modifications": [{"ref_locale": demande_id, "type": payload.type, "texte": payload.texte.strip()}]}, demande_id)
+    await db.demandes_sawali.update_one({"id": demande_id}, {"$set": {"type": payload.type, "texte": payload.texte.strip()}})
+    return _vue(await db.demandes_sawali.find_one({"id": demande_id}, {"_id": 0}))
+
+
 @router.delete("/{demande_id}")
 async def supprimer(demande_id: str, user: dict = Depends(get_current_user)):
-    """Seule une demande pas encore remontée peut être supprimée (après remontée, SAWALI en garde la trace : on la fait « refuser »)."""
+    """Supprime tant que SAWALI n'a pas validé la demande ; une demande déjà remontée est d'abord supprimée chez SAWALI."""
     _exiger_super_admin(user)
-    res = await db.demandes_sawali.delete_one({"id": demande_id, "statut": "a_remonter"})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Demande introuvable ou déjà remontée à SAWALI")
+    d = await db.demandes_sawali.find_one({"id": demande_id}, {"_id": 0})
+    if not d:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    if _validee(d):
+        raise HTTPException(status_code=409, detail="Demande déjà validée par SAWALI : elle ne peut plus être supprimée")
+    if d.get("statut") != "a_remonter":
+        await _relayer({"demandes": [], "suppressions": [demande_id]}, demande_id)
+    await db.demandes_sawali.delete_one({"id": demande_id})
     return {"ok": True}
 
 
