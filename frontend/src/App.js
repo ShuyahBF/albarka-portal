@@ -53,6 +53,7 @@ import AdminReports from "@/pages/admin/AdminReports";
 import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminEmpreintes from "@/pages/admin/AdminEmpreintes";   // lot 89
 import MesServicesWeb from "@/pages/admin/MesServicesWeb";   // lot 90
+import DemandesSawali from "@/pages/admin/DemandesSawali";   // lot 92
 import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminContracts from "@/pages/admin/AdminContracts";
 import AdminBilling from "@/pages/admin/AdminBilling";
@@ -174,6 +175,7 @@ function App() {
             <Route path="settings" element={<AdminSettings />} />
             <Route path="empreintes" element={<AdminEmpreintes />} />
             <Route path="services-web" element={<MesServicesWeb />} />
+            <Route path="demandes-sawali" element={<DemandesSawali />} />
             {/* Lot 9 : outils à télécharger ; gestion + historique réservés au compte admin du portail */}
             <Route path="outils-numeriques" element={<OutilsNumeriques admin />} />
             <Route path="outils-numeriques/gestion" element={<AdminOutilsNumeriques />} />

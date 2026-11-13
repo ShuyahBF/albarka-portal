@@ -172,6 +172,8 @@ const STAFF_MENU = [
   { to: "/admin/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload, end: true, alwaysAllowed: true },
   // Lot 89 : enrôlement des empreintes digitales — DG uniquement (fonction activée par le super-admin)
   { to: "/admin/empreintes", label: "Empreintes digitales", icon: Fingerprint, dgOnly: true, depuis: "2026-11-13" },
+  // Lot 92 : demandes de corrections / nouveautés à SAWALI — DG, Direction, Secrétariat (mêmes droits ; le DG hérite de la Direction)
+  { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-14" },
   // Lot 90 : frais des services web, rappelés au DG (configurés par le super-admin) — DG uniquement
   { to: "/admin/services-web", label: "Mes Services Web", icon: Globe, dgOnly: true, depuis: "2026-11-13" },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —

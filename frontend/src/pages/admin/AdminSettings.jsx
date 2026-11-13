@@ -16,7 +16,6 @@ import ClientDocsNotifPanel from "@/pages/admin/ClientDocsNotifPanel";
 import StaffAccessPanel from "@/pages/admin/StaffAccessPanel";
 import AccesConnexionPanel from "@/pages/admin/AccesConnexionPanel";   // lot 89
 import ServicesWebPanel from "@/pages/admin/ServicesWebPanel";   // lot 90
-import DemandesSawaliPanel from "@/pages/admin/DemandesSawaliPanel";   // lot 91
 import CertificatesPanel from "@/pages/admin/CertificatesPanel";
 import BrandingPanel from "@/pages/admin/BrandingPanel";
 import DocSettingsPanel from "@/pages/admin/DocSettingsPanel";
@@ -216,8 +215,6 @@ export default function AdminSettings() {
           {/* Lot 90.1 : réglages de connexion des clients (contrat) et empreinte — le client n'est pas du personnel */}
           {isAdministrateur && <TabsTrigger value="acces-client" data-testid="tab-acces-client">Accès du Client</TabsTrigger>}
           {/* Lot 90 : services web (frais rappelés au DG) — super-admin seul */}
-          {/* Lot 91 : demandes d'ALBARKA à SAWALI (numéro et suivi retournés par SAWALI) — super-admin seul */}
-          {isAdministrateur && <TabsTrigger value="demandes-sawali" data-testid="tab-demandes-sawali">Demandes à SAWALI</TabsTrigger>}
           {isAdministrateur && <TabsTrigger value="services-web" data-testid="tab-services-web">Services Web</TabsTrigger>}
           {/* Lot 44 : alerte / incident et déconnexion programmée — super-admin seul */}
           {(user?.email || "").toLowerCase() === "admin@sawalismartsystems.com" && (
@@ -735,7 +732,6 @@ export default function AdminSettings() {
           <ClientDocsNotifPanel settings={settings} setSettings={setSettings} save={save} saving={saving} />
         </TabsContent>
 
-        {isAdministrateur && <TabsContent value="demandes-sawali" className="pt-6"><DemandesSawaliPanel /></TabsContent>}
         {isAdministrateur && <TabsContent value="services-web" className="pt-6"><ServicesWebPanel /></TabsContent>}
 
         {isAdministrateur && (

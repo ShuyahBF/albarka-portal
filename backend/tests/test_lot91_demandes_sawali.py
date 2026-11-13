@@ -23,6 +23,9 @@ import albarka_support_sawali  # noqa: E402
 USERS = {
     "sup": {"id": "u-sup", "email": "sup@albarka.bf", "full_name": "Super", "roles": ["superviseur"]},
     "dg": {"id": "u-dg", "email": "dg@albarka.bf", "full_name": "DG", "roles": ["dg"]},
+    "dir": {"id": "u-dir", "email": "dir@albarka.bf", "full_name": "Direction", "roles": ["direction"]},
+    "secr": {"id": "u-secr", "email": "secr@albarka.bf", "full_name": "Secrétaire", "roles": ["secretariat"]},
+    "compta": {"id": "u-compta", "email": "c@albarka.bf", "full_name": "Comptable", "roles": ["comptable"]},
 }
 
 
@@ -49,9 +52,9 @@ def env(monkeypatch):
 H = {"X-User": "sup"}
 
 
-def test_reserve_au_super_admin(env):
-    assert env.get("/api/demandes-sawali", headers={"X-User": "dg"}).status_code == 403
-    assert env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Bug"}, headers={"X-User": "dg"}).status_code == 403
+def test_acces_refuse_aux_autres_roles(env):
+    assert env.get("/api/demandes-sawali", headers={"X-User": "compta"}).status_code == 403
+    assert env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Bug"}, headers={"X-User": "compta"}).status_code == 403
 
 
 def test_creation_horodatee_et_validation(env):
@@ -90,15 +93,42 @@ def test_remontee_numero_commentaire_et_recherche(env, monkeypatch):
     assert r2.json()["envoyees"] == 0 and envoye["corps"] == {"demandes": []}
 
 
-def test_suppression_seulement_avant_remontee(env, monkeypatch):
+def test_droits_dg_direction_secretariat(env):
+    for qui in ("dg", "dir", "secr", "sup"):
+        assert env.get("/api/demandes-sawali", headers={"X-User": qui}).status_code == 200
+    assert env.get("/api/demandes-sawali", headers={"X-User": "compta"}).status_code == 403
+
+
+def test_modification_et_suppression_tant_que_non_validee(env, monkeypatch):
     a = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Brouillon"}, headers=H).json()
-    assert env.delete(f"/api/demandes-sawali/{a['id']}", headers=H).status_code == 200
+    # Avant remontée : modification et suppression purement locales (SAWALI n'est pas appelé)
+    assert env.put(f"/api/demandes-sawali/{a['id']}", json={"type": "nouveaute", "texte": "Brouillon modifié"}, headers={"X-User": "secr"}).json()["texte"] == "Brouillon modifié"
+    assert env.delete(f"/api/demandes-sawali/{a['id']}", headers={"X-User": "dg"}).status_code == 200
     b = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "À garder"}, headers=H).json()
+    c = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "À valider"}, headers=H).json()
+    appels = []
 
     async def faux(chemin, corps, delai=15):
-        return {"demandes": [{"ref_locale": b["id"], "numero": "DEM-ALB-0009", "statut": "remontee", "prevue_le": "2026-12-01"}]}
+        appels.append(corps)
+        if corps.get("modifications") or corps.get("suppressions"):
+            ref = (corps.get("modifications") or [{"ref_locale": None}])[0]["ref_locale"] or corps["suppressions"][0]
+            if ref == c["id"]:     # SAWALI a validé entre-temps
+                return {"demandes": [{"ref_locale": c["id"], "numero": "DEM-ALB-0002", "statut": "realisee", "realisee_le": "2026-11-15"}],
+                        "refus": [{"ref_locale": c["id"], "motif": "Demande déjà validée par SAWALI : suppression impossible"}]}
+            return {"demandes": [{"ref_locale": b["id"], "numero": "DEM-ALB-0001", "statut": "remontee"}], "refus": []}
+        return {"demandes": [{"ref_locale": b["id"], "numero": "DEM-ALB-0001", "statut": "remontee"},
+                             {"ref_locale": c["id"], "numero": "DEM-ALB-0002", "statut": "remontee"}]}
     monkeypatch.setattr(albarka_support_sawali, "appeler_sawali", faux)
     env.post("/api/demandes-sawali/envoyer", headers=H)
-    assert env.delete(f"/api/demandes-sawali/{b['id']}", headers=H).status_code == 404
-    d = env.get("/api/demandes-sawali", headers=H).json()["demandes"][0]
-    assert d["statut"] == "remontee" and d["prevue_le"] == "2026-12-01"
+    # Remontée mais non validée : la modification est relayée à SAWALI puis enregistrée
+    r = env.put(f"/api/demandes-sawali/{b['id']}", json={"type": "correction", "texte": "Texte corrigé"}, headers=H)
+    assert r.status_code == 200 and r.json()["texte"] == "Texte corrigé" and appels[-1]["modifications"][0]["texte"] == "Texte corrigé"
+    # Validée entre-temps chez SAWALI : suppression refusée (409), statut relu
+    r = env.delete(f"/api/demandes-sawali/{c['id']}", headers=H)
+    assert r.status_code == 409 and "validée" in r.json()["detail"]
+    assert {d["id"]: d for d in env.get("/api/demandes-sawali", headers=H).json()["demandes"]}[c["id"]]["statut"] == "realisee"
+    # Déjà validée localement : plus modifiable
+    assert env.put(f"/api/demandes-sawali/{c['id']}", json={"type": "correction", "texte": "xxxx"}, headers=H).status_code == 409
+    # Remontée non validée : suppression relayée puis locale
+    assert env.delete(f"/api/demandes-sawali/{b['id']}", headers=H).status_code == 200
+    assert appels[-1]["suppressions"] == [b["id"]]
