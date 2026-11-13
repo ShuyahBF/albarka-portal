@@ -1,5 +1,5 @@
 /*
-  Lot 89 — Paramètres → « Accès du personnel » (super-admin) : deux réglages de connexion.
+  Lot 89 — Paramètres → « Accès du Client » (super-admin) : deux réglages de connexion.
     1. « Interdire l'accès aux clients sans contrat actif » — FAUX par défaut : un client sans contrat peut se connecter.
     2. « Connexion par empreinte digitale » — FAUX par défaut ; le super-admin l'active, mais seul le DG gère les enrôlements.
   Chaque interrupteur s'enregistre aussitôt (PUT /admin/settings). Props : settings, save(partial), saving.

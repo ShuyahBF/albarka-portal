@@ -212,6 +212,8 @@ export default function AdminSettings() {
           </TabsTrigger>
           {/* Liste blanche du personnel (appareils, IP) et accès temporaires */}
           <TabsTrigger value="acces" data-testid="tab-acces">Accès du personnel</TabsTrigger>
+          {/* Lot 90.1 : réglages de connexion des clients (contrat) et empreinte — le client n'est pas du personnel */}
+          {isAdministrateur && <TabsTrigger value="acces-client" data-testid="tab-acces-client">Accès du Client</TabsTrigger>}
           {/* Lot 90 : services web (frais rappelés au DG) — super-admin seul */}
           {isAdministrateur && <TabsTrigger value="services-web" data-testid="tab-services-web">Services Web</TabsTrigger>}
           {/* Lot 44 : alerte / incident et déconnexion programmée — super-admin seul */}
@@ -732,9 +734,14 @@ export default function AdminSettings() {
 
         {isAdministrateur && <TabsContent value="services-web" className="pt-6"><ServicesWebPanel /></TabsContent>}
 
+        {isAdministrateur && (
+          <TabsContent value="acces-client" className="pt-6">
+            <AccesConnexionPanel settings={settings} save={save} saving={saving} />
+          </TabsContent>
+        )}
+
         {/* --- ACCÈS DU PERSONNEL --- */}
         <TabsContent value="acces" className="pt-6">
-          <AccesConnexionPanel settings={settings} save={save} saving={saving} />
           <StaffAccessPanel settings={settings} setSettings={setSettings} save={save} saving={saving} />
         </TabsContent>
 
