@@ -9,7 +9,7 @@ QUI FAIT QUOI (demande du propriétaire, 13/11/2026)
    - Ni la Direction, ni le super-admin n'ont la vue DG (le super-admin a son écran de configuration dans Paramètres).
 
 ROUTES (sous /api)
-   GET    /me/services-web                    — DG : liste avec état (à jour, dans N jours, en retard) et dernier paiement
+   GET    /me/services-web                    — DG et rôles autorisés par le super-admin (lecture seule) : liste avec état et dernier paiement
    GET    /me/services-web/rappels            — DG : rappels à acquitter maintenant
    POST   /me/services-web/rappels/ack        — DG : « j'ai compris » (enregistre l'acquittement)
    GET    /admin/services-web                 — super-admin : liste de configuration
@@ -55,6 +55,28 @@ def _exiger_dg(user: dict) -> None:
     """Vue et rappels : le DG UNIQUEMENT (ni le super-admin, ni la Direction)."""
     if "dg" not in (user.get("roles") or []):
         raise HTTPException(status_code=403, detail="Réservé au DG")
+
+
+# Lot 93.1 — rôles que le super-admin peut autoriser à CONSULTER les services web (lecture seule, sans rappels) ; le DG consulte toujours.
+# La mise à jour des paiements reste au super-admin, et à lui SEUL.
+ROLES_CONSULTATION = ["direction", "secretariat", "administrateur", "fiscaliste", "comptable", "aide_comptable", "rh", "communication"]
+
+
+async def roles_consultation() -> List[str]:
+    """Rôles autorisés à consulter (réglage du super-admin, enregistré dans les paramètres globaux), limités à la liste ci-dessus."""
+    doc = await db.settings.find_one({"_id": "global"}, {"services_web_consultation": 1}) or {}
+    return [r for r in (doc.get("services_web_consultation") or []) if r in ROLES_CONSULTATION]
+
+
+async def peut_consulter(user: dict) -> bool:
+    """Vrai pour le DG et pour les rôles que le super-admin a autorisés."""
+    roles = set(user.get("roles") or [])
+    return "dg" in roles or bool(roles & set(await roles_consultation()))
+
+
+async def _exiger_consultation(user: dict) -> None:
+    if not await peut_consulter(user):
+        raise HTTPException(status_code=403, detail="Consultation non autorisée pour ce rôle")
 
 
 def _exiger_super_admin(user: dict) -> None:
@@ -206,10 +228,16 @@ async def _tous() -> List[dict]:
 # ---------------------------------------------------------------- DG
 @router.get("/me/services-web")
 async def mes_services_web(user: dict = Depends(get_current_user)):
-    """Liste des services web du cabinet avec échéance, état et dernier paiement (lecture seule)."""
-    _exiger_dg(user)
+    """Liste des services web du cabinet avec échéance, état et dernier paiement (LECTURE SEULE) : le DG et les rôles autorisés par le super-admin."""
+    await _exiger_consultation(user)
     jour = aujourdhui()
     return {"services": [_vue(d, jour) for d in await _tous()]}
+
+
+@router.get("/me/services-web/acces")
+async def mon_acces(user: dict = Depends(get_current_user)):
+    """Lot 93.1 — l'option « Mes Services Web » est-elle dans le menu de cet utilisateur ? (jamais d'erreur : sert à afficher ou masquer l'option)"""
+    return {"consultation": await peut_consulter(user), "rappels": "dg" in (user.get("roles") or [])}
 
 
 @router.get("/me/services-web/rappels")
@@ -257,6 +285,29 @@ async def admin_creer(payload: ServiceCorps, user: dict = Depends(get_current_us
     }
     await db.services_web.insert_one(dict(doc))
     return _vue(doc)
+
+
+# (déclarées AVANT « /admin/services-web/{service_id} » : sinon « consultation » serait pris pour un identifiant de service)
+class ConsultationCorps(BaseModel):
+    roles: List[str] = Field(default_factory=list, max_length=20)
+
+
+@router.get("/admin/services-web/consultation")
+async def admin_consultation(user: dict = Depends(get_current_user)):
+    """Lot 93.1 — rôles autorisés à consulter les services web (en plus du DG), et liste des rôles possibles."""
+    _exiger_super_admin(user)
+    return {"roles": await roles_consultation(), "possibles": ROLES_CONSULTATION}
+
+
+@router.put("/admin/services-web/consultation")
+async def admin_consultation_modifier(payload: ConsultationCorps, user: dict = Depends(get_current_user)):
+    """Lot 93.1 — le super-admin choisit qui peut consulter (lecture seule). Seuls les rôles de la liste sont acceptés."""
+    _exiger_super_admin(user)
+    inconnus = [r for r in payload.roles if r not in ROLES_CONSULTATION]
+    if inconnus:
+        raise HTTPException(status_code=422, detail="Rôle non autorisé à la consultation : " + ", ".join(inconnus))
+    await db.settings.update_one({"_id": "global"}, {"$set": {"services_web_consultation": sorted(set(payload.roles))}}, upsert=True)
+    return {"roles": sorted(set(payload.roles))}
 
 
 @router.put("/admin/services-web/{service_id}")

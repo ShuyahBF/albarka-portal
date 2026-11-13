@@ -175,7 +175,7 @@ const STAFF_MENU = [
   // Lot 92 : demandes de corrections / nouveautés à SAWALI — DG, Direction, Secrétariat (mêmes droits ; le DG hérite de la Direction)
   { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-13" },
   // Lot 90 : frais des services web, rappelés au DG (configurés par le super-admin) — DG uniquement
-  { to: "/admin/services-web", label: "Mes Services Web", icon: Globe, dgOnly: true, depuis: "2026-11-13" },
+  { to: "/admin/services-web", label: "Mes Services Web", icon: Globe, servicesWeb: true, depuis: "2026-11-13" },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —
   // voir allowedFor() ci-dessous.
   { to: "/admin/mon-compte", label: "Mon compte", icon: UserCog, alwaysAllowed: true },
@@ -249,8 +249,14 @@ export default function PortalLayout({ admin = false }) {
     if (!admin) return;
     apiClient.get("/access/me").then(({ data }) => setCanIssueTokens(!!data.can_issue_tokens)).catch(() => {});
   }, [admin]);
+  // Lot 93.1 : « Mes Services Web » est dans le menu du DG et des rôles que le super-admin a autorisés (consultation seule)
+  const [accesServicesWeb, setAccesServicesWeb] = useState(false);
+  useEffect(() => {
+    if (!admin) return;
+    apiClient.get("/me/services-web/acces").then(({ data }) => setAccesServicesWeb(!!data.consultation)).catch(() => {});
+  }, [admin]);
   const links = admin
-    ? STAFF_MENU.filter((l) => allowedFor(l, roles, user?.email) || (canIssueTokens && l.to === "/admin/staff"))
+    ? STAFF_MENU.filter((l) => (l.servicesWeb ? (roles.includes("dg") || accesServicesWeb) : allowedFor(l, roles, user?.email)) || (canIssueTokens && l.to === "/admin/staff"))
     // Espace client : seuls les modules ouverts par le cabinet (aucun réglage = tous)
     : CLIENT_LINKS.filter((l) => !l.module || !Array.isArray(user?.portal_modules) || user.portal_modules.includes(l.module));
   // Rôle sans « Tableau de bord » dans son menu (ex. Administrateur, Caissier,
