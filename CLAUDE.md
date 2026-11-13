@@ -15,3 +15,7 @@
   compte rendu à jfrancois.ouoba@gmail.com (`mcp__Gmail__send_message`, champ `htmlBody`) : date et heure, identification (dépôt, branche, commit, lot),
   périmètre, comment vérifier, à activer, points d'attention, reste à faire. Ne jamais attendre que le propriétaire le demande.
 - Cette règle précise la règle « Livraison et déploiement » ; elle vaut aussi pour les recettes et vérifications faites sans changement de code.
+
+## auRor = mobile-payments (précisé par le propriétaire, 14/11/2026)
+- **auRor et mobile-payments désignent la MÊME plateforme** : dépôt `ShuyahBF/Claude`, dossiers `mobile-payments-web` et `mobile-payments-app` (chercher dans ce dépôt quand une demande cite auRor).
+- Ses séquences USSD des opérateurs (Orange, Moov Africa, Telecel Faso) sont la SOURCE DE RÉFÉRENCE : toute copie dans une autre plateforme (ex. SAWALI, paiement au comptoir des officines) doit être corrigée en même temps.
