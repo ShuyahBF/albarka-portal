@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "89"
-LOT_LIBELLE = "Clients sans contrat autorisés par défaut (réglage du super-admin) ; connexion par empreinte digitale activable par le super-admin, enrôlements gérés par le DG."
+LOT = "90"
+LOT_LIBELLE = "Mes Services Web : frais des services web configurés par le super-admin, rappelés au DG (7 jours, 3 jours, jour même) ; clients sans contrat autorisés par défaut ; connexion par empreinte digitale."

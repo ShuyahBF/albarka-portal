@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ClientDocsNotifPanel from "@/pages/admin/ClientDocsNotifPanel";
 import StaffAccessPanel from "@/pages/admin/StaffAccessPanel";
 import AccesConnexionPanel from "@/pages/admin/AccesConnexionPanel";   // lot 89
+import ServicesWebPanel from "@/pages/admin/ServicesWebPanel";   // lot 90
 import CertificatesPanel from "@/pages/admin/CertificatesPanel";
 import BrandingPanel from "@/pages/admin/BrandingPanel";
 import DocSettingsPanel from "@/pages/admin/DocSettingsPanel";
@@ -211,6 +212,8 @@ export default function AdminSettings() {
           </TabsTrigger>
           {/* Liste blanche du personnel (appareils, IP) et accès temporaires */}
           <TabsTrigger value="acces" data-testid="tab-acces">Accès du personnel</TabsTrigger>
+          {/* Lot 90 : services web (frais rappelés au DG) — super-admin seul */}
+          {isAdministrateur && <TabsTrigger value="services-web" data-testid="tab-services-web">Services Web</TabsTrigger>}
           {/* Lot 44 : alerte / incident et déconnexion programmée — super-admin seul */}
           {(user?.email || "").toLowerCase() === "admin@sawalismartsystems.com" && (
             <TabsTrigger value="alerte" data-testid="tab-alerte">Alerte et maintenance</TabsTrigger>
@@ -726,6 +729,8 @@ export default function AdminSettings() {
           {/* Modèles de notification des documents mis à disposition des clients */}
           <ClientDocsNotifPanel settings={settings} setSettings={setSettings} save={save} saving={saving} />
         </TabsContent>
+
+        {isAdministrateur && <TabsContent value="services-web" className="pt-6"><ServicesWebPanel /></TabsContent>}
 
         {/* --- ACCÈS DU PERSONNEL --- */}
         <TabsContent value="acces" className="pt-6">
