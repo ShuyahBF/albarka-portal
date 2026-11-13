@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "94"
-LOT_LIBELLE = "Services Web : montant unique réglé en plusieurs fois (reste à payer), sélection de paiements reçus par SMS, un paiement SMS ne sert qu'une fois."
+LOT = "94.1"
+LOT_LIBELLE = "Règle 15 : un pictogramme sur toutes les actions des Services Web, demandes à SAWALI et empreintes ; champs modifiables enregistrés par un bouton explicite (plus d'enregistrement silencieux)."
