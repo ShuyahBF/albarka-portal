@@ -13,16 +13,18 @@ import { Label } from "@/components/ui/label";
 import { EtatService } from "@/pages/admin/MesServicesWeb";
 
 const vide = { service: "", montant: "", jour_du_mois: "" };
+const LIBELLES_ROLES = { direction: "Direction", secretariat: "Secrétariat", administrateur: "Administrateur", fiscaliste: "Fiscaliste", comptable: "Comptable", aide_comptable: "Aide-comptable", rh: "Ressources humaines", communication: "Communication" };
 
 export default function ServicesWebPanel() {
   const [services, setServices] = useState([]);
   const [nouveau, setNouveau] = useState(vide);
   const [paiement, setPaiement] = useState(null);   // { id, paye_le, montant, reference } : formulaire de paiement ouvert
+  const [consultation, setConsultation] = useState({ roles: [], possibles: [] });   // lot 93.1 : rôles qui peuvent consulter (lecture seule)
   const [sms, setSms] = useState(null);             // lot 93 : paiements reçus lus dans les SMS (SAWALI), null = liste fermée
   const [smsOccupe, setSmsOccupe] = useState(false);
 
   const charger = () => apiClient.get("/admin/services-web").then(({ data }) => setServices(data.services)).catch((e) => toast.error(extractError(e)));
-  useEffect(() => { charger(); }, []);
+  useEffect(() => { charger(); apiClient.get("/admin/services-web/consultation").then(({ data }) => setConsultation(data)).catch(() => {}); }, []);
 
   // Création d'un service
   const creer = async () => {
@@ -49,6 +51,13 @@ export default function ServicesWebPanel() {
       toast.success("Paiement enregistré");
       charger();
     } catch (e) { toast.error(extractError(e)); }
+  };
+
+  // Lot 93.1 — coche / décoche un rôle autorisé à consulter ; enregistré tout de suite
+  const basculerConsultation = async (role) => {
+    const roles = consultation.roles.includes(role) ? consultation.roles.filter((r) => r !== role) : [...consultation.roles, role];
+    try { const { data } = await apiClient.put("/admin/services-web/consultation", { roles }); setConsultation((c) => ({ ...c, roles: data.roles })); toast.success("Consultation mise à jour"); }
+    catch (e) { toast.error(extractError(e)); }
   };
 
   // Lot 93 — charge les paiements reçus par SMS (associés à ALBARKA dans SAWALI → Transactions SMS)
@@ -104,6 +113,17 @@ export default function ServicesWebPanel() {
             {services.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">Aucun service. Ajoutez le premier ci-dessus.</td></tr>}
           </tbody>
         </table>
+      </div>
+
+      {/* Lot 93.1 : qui peut CONSULTER (lecture seule, l'option « Mes Services Web » apparaît dans leur menu). Seul le super-admin met à jour les paiements. */}
+      <div className="albarka-card p-4 space-y-2" data-testid="consultation">
+        <p className="text-sm font-semibold">Qui peut consulter les services web ?</p>
+        <p className="text-sm text-muted-foreground">Le DG consulte toujours et reçoit les rappels. Les rôles cochés voient l'option « Mes Services Web » dans leur menu, en lecture seule. Seul le super-admin crée les services et met à jour les paiements.</p>
+        <div className="flex flex-wrap gap-x-5 gap-y-1">
+          {consultation.possibles.map((r) => (
+            <label key={r} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={consultation.roles.includes(r)} onChange={() => basculerConsultation(r)} />{LIBELLES_ROLES[r] || r}</label>
+          ))}
+        </div>
       </div>
 
       {paiement && (
