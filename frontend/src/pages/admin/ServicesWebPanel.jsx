@@ -120,6 +120,8 @@ export default function ServicesWebPanel() {
         <p className="text-sm font-semibold">Qui peut consulter les services web ?</p>
         <p className="text-sm text-muted-foreground">Le DG consulte toujours et reçoit les rappels. Les rôles cochés voient l'option « Mes Services Web » dans leur menu, en lecture seule. Seul le super-admin crée les services et met à jour les paiements.</p>
         <div className="flex flex-wrap gap-x-5 gap-y-1">
+          {/* Le DG consulte toujours (et reçoit les rappels) : case cochée et verrouillée */}
+          <label className="flex items-center gap-2 text-sm font-medium" title="Le DG consulte toujours et reçoit les rappels"><input type="checkbox" checked disabled data-testid="consultation-dg" />DG (toujours)</label>
           {consultation.possibles.map((r) => (
             <label key={r} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={consultation.roles.includes(r)} onChange={() => basculerConsultation(r)} />{LIBELLES_ROLES[r] || r}</label>
           ))}
@@ -139,7 +141,7 @@ export default function ServicesWebPanel() {
           <div className="sm:col-span-4 space-y-2">
             <Button variant="outline" onClick={chargerSms} disabled={smsOccupe} data-testid="btn-paiements-sms">{smsOccupe ? "Chargement…" : "Choisir un paiement reçu par SMS"}</Button>
             {sms && (sms.length === 0
-              ? <p className="text-sm text-muted-foreground">Aucun paiement reçu n'est associé à ALBARKA. Dans SAWALI → Transactions SMS, associez le numéro du payeur à ALBARKA.</p>
+              ? <p className="text-sm text-muted-foreground">Aucun paiement reçu n'est associé à ALBARKA. Dans SAWALI → Transactions SMS, associez le numéro du payeur à ALBARKA, ou au client de SAWALI lié à ALBARKA.</p>
               : (
                 <div className="overflow-x-auto border rounded" data-testid="liste-paiements-sms">
                   <table className="w-full text-sm tableau">
