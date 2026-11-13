@@ -191,10 +191,10 @@ const SERVICE_DU_LIEN = {
   "/portal/formulaires": "formulaires", "/portal/documents-cabinet": "espace_client",
 };
 
-// Menu « nouveau » (règle ALBARKA du 13/11/2026) : un lien porte `depuis: "AAAA-MM-JJ"` (date de sa mise en ligne).
-// Pendant 3 jours il affiche un point jaune (comme une bulle de notification) ; ensuite il disparaît tout seul.
-// À renseigner pour TOUTE nouvelle option visible de la barre latérale.
-const JOURS_NOUVEAU = 3;
+// Menu « nouveau » (règle ALBARKA, confirmée le 14/11/2026 : « on garde les étoiles, 7 jours ») : un lien porte
+// `depuis: "AAAA-MM-JJ"` (date de sa mise en ligne). Pendant 7 jours il affiche une petite étoile 🌟 ; ensuite elle disparaît
+// toute seule. À renseigner pour TOUTE nouvelle option visible de la barre latérale (sinon aucune étoile ne s'affiche).
+const JOURS_NOUVEAU = 7;
 function estNouveau(link) {
   if (!link.depuis) return false;
   const age = Date.now() - new Date(`${link.depuis}T00:00:00`).getTime();
@@ -389,6 +389,7 @@ export default function PortalLayout({ admin = false }) {
                           data-testid={`sidebar-link-traitement-${e.to.split("/").pop()}`}>
                           <e.icon className="w-4 h-4" />
                           <span className="flex-1">{e.label}</span>
+                          {estNouveau(e) && <span className="text-[11px] leading-none" title="Nouveau (moins d'une semaine)" aria-label="Nouveau" data-testid="sidebar-nouveau">🌟</span>}
                         </NavLink>
                       ))}
                     </div>
@@ -415,7 +416,7 @@ export default function PortalLayout({ admin = false }) {
             >
               <link.icon className="w-4 h-4" />
               <span className="flex-1">{link.label}</span>
-              {estNouveau(link) && <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 shadow-[0_0_0_2px_rgba(250,204,21,0.35)]" title="Nouveau (moins de 3 jours)" aria-label="Nouveau" data-testid="sidebar-nouveau" />}
+              {estNouveau(link) && <span className="text-[11px] leading-none" title="Nouveau (moins d'une semaine)" aria-label="Nouveau" data-testid="sidebar-nouveau">🌟</span>}
               {suspendu && <span className="text-[10px]" aria-label="suspendu">⛔</span>}
               {!!count && (
                 <span
