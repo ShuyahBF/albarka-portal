@@ -62,6 +62,21 @@ export function AuthProvider({ children }) {
     return data.user;
   };
 
+  // Lot 89 — connexion par empreinte digitale : le navigateur signe un défi du serveur (l'empreinte reste sur l'appareil).
+  const loginPasskey = async () => {
+    const { optionsConnexion, reponseConnexion } = await import("@/lib/empreinte");
+    const { data: defi } = await apiClient.post("/auth/passkeys/login/options");
+    const credential = await navigator.credentials.get({ publicKey: optionsConnexion(defi.options) });
+    const { data } = await apiClient.post("/auth/passkeys/login/verify", {
+      challenge_id: defi.challenge_id, credential: reponseConnexion(credential),
+      device_id: getDeviceId(), access_code: getAccessCode(),
+    });
+    clearAccessCode();
+    localStorage.setItem("albarka_token", data.access_token);
+    setUser(data.user);
+    return data.user;
+  };
+
   const logout = () => {
     localStorage.removeItem("albarka_token");
     setUser(null);
@@ -78,7 +93,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, loginStart, loginWhatsappStart, loginVerify, logout, refresh: fetchMe, isStaff, isClient, isSupervisor, isAdmin }}
+      value={{ user, loading, loginStart, loginWhatsappStart, loginVerify, loginPasskey, logout, refresh: fetchMe, isStaff, isClient, isSupervisor, isAdmin }}
     >
       {children}
     </AuthContext.Provider>

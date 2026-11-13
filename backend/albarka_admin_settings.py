@@ -32,6 +32,11 @@ SENSITIVE_FIELDS = {"wa_access_token", "wa_webhook_verify_token", "recaptcha_sec
 
 # Valeurs par défaut.
 DEFAULT_SETTINGS: Dict[str, Any] = {
+    # Lot 89 : accès des clients sans contrat actif (FAUX = autorisé, valeur par défaut) — réglé par le super-admin
+    "interdire_clients_sans_contrat": False,
+    # Lot 89 : connexion par empreinte digitale (passkeys) — activée par le super-admin ; enrôlements gérés par le DG seul
+    "empreinte_activee": False,
+    "empreinte_rp_id": "",
     "cabinet_name": "Cabinet ALBARKA",
     "cabinet_email": "contact@albarka-bf.com",
     "cabinet_phone": "",
@@ -164,6 +169,10 @@ class SettingsUpdate(BaseModel):
     # Lot 20 : contacts de test du super-admin (voir albarka_envoi_test.py)
     test_envoi_whatsapp: Optional[str] = Field(None, max_length=40)
     test_envoi_email: Optional[str] = Field(None, max_length=200)
+    # Lot 89 : réglages du super-admin (accès sans contrat, connexion par empreinte)
+    interdire_clients_sans_contrat: Optional[bool] = None
+    empreinte_activee: Optional[bool] = None
+    empreinte_rp_id: Optional[str] = Field(None, max_length=120)
     # Cabinet
     cabinet_name: Optional[str] = None
     cabinet_email: Optional[str] = None

@@ -63,7 +63,9 @@ def test_connexion_whatsapp_d_un_client(env, monkeypatch):
 
 
 def test_client_sans_contrat_actif_refuse(env):
-    # Même règle que la connexion par e-mail : sans contrat actif, pas d'accès
+    # Même règle que la connexion par e-mail : sans contrat actif, pas d'accès — SI le super-admin a activé le blocage (lot 89)
+    import asyncio
+    asyncio.run(env.db.settings.update_one({"_id": "global"}, {"$set": {"interdire_clients_sans_contrat": True}}, upsert=True))
     cree = _client_sans_email(env)
     pin = env.c.post(f"/api/staff-pin/{cree['id']}", json={}, headers=_h("secr")).json()["pin"]
     r = env.c.post("/api/auth/login-whatsapp", json={"numero": "76123456", "pin": pin})

@@ -5,6 +5,8 @@ from tests.test_access_lot4 import env, _login, USERS  # noqa: F401  (fixture pa
 
 
 def test_refus_sans_contrat_ne_consomme_pas_le_code(env):
+    # Lot 89 : le blocage est un réglage du super-admin (faux par défaut) — ici il est activé
+    asyncio.run(env.db.settings.update_one({"_id": "global"}, {"$set": {"interdire_clients_sans_contrat": True}}, upsert=True))
     # Client sans aucun contrat : refus 403 explicite ...
     r1 = _login(env, "c1")
     assert r1.status_code == 403 and "Aucun contrat actif" in r1.json()["detail"]

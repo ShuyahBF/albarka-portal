@@ -15,6 +15,7 @@ from starlette.middleware.cors import CORSMiddleware
 load_dotenv(Path(__file__).parent / ".env")
 
 from albarka_auth import router as auth_router, require_roles  # noqa: E402
+from albarka_passkeys import router as passkeys_router  # noqa: E402  (lot 89 : connexion par empreinte)
 from albarka_admin_settings import router as admin_settings_router  # noqa: E402
 from albarka_branding import router as branding_router  # noqa: E402
 from albarka_chat_extra import router as chat_extra_router  # noqa: E402
@@ -117,6 +118,7 @@ async def _services_suspendus(request, call_next):
 
 api_router = APIRouter(prefix="/api")
 api_router.include_router(auth_router)
+api_router.include_router(passkeys_router)   # lot 89 : connexion par empreinte (activée par le super-admin, enrôlements par le DG)
 # Lot 16 : connexion du personnel par WhatsApp (numéro + PIN, puis code OTP)
 # et gestion des codes PIN dans « Personnels » (voir albarka_connexion_whatsapp.py)
 from albarka_connexion_whatsapp import auth_router as connexion_wa_router, router as staff_pin_router  # noqa: E402

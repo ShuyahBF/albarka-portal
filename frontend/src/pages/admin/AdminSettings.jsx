@@ -14,6 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ClientDocsNotifPanel from "@/pages/admin/ClientDocsNotifPanel";
 import StaffAccessPanel from "@/pages/admin/StaffAccessPanel";
+import AccesConnexionPanel from "@/pages/admin/AccesConnexionPanel";   // lot 89
 import CertificatesPanel from "@/pages/admin/CertificatesPanel";
 import BrandingPanel from "@/pages/admin/BrandingPanel";
 import DocSettingsPanel from "@/pages/admin/DocSettingsPanel";
@@ -728,6 +729,7 @@ export default function AdminSettings() {
 
         {/* --- ACCÈS DU PERSONNEL --- */}
         <TabsContent value="acces" className="pt-6">
+          <AccesConnexionPanel settings={settings} save={save} saving={saving} />
           <StaffAccessPanel settings={settings} setSettings={setSettings} save={save} saving={saving} />
         </TabsContent>
 

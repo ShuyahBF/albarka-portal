@@ -52,7 +52,7 @@ import SidebarInfoBar from "@/components/SidebarInfoBar";
 import InstallerApplication from "@/components/InstallerApplication";
 import BandeauContrat from "@/components/BandeauContrat";   // lot 21 : contrat SAWALI
 import SupportSawali from "@/components/SupportSawali";   // lot 23 : pictogramme « Assistance » (support SAWALI)
-import { ChevronDown, Layers, Landmark, Calculator, UsersRound } from "lucide-react";   // lot 18 : menu « Traitements »
+import { Fingerprint, ChevronDown, Layers, Landmark, Calculator, UsersRound } from "lucide-react";   // lot 18 : menu « Traitements »
 import { TRAITEMENTS } from "@/lib/traitements";
 import { jouerBip, sonActif } from "@/lib/sonNotification";   // lot 62 : bip sur toutes les pages
 
@@ -169,6 +169,8 @@ const STAFF_MENU = [
   { to: "/admin/sauvegardes", label: "Sauvegardes", icon: DatabaseBackup, superAdminOnly: true },
   // Lot 9 : outils à télécharger, pour tout collaborateur
   { to: "/admin/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload, end: true, alwaysAllowed: true },
+  // Lot 89 : enrôlement des empreintes digitales — DG uniquement (fonction activée par le super-admin)
+  { to: "/admin/empreintes", label: "Empreintes digitales", icon: Fingerprint, dgOnly: true },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —
   // voir allowedFor() ci-dessous.
   { to: "/admin/mon-compte", label: "Mon compte", icon: UserCog, alwaysAllowed: true },
@@ -196,6 +198,8 @@ function estNouveau(link) {
 }
 
 function allowedFor(link, roles, email = "") {
+  // Lot 89 : réservé au DG (ni le super-admin, ni la Direction)
+  if (link.dgOnly) return roles.includes("dg");
   // Réservé au compte admin du portail, quel que soit le rôle
   if (link.superAdminOnly) return (email || "").toLowerCase() === ADMIN_ACCOUNT_EMAIL;
   if (link.alwaysAllowed) return true;

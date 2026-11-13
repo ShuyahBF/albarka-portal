@@ -51,6 +51,7 @@ import AdminStaff from "@/pages/admin/AdminStaff";
 import AdminClientDetail from "@/pages/admin/AdminClientDetail";
 import AdminReports from "@/pages/admin/AdminReports";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import AdminEmpreintes from "@/pages/admin/AdminEmpreintes";   // lot 89
 import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminContracts from "@/pages/admin/AdminContracts";
 import AdminBilling from "@/pages/admin/AdminBilling";
@@ -170,6 +171,7 @@ function App() {
             <Route path="espace-client" element={<AdminClientSpace />} />
             <Route path="logs" element={<AdminPlatformLogs />} />
             <Route path="settings" element={<AdminSettings />} />
+            <Route path="empreintes" element={<AdminEmpreintes />} />
             {/* Lot 9 : outils à télécharger ; gestion + historique réservés au compte admin du portail */}
             <Route path="outils-numeriques" element={<OutilsNumeriques admin />} />
             <Route path="outils-numeriques/gestion" element={<AdminOutilsNumeriques />} />
