@@ -171,9 +171,9 @@ const STAFF_MENU = [
   // Lot 9 : outils à télécharger, pour tout collaborateur
   { to: "/admin/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload, end: true, alwaysAllowed: true },
   // Lot 89 : enrôlement des empreintes digitales — DG uniquement (fonction activée par le super-admin)
-  { to: "/admin/empreintes", label: "Empreintes digitales", icon: Fingerprint, dgOnly: true },
+  { to: "/admin/empreintes", label: "Empreintes digitales", icon: Fingerprint, dgOnly: true, depuis: "2026-11-13" },
   // Lot 90 : frais des services web, rappelés au DG (configurés par le super-admin) — DG uniquement
-  { to: "/admin/services-web", label: "Mes Services Web", icon: Globe, dgOnly: true },
+  { to: "/admin/services-web", label: "Mes Services Web", icon: Globe, dgOnly: true, depuis: "2026-11-13" },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —
   // voir allowedFor() ci-dessous.
   { to: "/admin/mon-compte", label: "Mon compte", icon: UserCog, alwaysAllowed: true },
@@ -191,9 +191,10 @@ const SERVICE_DU_LIEN = {
   "/portal/formulaires": "formulaires", "/portal/documents-cabinet": "espace_client",
 };
 
-// Menu « nouveau » : un lien porte `depuis: "AAAA-MM-JJ"` (date de sa mise en ligne). Pendant 7 jours il affiche
-// une petite étoile ; ensuite elle disparaît toute seule. À renseigner pour chaque nouveau menu.
-const JOURS_NOUVEAU = 7;
+// Menu « nouveau » (règle ALBARKA du 13/11/2026) : un lien porte `depuis: "AAAA-MM-JJ"` (date de sa mise en ligne).
+// Pendant 3 jours il affiche un point jaune (comme une bulle de notification) ; ensuite il disparaît tout seul.
+// À renseigner pour TOUTE nouvelle option visible de la barre latérale.
+const JOURS_NOUVEAU = 3;
 function estNouveau(link) {
   if (!link.depuis) return false;
   const age = Date.now() - new Date(`${link.depuis}T00:00:00`).getTime();
@@ -414,7 +415,7 @@ export default function PortalLayout({ admin = false }) {
             >
               <link.icon className="w-4 h-4" />
               <span className="flex-1">{link.label}</span>
-              {estNouveau(link) && <span className="text-[11px] leading-none" title="Nouveau (moins d'une semaine)" aria-label="Nouveau" data-testid="sidebar-nouveau">🌟</span>}
+              {estNouveau(link) && <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 shadow-[0_0_0_2px_rgba(250,204,21,0.35)]" title="Nouveau (moins de 3 jours)" aria-label="Nouveau" data-testid="sidebar-nouveau" />}
               {suspendu && <span className="text-[10px]" aria-label="suspendu">⛔</span>}
               {!!count && (
                 <span
