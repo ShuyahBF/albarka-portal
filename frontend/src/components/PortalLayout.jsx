@@ -173,7 +173,7 @@ const STAFF_MENU = [
   // Lot 89 : enrôlement des empreintes digitales — DG uniquement (fonction activée par le super-admin)
   { to: "/admin/empreintes", label: "Empreintes digitales", icon: Fingerprint, dgOnly: true, depuis: "2026-11-13" },
   // Lot 92 : demandes de corrections / nouveautés à SAWALI — DG, Direction, Secrétariat (mêmes droits ; le DG hérite de la Direction)
-  { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-14" },
+  { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-13" },
   // Lot 90 : frais des services web, rappelés au DG (configurés par le super-admin) — DG uniquement
   { to: "/admin/services-web", label: "Mes Services Web", icon: Globe, dgOnly: true, depuis: "2026-11-13" },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —
@@ -197,10 +197,11 @@ const SERVICE_DU_LIEN = {
 // `depuis: "AAAA-MM-JJ"` (date de sa mise en ligne). Pendant 7 jours il affiche une petite étoile 🌟 ; ensuite elle disparaît
 // toute seule. À renseigner pour TOUTE nouvelle option visible de la barre latérale (sinon aucune étoile ne s'affiche).
 const JOURS_NOUVEAU = 7;
-function estNouveau(link) {
+export function estNouveau(link, maintenant = Date.now()) {
   if (!link.depuis) return false;
-  const age = Date.now() - new Date(`${link.depuis}T00:00:00`).getTime();
-  return age >= 0 && age < JOURS_NOUVEAU * 24 * 3600 * 1000;
+  const age = maintenant - new Date(`${link.depuis}T00:00:00`).getTime();
+  // Une date `depuis` à venir (erreur de saisie, décalage d'horloge) compte comme « nouveau » : jamais d'étoile perdue
+  return age < JOURS_NOUVEAU * 24 * 3600 * 1000;
 }
 
 function allowedFor(link, roles, email = "") {
