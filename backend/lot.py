@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "93.1"
-LOT_LIBELLE = "Services Web : le super-admin choisit qui peut consulter (lecture seule) ; lui seul met à jour les paiements."
+LOT = "93.2"
+LOT_LIBELLE = "Services Web : le DG apparaît (coché, verrouillé) dans la liste des rôles qui consultent ; message précisé quand aucun paiement SMS n'est associé."
