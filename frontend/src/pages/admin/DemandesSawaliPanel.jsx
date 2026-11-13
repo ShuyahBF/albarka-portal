@@ -7,7 +7,7 @@
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Search, Send, Plus, Trash2, RefreshCw, Pencil } from "lucide-react";
+import { Search, Send, Plus, Trash2, RefreshCw, Pencil, Save, X } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,8 +110,8 @@ export default function DemandesSawaliPanel() {
           </div>
           <div><Label>Modifier la demande</Label><Textarea rows={2} value={edition.texte} onChange={(e) => setEdition({ ...edition, texte: e.target.value })} /></div>
           <div className="flex gap-2">
-            <Button onClick={enregistrerEdition} disabled={edition.texte.trim().length < 3}>Enregistrer</Button>
-            <Button variant="ghost" onClick={() => setEdition(null)}>Annuler</Button>
+            <Button onClick={enregistrerEdition} disabled={edition.texte.trim().length < 3}><Save className="w-4 h-4 mr-1" /> Enregistrer</Button>
+            <Button variant="ghost" onClick={() => setEdition(null)}><X className="w-4 h-4 mr-1" /> Annuler</Button>
           </div>
         </div>
       )}
@@ -134,8 +134,8 @@ export default function DemandesSawaliPanel() {
                 <td className="p-3 text-right whitespace-nowrap">
                   {(d.statut === "a_remonter" || d.statut === "remontee") && (
                     <>
-                      <Button size="sm" variant="ghost" title="Modifier" onClick={() => setEdition({ id: d.id, type: d.type, texte: d.texte })} data-testid={`modifier-${d.id}`}><Pencil className="w-4 h-4" /></Button>
-                      <Button size="sm" variant="ghost" title="Supprimer" className="text-red-700" onClick={() => supprimer(d)} data-testid={`supprimer-${d.id}`}><Trash2 className="w-4 h-4" /></Button>
+                      <Button size="sm" variant="ghost" title="Modifier" onClick={() => setEdition({ id: d.id, type: d.type, texte: d.texte })} data-testid={`modifier-${d.id}`}><Pencil className="w-4 h-4 mr-1" /> Modifier</Button>
+                      <Button size="sm" variant="ghost" title="Supprimer" className="text-red-700" onClick={() => supprimer(d)} data-testid={`supprimer-${d.id}`}><Trash2 className="w-4 h-4 mr-1" /> Supprimer</Button>
                     </>
                   )}
                 </td>

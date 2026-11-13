@@ -9,7 +9,7 @@
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Fingerprint, KeyRound, Trash2, Search, Smartphone } from "lucide-react";
+import { Fingerprint, KeyRound, Trash2, Search, Smartphone, X } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,7 +83,7 @@ export default function AdminEmpreintes() {
           <div className="text-xs text-muted-foreground">
             Remettez-le à la personne : sur son appareil, page de connexion → « J'ai un code d'enrôlement ». Il ne sera plus affiché.
           </div>
-          <Button variant="outline" size="sm" onClick={() => setInvitation(null)}>Fermer</Button>
+          <Button variant="outline" size="sm" onClick={() => setInvitation(null)}><X className="w-4 h-4 mr-1" /> Fermer</Button>
         </div>
       )}
 

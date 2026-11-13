@@ -5,7 +5,7 @@
 */
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Banknote } from "lucide-react";
+import { Plus, Trash2, Save, Banknote, X, Check, Smartphone, Undo2, CheckCircle2 } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,24 @@ import { EtatService } from "@/pages/admin/MesServicesWeb";
 
 const vide = { service: "", mode: "mensuel", montant: "", jour_du_mois: "" };
 const LIBELLES_ROLES = { direction: "Direction", secretariat: "Secrétariat", administrateur: "Administrateur", fiscaliste: "Fiscaliste", comptable: "Comptable", aide_comptable: "Aide-comptable", rh: "Ressources humaines", communication: "Communication" };
+
+// Règle 15 — un champ modifiable n'est JAMAIS enregistré « en silence » à la sortie : le bouton ✓ Enregistrer apparaît (actif) dès que la valeur a changé,
+// avec la mention « modifié, non enregistré » ; sans changement, il est grisé.
+function ChampEnregistrable({ valeur, min, max, largeur = "w-24", surEnregistrer, libelle }) {
+  const [saisie, setSaisie] = useState(String(valeur ?? ""));
+  useEffect(() => { setSaisie(String(valeur ?? "")); }, [valeur]);
+  const modifie = saisie !== String(valeur ?? "") && saisie !== "";
+  const valide = modifie && Number(saisie) >= (min ?? 0) && (max === undefined || Number(saisie) <= max);
+  return (
+    <div className="inline-flex flex-col items-end gap-0.5">
+      <div className="inline-flex items-center gap-1">
+        <Input className={`${largeur} text-right tabular-nums`} type="number" min={min} max={max} value={saisie} onChange={(e) => setSaisie(e.target.value)} aria-label={libelle} />
+        <Button size="sm" variant={valide ? "default" : "outline"} disabled={!valide} onClick={() => surEnregistrer(saisie)} title={`Enregistrer : ${libelle}`} aria-label={`Enregistrer : ${libelle}`}><Save className="w-4 h-4" /></Button>
+      </div>
+      {modifie && <span className="text-[11px] text-orange-700">modifié, non enregistré</span>}
+    </div>
+  );
+}
 
 export default function ServicesWebPanel() {
   const [services, setServices] = useState([]);
@@ -119,15 +137,15 @@ export default function ServicesWebPanel() {
             {services.map((s) => (
               <tr key={s.id} className="border-b last:border-0">
                 <td className="p-3 font-medium">{s.service}</td>
-                <td className="p-3 text-right"><Input className="w-28 ml-auto text-right tabular-nums" type="number" min={0} defaultValue={s.montant} onBlur={(e) => Number(e.target.value) !== s.montant && modifier(s, "montant", e.target.value)} /></td>
-                <td className="p-3">{s.mode === "unique" ? <span className="text-xs text-muted-foreground">Montant unique</span> : <Input className="w-20" type="number" min={1} max={31} defaultValue={s.jour_du_mois} onBlur={(e) => Number(e.target.value) >= 1 && Number(e.target.value) <= 31 && Number(e.target.value) !== s.jour_du_mois && modifier(s, "jour_du_mois", e.target.value)} />}</td>
+                <td className="p-3 text-right"><ChampEnregistrable valeur={s.montant} min={0} largeur="w-28" libelle={`montant de ${s.service}`} surEnregistrer={(v) => modifier(s, "montant", v)} /></td>
+                <td className="p-3">{s.mode === "unique" ? <span className="text-xs text-muted-foreground">Montant unique</span> : <ChampEnregistrable valeur={s.jour_du_mois} min={1} max={31} largeur="w-16" libelle={`jour du mois de ${s.service}`} surEnregistrer={(v) => modifier(s, "jour_du_mois", v)} />}</td>
                 <td className="p-3">{s.payable_avant ? new Date(`${s.payable_avant}T00:00:00`).toLocaleDateString("fr-FR") : "—"}</td>
                 <td className="p-3"><EtatService s={s} />{s.mode === "unique" && <div className="text-xs tabular-nums mt-0.5">Reste à payer : <b>{Number(s.reste_a_payer || 0).toLocaleString("fr-FR")}</b> sur {Number(s.montant).toLocaleString("fr-FR")}</div>}</td>
                 <td className="p-3 text-xs">{s.dernier_paiement_le ? `${new Date(s.dernier_paiement_le).toLocaleString("fr-FR")} — ${Number(s.dernier_paiement_montant).toLocaleString("fr-FR")} — ${s.dernier_paiement_reference}` : "—"}</td>
                 <td className="p-3 text-right whitespace-nowrap">
                   <Button size="sm" variant="outline" onClick={() => { setDetail(null); setPaiement({ id: s.id, paye_le: "", montant: s.mode === "unique" ? "" : s.montant, reference: "" }); }}><Banknote className="w-4 h-4 mr-1" /> Paiement</Button>
-                  <Button size="sm" variant="outline" className="ml-1" onClick={() => ouvrirDetail(s)} data-testid={`btn-paiements-${s.id}`}>Paiements SMS</Button>
-                  <Button size="sm" variant="ghost" className="text-red-700" onClick={() => supprimer(s)}><Trash2 className="w-4 h-4" /></Button>
+                  <Button size="sm" variant="outline" className="ml-1" onClick={() => ouvrirDetail(s)} data-testid={`btn-paiements-${s.id}`}><Smartphone className="w-4 h-4 mr-1" /> Paiements SMS</Button>
+                  <Button size="sm" variant="ghost" className="text-red-700" onClick={() => supprimer(s)} title={`Supprimer le service ${s.service}`} aria-label={`Supprimer le service ${s.service}`}><Trash2 className="w-4 h-4 mr-1" /> Supprimer</Button>
                 </td>
               </tr>
             ))}
@@ -148,7 +166,7 @@ export default function ServicesWebPanel() {
           <div className="albarka-card p-4 space-y-3 border-2 border-emerald-300" data-testid="detail-paiements">
             <div className="flex items-center justify-between gap-2">
               <h3 className="font-semibold">Paiements — {sv.service} {sv.mode === "unique" ? "(montant unique)" : "(mensuel)"}</h3>
-              <Button size="sm" variant="ghost" onClick={() => setDetail(null)}>Fermer</Button>
+              <Button size="sm" variant="ghost" onClick={() => setDetail(null)}><X className="w-4 h-4 mr-1" /> Fermer</Button>
             </div>
             {sv.mode === "unique" && <p className="text-sm tabular-nums">Montant total {fm(sv.montant)} · payé <b>{fm(sv.total_paye)}</b> · reste à payer <b className={sv.reste_a_payer > 0 ? "text-red-700" : "text-green-700"}>{fm(sv.reste_a_payer)}</b></p>}
             <div>
@@ -158,7 +176,7 @@ export default function ServicesWebPanel() {
                   <tbody>{sv.paiements.map((p) => (<tr key={p.id} className="border-b last:border-0"><td className="p-2 whitespace-nowrap">{new Date(p.paye_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</td>
                     <td className="p-2 font-mono text-xs">{p.reference}</td><td className="p-2 text-xs">{p.source === "sms" ? "SMS reçu" : "Saisi à la main"}</td>
                     <td className="p-2 text-right tabular-nums">{Number(p.montant).toLocaleString("fr-FR")}</td>
-                    <td className="p-2 text-right"><button type="button" className="text-xs underline text-red-700" onClick={() => annulerPaiement(p)}>Annuler</button></td></tr>))}</tbody></table>
+                    <td className="p-2 text-right"><Button size="sm" variant="ghost" className="text-red-700" onClick={() => annulerPaiement(p)} title="Annuler ce paiement" aria-label="Annuler ce paiement"><Undo2 className="w-4 h-4 mr-1" /> Annuler</Button></td></tr>))}</tbody></table>
               )}
             </div>
             <div className="space-y-2">
@@ -179,7 +197,7 @@ export default function ServicesWebPanel() {
                 </div>
               )}
               <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={utiliserChoix} disabled={choix.length === 0} data-testid="btn-utiliser-sms">Utiliser {choix.length || ""} paiement(s) sélectionné(s)</Button>
+                <Button onClick={utiliserChoix} disabled={choix.length === 0} data-testid="btn-utiliser-sms"><Check className="w-4 h-4 mr-1" /> Utiliser {choix.length || ""} paiement(s) sélectionné(s)</Button>
                 {choix.length > 0 && <span className="text-sm tabular-nums">Sélection : <b>{fm(somme)}</b>{resteApres !== null && <> · reste à payer après : <b>{fm(resteApres)}</b></>}</span>}
               </div>
               <p className="text-xs text-muted-foreground">Un paiement reçu par SMS ne sert qu'une fois : une fois utilisé pour un service, il ne peut plus servir pour un autre (sauf si vous annulez ce paiement ici).</p>
@@ -192,6 +210,7 @@ export default function ServicesWebPanel() {
       <div className="albarka-card p-4 space-y-2" data-testid="consultation">
         <p className="text-sm font-semibold">Qui peut consulter les services web ?</p>
         <p className="text-sm text-muted-foreground">Le DG consulte toujours et reçoit les rappels. Les rôles cochés voient l'option « Mes Services Web » dans leur menu, en lecture seule. Seul le super-admin crée les services et met à jour les paiements.</p>
+        <p className="text-xs text-emerald-700 inline-flex items-center gap-1"><CheckCircle2 className="w-4 h-4" /> Chaque case est enregistrée automatiquement dès qu'on la coche ou la décoche (un message le confirme).</p>
         <div className="flex flex-wrap gap-x-5 gap-y-1">
           {/* Le DG consulte toujours (et reçoit les rappels) : case cochée et verrouillée */}
           <label className="flex items-center gap-2 text-sm font-medium" title="Le DG consulte toujours et reçoit les rappels"><input type="checkbox" checked disabled data-testid="consultation-dg" />DG (toujours)</label>
@@ -208,11 +227,11 @@ export default function ServicesWebPanel() {
           <div><Label>Référence de la transaction</Label><Input value={paiement.reference} onChange={(e) => setPaiement({ ...paiement, reference: e.target.value })} /></div>
           <div className="flex gap-2">
             <Button onClick={enregistrerPaiement} disabled={!paiement.paye_le || !paiement.reference}><Save className="w-4 h-4 mr-1" /> Enregistrer</Button>
-            <Button variant="ghost" onClick={() => setPaiement(null)}>Annuler</Button>
+            <Button variant="ghost" onClick={() => setPaiement(null)}><X className="w-4 h-4 mr-1" /> Annuler</Button>
           </div>
           {/* Lot 93 : choisir un paiement reçu par SMS (SAWALI → Transactions SMS) au lieu de le ressaisir */}
           <div className="sm:col-span-4 space-y-2">
-            <Button variant="outline" onClick={chargerSms} disabled={smsOccupe} data-testid="btn-paiements-sms">{smsOccupe ? "Chargement…" : "Choisir un paiement reçu par SMS"}</Button>
+            <Button variant="outline" onClick={chargerSms} disabled={smsOccupe} data-testid="btn-paiements-sms"><Smartphone className="w-4 h-4 mr-1" /> {smsOccupe ? "Chargement…" : "Choisir un paiement reçu par SMS"}</Button>
             {sms && (sms.length === 0
               ? <p className="text-sm text-muted-foreground">Aucun paiement reçu n'est associé à ALBARKA. Dans SAWALI → Transactions SMS, associez le numéro du payeur à ALBARKA, ou au client de SAWALI lié à ALBARKA.</p>
               : (
@@ -225,7 +244,7 @@ export default function ServicesWebPanel() {
                         <td className="p-2">{t.client || t.tiers}{t.numero ? <span className="text-xs text-muted-foreground"> · {t.numero}</span> : null}</td>
                         <td className="p-2 font-mono text-xs">{t.reference_proposee}</td>
                         <td className="p-2 text-right tabular-nums">{Number(t.montant).toLocaleString("fr-FR")}</td>
-                        <td className="p-2 text-right">{t.deja_enregistre ? <span className="text-xs text-muted-foreground">déjà enregistré</span> : <Button size="sm" onClick={() => choisirSms(t)}>Choisir</Button>}</td>
+                        <td className="p-2 text-right">{t.deja_enregistre ? <span className="text-xs text-muted-foreground">déjà enregistré</span> : <Button size="sm" onClick={() => choisirSms(t)}><CheckCircle2 className="w-4 h-4 mr-1" /> Choisir</Button>}</td>
                       </tr>))}</tbody>
                   </table>
                 </div>

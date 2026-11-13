@@ -6,7 +6,7 @@
 */
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Globe } from "lucide-react";
+import { Globe, CheckCircle2 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { EtatService } from "@/pages/admin/MesServicesWeb";
@@ -58,7 +58,7 @@ export default function RappelsServicesWeb() {
           ))}
         </ul>
         <Button className="w-full bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={jAiCompris} disabled={envoi} data-testid="btn-jai-compris">
-          J'ai compris
+          <CheckCircle2 className="w-4 h-4 mr-1" /> J'ai compris
         </Button>
       </div>
     </div>,
