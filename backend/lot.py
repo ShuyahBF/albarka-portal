@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "93.2"
-LOT_LIBELLE = "Services Web : le DG apparaît (coché, verrouillé) dans la liste des rôles qui consultent ; message précisé quand aucun paiement SMS n'est associé."
+LOT = "94"
+LOT_LIBELLE = "Services Web : montant unique réglé en plusieurs fois (reste à payer), sélection de paiements reçus par SMS, un paiement SMS ne sert qu'une fois."
