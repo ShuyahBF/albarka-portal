@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EtatService } from "@/pages/admin/MesServicesWeb";
 
-const vide = { service: "", montant: "", payable_avant: "" };
+const vide = { service: "", montant: "", jour_du_mois: "" };
 
 export default function ServicesWebPanel() {
   const [services, setServices] = useState([]);
@@ -25,7 +25,7 @@ export default function ServicesWebPanel() {
   // Création d'un service
   const creer = async () => {
     try {
-      await apiClient.post("/admin/services-web", { service: nouveau.service, montant: Number(nouveau.montant || 0), payable_avant: nouveau.payable_avant });
+      await apiClient.post("/admin/services-web", { service: nouveau.service, montant: Number(nouveau.montant || 0), jour_du_mois: Number(nouveau.jour_du_mois) });
       setNouveau(vide);
       toast.success("Service ajouté");
       charger();
@@ -35,7 +35,7 @@ export default function ServicesWebPanel() {
   // Modification d'une valeur (montant ou échéance) enregistrée à la sortie du champ
   const modifier = async (s, champ, valeur) => {
     try {
-      await apiClient.put(`/admin/services-web/${s.id}`, { [champ]: champ === "montant" ? Number(valeur) : valeur });
+      await apiClient.put(`/admin/services-web/${s.id}`, { [champ]: Number(valeur) });
       charger();
     } catch (e) { toast.error(extractError(e)); }
   };
@@ -58,20 +58,21 @@ export default function ServicesWebPanel() {
     <div className="space-y-5" data-testid="services-web-panel">
       <p className="text-sm text-muted-foreground max-w-2xl">
         Seul le DG voit ces services (menu « Mes Services Web ») et reçoit les rappels : 7 jours avant, 3 jours avant et le jour même, dans une fenêtre
-        qu'il ferme par « J'ai compris ». Après chaque paiement, enregistrez-le ici ; changer l'échéance relance les rappels pour la période suivante.
+        qu'il ferme par « J'ai compris ». Le paiement est MENSUEL : indiquez le jour du mois (ex. le 8) ; ce jour sert d'échéance et de rappel chaque mois
+        (le 31 devient le dernier jour des mois plus courts). Après chaque paiement, enregistrez-le ici : le rappel passe au mois suivant.
       </p>
 
       <div className="albarka-card p-4 grid gap-3 sm:grid-cols-4 items-end">
         <div><Label>Service</Label><Input value={nouveau.service} onChange={(e) => setNouveau({ ...nouveau, service: e.target.value })} placeholder="Ex. Hébergement Render" /></div>
         <div><Label>Montant (FCFA)</Label><Input type="number" min={0} value={nouveau.montant} onChange={(e) => setNouveau({ ...nouveau, montant: e.target.value })} /></div>
-        <div><Label>Payable avant le</Label><Input type="date" value={nouveau.payable_avant} onChange={(e) => setNouveau({ ...nouveau, payable_avant: e.target.value })} /></div>
-        <Button onClick={creer} disabled={!nouveau.service || !nouveau.payable_avant} data-testid="btn-ajouter-service"><Plus className="w-4 h-4 mr-1" /> Ajouter</Button>
+        <div><Label>Jour du mois (1 à 31)</Label><Input type="number" min={1} max={31} value={nouveau.jour_du_mois} onChange={(e) => setNouveau({ ...nouveau, jour_du_mois: e.target.value })} placeholder="Ex. 8" data-testid="input-jour-du-mois" /></div>
+        <Button onClick={creer} disabled={!nouveau.service || !(Number(nouveau.jour_du_mois) >= 1 && Number(nouveau.jour_du_mois) <= 31)} data-testid="btn-ajouter-service"><Plus className="w-4 h-4 mr-1" /> Ajouter</Button>
       </div>
 
       <div className="albarka-card overflow-x-auto">
         <table className="w-full text-sm tableau">
           <thead><tr className="text-left border-b">
-            <th className="p-3">Service</th><th className="p-3 text-right">Montant</th><th className="p-3">Payable avant le</th>
+            <th className="p-3">Service</th><th className="p-3 text-right">Montant</th><th className="p-3">Jour du mois</th><th className="p-3">Prochaine échéance</th>
             <th className="p-3">État</th><th className="p-3">Dernier paiement</th><th className="p-3 text-right">Actions</th>
           </tr></thead>
           <tbody>
@@ -79,7 +80,8 @@ export default function ServicesWebPanel() {
               <tr key={s.id} className="border-b last:border-0">
                 <td className="p-3 font-medium">{s.service}</td>
                 <td className="p-3 text-right"><Input className="w-28 ml-auto text-right tabular-nums" type="number" min={0} defaultValue={s.montant} onBlur={(e) => Number(e.target.value) !== s.montant && modifier(s, "montant", e.target.value)} /></td>
-                <td className="p-3"><Input className="w-40" type="date" defaultValue={s.payable_avant} onBlur={(e) => e.target.value && e.target.value !== s.payable_avant && modifier(s, "payable_avant", e.target.value)} /></td>
+                <td className="p-3"><Input className="w-20" type="number" min={1} max={31} defaultValue={s.jour_du_mois} onBlur={(e) => Number(e.target.value) >= 1 && Number(e.target.value) <= 31 && Number(e.target.value) !== s.jour_du_mois && modifier(s, "jour_du_mois", e.target.value)} /></td>
+                <td className="p-3">{new Date(`${s.payable_avant}T00:00:00`).toLocaleDateString("fr-FR")}</td>
                 <td className="p-3"><EtatService s={s} /></td>
                 <td className="p-3 text-xs">{s.dernier_paiement_le ? `${new Date(s.dernier_paiement_le).toLocaleString("fr-FR")} — ${Number(s.dernier_paiement_montant).toLocaleString("fr-FR")} — ${s.dernier_paiement_reference}` : "—"}</td>
                 <td className="p-3 text-right whitespace-nowrap">
@@ -88,7 +90,7 @@ export default function ServicesWebPanel() {
                 </td>
               </tr>
             ))}
-            {services.length === 0 && <tr><td colSpan={6} className="p-4 text-center text-muted-foreground">Aucun service. Ajoutez le premier ci-dessus.</td></tr>}
+            {services.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">Aucun service. Ajoutez le premier ci-dessus.</td></tr>}
           </tbody>
         </table>
       </div>
