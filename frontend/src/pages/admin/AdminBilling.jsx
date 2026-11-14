@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 import { toast } from "sonner";
 import {
   Plus, Receipt, Wallet, X, MoreHorizontal, Eye, RefreshCw,
@@ -140,7 +141,7 @@ export default function AdminBilling() {
   const clientLabel = (tenantId) => {
     const c = clientsById[tenantId];
     if (!c) return "—";
-    return c.company ? `${c.company} (${c.full_name})` : c.full_name;
+    return <NomClient client={c} />;
   };
 
   const applyDateRange = () => load();

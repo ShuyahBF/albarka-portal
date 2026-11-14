@@ -16,6 +16,7 @@
 
   Adresse : /admin/modeles (?generate=<modèle>&tenant=<client>&mission=<mission>)
 */
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -234,7 +235,7 @@ function GenerateWizard({ template, letterheads, preset, onClose, onDone }) {
                 {shown.map((c) => (
                   <label key={c.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-slate-50" data-testid={`generate-client-${c.id}`}>
                     <input type="checkbox" className={ui.check} checked={selected.includes(c.id)} onChange={() => toggle(c.id)} />
-                    <span className="font-medium">{c.company || c.full_name}</span><span className="text-xs text-slate-400 truncate">{c.company ? c.full_name : c.email}</span>
+                    <NomClient client={c} className="truncate" />
                   </label>
                 ))}
               </div>

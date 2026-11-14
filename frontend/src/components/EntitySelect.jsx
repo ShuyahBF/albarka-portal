@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient, extractError } from "@/lib/api";
@@ -82,10 +83,7 @@ export default function EntitySelect({
             </span>
           ) : selected ? (
             <span className="truncate text-left">
-              <span className="font-medium">{selected.full_name}</span>
-              {selected.company && (
-                <span className="text-muted-foreground"> — {selected.company}</span>
-              )}
+              <NomClient client={selected} />
             </span>
           ) : (
             <span className="text-muted-foreground">{placeholder}</span>
@@ -115,10 +113,8 @@ export default function EntitySelect({
                     }`}
                   />
                   <div className="flex flex-col">
-                    <span className="font-medium">{c.full_name}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {c.company || c.email || "—"}
-                    </span>
+                    <NomClient client={c} />
+                    <span className="text-xs text-muted-foreground">{c.email || ""}</span>
                   </div>
                 </CommandItem>
               ))}

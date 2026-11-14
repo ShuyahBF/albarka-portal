@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Download, History, RefreshCw } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
+import NomClient, { libelleClient } from "@/components/NomClient";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,7 +29,7 @@ export default function AdminJournalContacts() {
   const [lignes, setLignes] = useState(null);
 
   useEffect(() => { apiClient.get("/clients").then(({ data }) => setClients(data)).catch((e) => toast.error(extractError(e))); }, []);
-  const nomClient = useMemo(() => Object.fromEntries(clients.map((c) => [c.id, c.company || c.full_name])), [clients]);
+  const parId = useMemo(() => Object.fromEntries(clients.map((c) => [c.id, c])), [clients]);
 
   const charger = useCallback(async (manuel = false) => {
     if (manuel) toast.info("Actualisation du parcours en cours…");              // règle 17 : toast « en cours » puis résultat
@@ -51,7 +52,7 @@ export default function AdminJournalContacts() {
   const exporter = () => {
     const echap = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const csv = ["Date;Client;Contact;Fonction;Type;Méthode;Chemin;Résultat;Motif;IP"].concat(affichees.map((l) =>
-      [new Date(l.at).toLocaleString("fr-FR"), nomClient[l.client_id] || l.client_id, l.nom, l.fonction, TYPES[l.type] || l.type, l.methode, l.chemin, l.statut, l.motif, l.ip].map(echap).join(";"))).join("\n");
+      [new Date(l.at).toLocaleString("fr-FR"), parId[l.client_id] ? libelleClient(parId[l.client_id]) : l.client_id, l.nom, l.fonction, TYPES[l.type] || l.type, l.methode, l.chemin, l.statut, l.motif, l.ip].map(echap).join(";"))).join("\n");
     const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
     const a = document.createElement("a"); a.href = url; a.download = "parcours-contacts.csv"; a.click(); URL.revokeObjectURL(url);
   };
@@ -80,7 +81,7 @@ export default function AdminJournalContacts() {
           <Label>Client</Label>
           <Select value={client} onValueChange={setClient}>
             <SelectTrigger data-testid="journal-client"><SelectValue /></SelectTrigger>
-            <SelectContent><SelectItem value={TOUS}>Tous les clients</SelectItem>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.company || c.full_name}</SelectItem>)}</SelectContent>
+            <SelectContent><SelectItem value={TOUS}>Tous les clients</SelectItem>{clients.map((c) => <SelectItem key={c.id} value={c.id}><NomClient client={c} /></SelectItem>)}</SelectContent>
           </Select>
         </div>) : <div />}
         <div>
@@ -109,7 +110,7 @@ export default function AdminJournalContacts() {
             {affichees.map((l) => (
               <TableRow key={l.id}>
                 <TableCell className="whitespace-nowrap text-sm">{new Date(l.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</TableCell>
-                <TableCell className="text-sm font-medium text-[#0B4F8A]">{nomClient[l.client_id] || l.client_id || "—"}</TableCell>
+                <TableCell className="text-sm font-medium text-[#0B4F8A]">{parId[l.client_id] ? <NomClient client={parId[l.client_id]} /> : (l.client_id || "—")}</TableCell>
                 <TableCell className="text-sm">{l.nom}<span className="block text-xs text-muted-foreground">{l.fonction}</span></TableCell>
                 <TableCell><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${COULEURS[l.type] || ""}`}>{TYPES[l.type] || l.type}{l.type === "connexion" && l.connexion ? ` (${l.connexion})` : ""}</span></TableCell>
                 <TableCell className="text-xs"><span className="font-mono">{l.methode} {l.chemin}</span>{l.motif && <span className="block text-red-700">{l.motif}</span>}</TableCell>
