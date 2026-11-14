@@ -160,6 +160,14 @@ def _public(user: dict) -> dict:
     return serialize(user)
 
 
+def cle_alphabetique(client: dict) -> tuple:
+    """Clé de tri ALPHABÉTIQUE d'un client : raison sociale (sinon nom), sans accents ni majuscules, « Étoile » avant « Fabrice » ; sans nom en dernier."""
+    import unicodedata
+    nom = (client.get("company") or client.get("full_name") or "").strip()
+    sans_accents = "".join(c for c in unicodedata.normalize("NFD", nom) if unicodedata.category(c) != "Mn").casefold()
+    return (sans_accents == "", sans_accents, (client.get("full_name") or "").casefold())
+
+
 @router.get("")
 async def list_clients(user: dict = Depends(require_staff())):
     # Comptes de test : visibles du superviseur uniquement
@@ -172,7 +180,8 @@ async def list_clients(user: dict = Depends(require_staff())):
         if est_email_technique(d.get("email")):
             d["email"], d["sans_email"] = "", True
         d.update(identites.get(d.get("id"), {"ifu": "", "rccm": "", "cnss_number": ""}))
-    return serialize_many(await _apply_rgpd_masking(docs, user))
+    # Lot 109 : liste ALPHABÉTIQUE (raison sociale, sinon nom) — toutes les listes et sélecteurs de clients du portail en héritent
+    return sorted(serialize_many(await _apply_rgpd_masking(docs, user)), key=cle_alphabetique)
 
 
 @router.get("/staff")
