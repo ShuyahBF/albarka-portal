@@ -270,9 +270,8 @@ async def passkeys_login_verify(payload: DefiReponse, request: Request):
         "passkeys.$.sign_count": verifiee.new_sign_count, "passkeys.$.dernier_usage": maintenant, "last_login": maintenant}})
     user.pop("password_hash", None)
     user.pop("_id", None)
-    if user.get("contact_acces"):      # lot 104 : connexion d'un contact du client par empreinte, tracée
-        from albarka_fonctions_contacts import journaliser_connexion
-        await journaliser_connexion(user, "empreinte", request)
+    from albarka_fonctions_contacts import journaliser_connexion      # lots 104 et 106 : contact du client ou super-administrateur, connexion par empreinte tracée
+    await journaliser_connexion(user, "empreinte", request)
     return AuthTokenResponse(access_token=create_access_token(user["id"], not_after=access_until), user=User(**user))
 
 

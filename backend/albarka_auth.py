@@ -128,6 +128,10 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_securi
     if user.get("contact_acces"):
         from albarka_fonctions_contacts import appliquer_acces_contact
         user = await appliquer_acces_contact(user, request)
+    else:
+        # Lot 106 : le parcours du SUPER-ADMINISTRATEUR est tracé (consultable par le DG seulement)
+        from albarka_fonctions_contacts import tracer_super_admin
+        await tracer_super_admin(user, request)
     return user
 
 
@@ -245,9 +249,8 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
     )
     token = create_access_token(user["id"], not_after=access_until)
     # Lot 104 : la connexion d'un CONTACT du client est tracée (le code reçu par e-mail ou par WhatsApp)
-    if user.get("contact_acces"):
-        from albarka_fonctions_contacts import journaliser_connexion
-        await journaliser_connexion(user, "code", request)
+    from albarka_fonctions_contacts import journaliser_connexion      # contact du client ou super-administrateur (les autres comptes : rien)
+    await journaliser_connexion(user, "code", request)
     return AuthTokenResponse(access_token=token, user=User(**user))
 
 

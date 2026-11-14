@@ -207,3 +207,23 @@ def test_a_journaliser_regles():
     assert not fc.a_journaliser("GET", "/api/documents", 130.0, d, "x")             # même page dans la minute
     assert fc.a_journaliser("GET", "/api/documents", 161.0, d, "x")                 # plus d'une minute après
     assert fc.a_journaliser("POST", "/api/documents", 162.0, d, "x")                # écriture : toujours
+
+
+def test_parcours_du_super_admin_visible_du_dg_seulement(env):
+    """Lot 106 — le parcours du super-administrateur (connexions, pages, actions) est tracé ; seul le DG le consulte ; il n'apparaît jamais dans le parcours des contacts."""
+    c, mock_db, run = env
+    c.get("/api/documents", headers=_h("u-sup"))
+    c.get("/api/documents", headers=_h("u-sup"))                          # relue dans la minute : une seule trace
+    c.post("/api/documents", headers=_h("u-sup"))                         # action : toujours tracée
+    c.get("/api/documents", headers=_h("u-dg"))                           # le DG n'est pas tracé (seul le super-admin l'est)
+    run(fc.journaliser_connexion(PERSONNEL["sup"], "code"))
+    j = c.get("/api/journal-superadmin", headers=_h("u-dg")).json()["journal"]
+    assert [(x["type"], x["chemin"]) for x in reversed(j)] == [("page", "/api/documents"), ("action", "/api/documents"), ("connexion", "/api/auth")]
+    assert {x["nom"] for x in j} == {"Super"} and {x["fonction"] for x in j} == {"super-administrateur"} and {x["categorie"] for x in j} == {"superadmin"}
+    # Réservé au DG : ni le super-admin lui-même, ni un autre collaborateur
+    assert c.get("/api/journal-superadmin", headers=_h("u-sup")).status_code == 403
+    assert c.get("/api/journal-superadmin", headers=_h("u-secr")).status_code == 403
+    # Jamais dans le parcours des contacts
+    assert c.get("/api/journal-contacts", headers=_h("u-dg")).json()["journal"] == []
+    assert c.get("/api/journal-contacts", headers=_h("u-sup")).json()["journal"] == []
+    assert c.get("/api/journal-superadmin?du=2999-01-01", headers=_h("u-dg")).json()["journal"] == []
