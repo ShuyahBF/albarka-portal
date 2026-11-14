@@ -169,15 +169,35 @@ def mois_suivant(d: date, jour_du_mois: int) -> date:
     return occurrence(annee, mois, jour_du_mois)
 
 
-def prochaine_apres_reglement(echeance_reglee: date, date_reglement: date, jour: int) -> date:
-    """Prochaine échéance d'un service mensuel après un règlement (lot 95) : recalculée d'après la DATE DE RÈGLEMENT, toujours sur le jour du mois précisé.
-    C'est la plus tardive de deux dates : le mois qui suit l'échéance réglée (un paiement fait en avance ne règle pas deux fois la même échéance) et la première
-    occurrence du jour du mois STRICTEMENT après la date de règlement (un paiement fait en retard repart de sa date : réglé le 20/11, jour 8 → prochaine échéance le 08/12)."""
-    suivante = mois_suivant(echeance_reglee, jour)
-    candidate = occurrence(date_reglement.year, date_reglement.month, jour)
-    if candidate <= date_reglement:
-        candidate = mois_suivant(candidate, jour)
-    return max(suivante, candidate)
+def prochaine_apres_paiement(date_paiement: date, jour: int) -> date:
+    """Prochaine échéance d'un service mensuel (lot 96) : UN MOIS APRÈS le dernier paiement constaté, sur le jour du mois précisé.
+    On vise « date du paiement + 1 mois » et on retient l'occurrence du jour du mois la PLUS PROCHE de cette cible (strictement après le paiement) :
+    payé le 20/11, jour 15 → cible 20/12 → échéance le 15/12 ; payé le 10/11 → cible 10/12 → 15/12 ; payé le 01/12 → cible 01/01 → 15/01.
+    Le 31 devient le dernier jour des mois plus courts."""
+    annee, mois = (date_paiement.year + 1, 1) if date_paiement.month == 12 else (date_paiement.year, date_paiement.month + 1)
+    cible = date(annee, mois, min(date_paiement.day, calendar.monthrange(annee, mois)[1]))
+    candidates = []
+    for decalage in (-1, 0, 1):
+        a, m = cible.year, cible.month + decalage
+        if m == 0:
+            a, m = a - 1, 12
+        elif m == 13:
+            a, m = a + 1, 1
+        c = occurrence(a, m, jour)
+        if c > date_paiement:
+            candidates.append(c)
+    return min(candidates, key=lambda c: (abs((c - cible).days), -c.toordinal()))
+
+
+def echeance_depuis_historique(doc: dict) -> Optional[date]:
+    """Échéance d'après le DERNIER paiement constaté de l'historique (date de règlement la plus récente) ; None s'il n'y a aucun paiement enregistré."""
+    dates = []
+    for p in historique(doc):
+        try:
+            dates.append(date.fromisoformat(str(p.get("paye_le") or "")[:10]))
+        except ValueError:
+            continue
+    return prochaine_apres_paiement(max(dates), jour_du_service(doc)) if dates else None
 
 
 def jour_du_service(doc: dict) -> int:
@@ -392,9 +412,10 @@ async def admin_modifier(service_id: str, payload: ServiceModif, user: dict = De
     if "service" in maj:
         maj["service"] = maj["service"].strip()
     if "jour_du_mois" in maj and doc.get("prochaine_echeance"):
-        # Lot 95 : la prochaine échéance recalculée garde son mois et prend le nouveau jour du mois
+        # Lot 96 : avec des paiements, la prochaine échéance = 1 mois après le dernier paiement sur le NOUVEAU jour ; sinon elle garde son mois
+        depuis = echeance_depuis_historique({**doc, "jour_du_mois": maj["jour_du_mois"]})
         p = date.fromisoformat(doc["prochaine_echeance"])
-        maj["prochaine_echeance"] = occurrence(p.year, p.month, maj["jour_du_mois"]).isoformat()
+        maj["prochaine_echeance"] = (depuis or occurrence(p.year, p.month, maj["jour_du_mois"])).isoformat()
     if "jour_du_mois" in maj and not doc.get("echeance_payee"):
         # Rien encore réglé : la 1re échéance suit le nouveau jour (même mois que l'ancienne échéance en cours)
         ancienne = echeance_courante(doc)
@@ -425,14 +446,13 @@ async def admin_paiement(service_id: str, payload: PaiementCorps, user: dict = D
            "dernier_paiement_reference": payload.reference.strip()}
     if not est_unique(doc):
         entree["echeance_avant"] = doc.get("echeance_payee")           # pour pouvoir annuler ce paiement (lot 94)
-        entree["prochaine_avant"] = doc.get("prochaine_echeance")
         if payload.echeance_reglee:
             reglee = echeance_courante(doc)
             maj["echeance_payee"] = reglee.isoformat()
             if not doc.get("premiere_echeance"):
                 maj["premiere_echeance"] = reglee.isoformat()
-            # Lot 95 : la prochaine échéance se recalcule d'après la date de règlement, sur le jour du mois précisé
-            maj["prochaine_echeance"] = prochaine_apres_reglement(reglee, date.fromisoformat(payload.paye_le[:10]), jour_du_service(doc)).isoformat()
+            # Lot 96 : la prochaine échéance = 1 mois après le DERNIER paiement constaté (date la plus récente), sur le jour du mois précisé
+            maj["prochaine_echeance"] = echeance_depuis_historique({**doc, "paiements": historique(doc) + [entree]}).isoformat()
     await db.services_web.update_one({"id": service_id}, {"$set": maj, "$push": {"paiements": entree}})
     return _vue(await db.services_web.find_one({"id": service_id}, {"_id": 0}))
 
@@ -496,17 +516,15 @@ async def admin_utiliser_paiements_sms(service_id: str, payload: SmsCorps, user:
         entree = {"id": str(uuid.uuid4()), "paye_le": t["recu_le"], "montant": t["montant"], "reference": t["reference_proposee"], "source": "sms", "sms_id": t["id"]}
         if not est_unique(courant):
             entree["echeance_avant"] = courant.get("echeance_payee")
-            entree["prochaine_avant"] = courant.get("prochaine_echeance")
             reglee = echeance_courante(courant)                                                     # chaque paiement règle l'échéance en cours
             courant["echeance_payee"] = reglee.isoformat()
-            courant["prochaine_echeance"] = prochaine_apres_reglement(reglee, date.fromisoformat(t["recu_le"][:10]), jour_du_service(courant)).isoformat()
             courant.setdefault("premiere_echeance", courant["echeance_payee"])
         nouvelles.append(entree)
     dernier = nouvelles[-1]
     maj = {"dernier_paiement_le": dernier["paye_le"], "dernier_paiement_montant": dernier["montant"], "dernier_paiement_reference": dernier["reference"]}
     if not est_unique(doc):
         maj["echeance_payee"] = courant["echeance_payee"]
-        maj["prochaine_echeance"] = courant["prochaine_echeance"]
+        maj["prochaine_echeance"] = echeance_depuis_historique({**doc, "paiements": historique(doc) + nouvelles}).isoformat()      # lot 96 : 1 mois après le dernier paiement constaté
         if not doc.get("premiere_echeance"):
             maj["premiere_echeance"] = courant["premiere_echeance"]
     await db.services_web.update_one({"id": service_id}, {"$set": maj, "$push": {"paiements": {"$each": nouvelles}}})
@@ -515,8 +533,7 @@ async def admin_utiliser_paiements_sms(service_id: str, payload: SmsCorps, user:
 
 @router.delete("/admin/services-web/{service_id}/paiements/{paiement_id}")
 async def admin_annuler_paiement(service_id: str, paiement_id: str, user: dict = Depends(get_current_user)):
-    """Lot 94 — annule un paiement enregistré par erreur (un paiement SMS redevient disponible). Service mensuel : seul le DERNIER paiement s'annule (il rend
-    l'échéance qu'il avait réglée)."""
+    """Lot 94 — annule un paiement enregistré par erreur (un paiement SMS redevient disponible). Service mensuel : la prochaine échéance est recalculée d'après les paiements qui restent."""
     _exiger_super_admin(user)
     doc = await db.services_web.find_one({"id": service_id}, {"_id": 0})
     if not doc:
@@ -526,17 +543,62 @@ async def admin_annuler_paiement(service_id: str, paiement_id: str, user: dict =
     if index is None:
         raise HTTPException(status_code=404, detail="Paiement introuvable")
     maj: dict = {}
-    if not est_unique(doc):
-        if index != len(liste) - 1:
-            raise HTTPException(status_code=409, detail="Annulez d'abord les paiements plus récents : seul le dernier paiement d'un service mensuel peut être annulé")
-        maj["echeance_payee"] = liste[index].get("echeance_avant")
-        maj["prochaine_echeance"] = liste[index].get("prochaine_avant")
     reste = liste[:index] + liste[index + 1:]
     dernier = reste[-1] if reste else None
+    if not est_unique(doc):
+        # Lot 96 : la prochaine échéance suit les paiements qui restent ; plus aucun paiement → retour à l'état d'avant le tout premier
+        nouvelle = echeance_depuis_historique({**doc, "paiements": reste})
+        if nouvelle:
+            maj["prochaine_echeance"] = nouvelle.isoformat()
+        else:
+            maj["prochaine_echeance"] = None
+            maj["echeance_payee"] = liste[index].get("echeance_avant")
     maj.update({"paiements": reste, "dernier_paiement_le": dernier.get("paye_le") if dernier else None,
                 "dernier_paiement_montant": dernier.get("montant") if dernier else None, "dernier_paiement_reference": dernier.get("reference") if dernier else None})
     await db.services_web.update_one({"id": service_id}, {"$set": maj})
     return _vue(await db.services_web.find_one({"id": service_id}, {"_id": 0}))
+
+
+def construire_recu(doc: dict, paiement_id: str, jour: Optional[date] = None) -> Optional[dict]:
+    """Lot 96 — REÇU d'un paiement de service web (logique pure, testée) : numéro, service, date, montant, référence, origine, et la PROCHAINE ÉCHÉANCE
+    (service mensuel : un mois après CE paiement, sur le jour du mois) ou le reste à payer (montant unique). None si le paiement n'existe pas."""
+    liste = historique(doc)
+    index = next((i for i, p in enumerate(liste) if p.get("id") == paiement_id), None)
+    if index is None:
+        return None
+    p = liste[index]
+    d = date.fromisoformat(str(p["paye_le"])[:10])
+    recu = {"numero": f"RECU-SW-{d.strftime('%Y%m%d')}-{str(p['id'])[:6].upper()}", "service": doc.get("service"), "devise": doc.get("devise") or "FCFA",
+            "mode": "unique" if est_unique(doc) else "mensuel", "paye_le": p["paye_le"], "montant": p["montant"], "reference": p.get("reference"),
+            "origine": "SMS reçu" if p.get("source") == "sms" else "Saisi à la main", "emis_le": (jour or aujourdhui()).isoformat()}
+    if est_unique(doc):
+        cumul = float(sum(float(x.get("montant") or 0) for x in liste[:index + 1]))
+        recu.update({"montant_total": doc.get("montant"), "total_paye_apres": cumul, "reste_apres": max(0.0, float(doc.get("montant") or 0) - cumul), "prochaine_echeance": None})
+    else:
+        recu.update({"jour_du_mois": jour_du_service(doc), "prochaine_echeance": prochaine_apres_paiement(d, jour_du_service(doc)).isoformat()})
+    return recu
+
+
+async def _recu_ou_404(service_id: str, paiement_id: str) -> dict:
+    doc = await db.services_web.find_one({"id": service_id}, {"_id": 0})
+    recu = construire_recu(doc, paiement_id) if doc else None
+    if not recu:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    return recu
+
+
+@router.get("/admin/services-web/{service_id}/paiements/{paiement_id}/recu")
+async def admin_recu(service_id: str, paiement_id: str, user: dict = Depends(get_current_user)):
+    """Lot 96 — reçu imprimable d'un paiement (super-admin)."""
+    _exiger_super_admin(user)
+    return await _recu_ou_404(service_id, paiement_id)
+
+
+@router.get("/me/services-web/{service_id}/paiements/{paiement_id}/recu")
+async def mon_recu(service_id: str, paiement_id: str, user: dict = Depends(get_current_user)):
+    """Lot 96 — reçu imprimable d'un paiement (DG et rôles autorisés à consulter)."""
+    await _exiger_consultation(user)
+    return await _recu_ou_404(service_id, paiement_id)
 
 
 @router.delete("/admin/services-web/{service_id}")

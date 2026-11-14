@@ -5,8 +5,9 @@
   API : GET /me/services-web (albarka_services_web.py) — refusé à tout autre rôle que le DG.
 */
 import React, { useEffect, useState } from "react";
-import { Globe, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
+import { Globe, AlertTriangle, CheckCircle2, Clock, Printer } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
+import { imprimerRecu } from "@/lib/recuServiceWeb";
 
 const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("fr-FR") : "—");
 const fmtHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Aucun paiement enregistré");
@@ -71,7 +72,8 @@ export default function MesServicesWeb() {
                     <div className="text-xs text-muted-foreground">payé {fmtMontant(s.total_paye, s.devise)}</div></>) : "—"}
                   {(s.paiements || []).length > 0 && (
                     <details className="text-left text-xs mt-1"><summary className="cursor-pointer text-muted-foreground">{s.paiements.length} paiement(s)</summary>
-                      <ul className="mt-1 space-y-0.5">{s.paiements.map((p) => (<li key={p.id}>{new Date(p.paye_le).toLocaleDateString("fr-FR")} · {fmtMontant(p.montant, s.devise)} · {p.reference}</li>))}</ul></details>
+                      <ul className="mt-1 space-y-0.5">{s.paiements.map((p) => (<li key={p.id} className="flex flex-wrap items-center gap-2">{new Date(p.paye_le).toLocaleDateString("fr-FR")} · {fmtMontant(p.montant, s.devise)} · {p.reference}
+                        <button type="button" className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5" onClick={() => imprimerRecu(`/me/services-web/${s.id}/paiements/${p.id}/recu`).catch((e) => window.alert(extractError(e)))} title="Imprimer le reçu de ce paiement" aria-label="Imprimer le reçu de ce paiement"><Printer className="w-3 h-3" /> Imprimer le reçu</button></li>))}</ul></details>
                   )}
                 </td>
               </tr>
