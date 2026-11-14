@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "111"
-LOT_LIBELLE = "Clients : partout dans les listes et sélecteurs, la structure s'affiche en gras et bleu suivie de « - » et du responsable (composant NomClient)."
+LOT = "112"
+LOT_LIBELLE = "Règle 18 : première lettre de chaque mot en majuscule dans tous les menus et sous-menus de la barre latérale (fonction titreMenu)."
