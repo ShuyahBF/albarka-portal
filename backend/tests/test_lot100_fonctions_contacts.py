@@ -177,3 +177,33 @@ def test_les_comptes_de_contacts_ne_sont_jamais_comptes_comme_des_clients():
     for fichier in ("albarka_clients.py", "albarka_dashboard.py", "albarka_contenus.py", "albarka_forms.py", "albarka_paie.py", "albarka_reports_mgmt.py", "albarka_wa_inbox.py"):
         texte = (base / fichier).read_text(encoding="utf-8")
         assert '"contact_acces": {"$exists": False}' in texte, f"{fichier} : le filtre « sans comptes de contacts » manque"
+
+def test_journal_des_parcours_du_contact(env):
+    """Lot 104 — connexion, pages, actions et refus d'un contact sont tracés ; consultation réservée au DG et au super-admin."""
+    c, mock_db, run = env
+    c.put("/api/fonctions-contacts/daf", headers=_h("u-dg"), json={"voir": ["documents"], "agir": ["documents"]})
+    c.post("/api/contacts/ct1/acces", headers=_h("u-dg"), json={"fonction": "daf"})
+    compte = run(mock_db.users.find_one({"contact_acces.contact_id": "ct1"}))
+    h = _h(compte["id"])
+    c.get("/api/documents", headers=h)
+    c.get("/api/documents", headers=h)                                     # relue dans la minute : notée une seule fois
+    c.post("/api/documents", headers=h)                                    # action : toujours notée
+    c.post("/api/autre", headers=h)                                        # refusée : notée aussi
+    run(fc.journaliser_connexion(compte, "empreinte"))
+    j = c.get("/api/contacts/ct1/journal", headers=_h("u-dg")).json()["journal"]
+    assert [(x["type"], x["chemin"]) for x in reversed(j)] == [("page", "/api/documents"), ("action", "/api/documents"), ("refus", "/api/autre"), ("connexion", "/api/auth")]
+    assert j[0]["connexion"] == "empreinte" and j[0]["nom"] == "Awa BADINI" and j[0]["fonction"] == "daf"
+    assert j[1]["statut"] == 403 and "lecture seule" in j[1]["motif"]
+    assert c.get("/api/contacts/ct1/journal", headers=_h("u-secr")).status_code == 403
+    assert len(c.get("/api/journal-contacts?client_id=cli1", headers=_h("u-sup")).json()["journal"]) == 4
+    assert c.get("/api/journal-contacts?client_id=autre", headers=_h("u-sup")).json()["journal"] == []
+    assert c.get("/api/journal-contacts?du=2999-01-01", headers=_h("u-sup")).json()["journal"] == []
+
+
+def test_a_journaliser_regles():
+    d = {}
+    assert not fc.a_journaliser("GET", "/api/presence/ping", 0, d, "x")              # sondage : pas de trace
+    assert fc.a_journaliser("GET", "/api/documents", 100.0, d, "x")
+    assert not fc.a_journaliser("GET", "/api/documents", 130.0, d, "x")             # même page dans la minute
+    assert fc.a_journaliser("GET", "/api/documents", 161.0, d, "x")                 # plus d'une minute après
+    assert fc.a_journaliser("POST", "/api/documents", 162.0, d, "x")                # écriture : toujours

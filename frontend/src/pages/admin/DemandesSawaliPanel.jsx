@@ -61,6 +61,14 @@ export default function DemandesSawaliPanel() {
       charger();
     } catch (e) { toast.error(extractError(e)); charger(); }
   };
+  // RAFRAÎCHISSEMENT AUTOMATIQUE : tant que cet écran est ouvert, les statuts sont relus chez SAWALI toutes les 2 minutes (sans rien remonter), puis la liste est rechargée.
+  // Le serveur fait aussi cette relecture toutes les 15 minutes même écran fermé.
+  useEffect(() => {
+    const relire = () => { if (document.visibilityState === "visible") apiClient.post("/demandes-sawali/relire").then(() => charger()).catch(() => {}); };
+    const t = setInterval(relire, 120000);
+    return () => clearInterval(t);
+  }, [charger]);
+
   // Remonte les nouvelles demandes puis relit les numéros, statuts et commentaires
   const envoyer = async () => {
     setEnvoi(true);

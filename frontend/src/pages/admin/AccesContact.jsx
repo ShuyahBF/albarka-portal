@@ -2,7 +2,7 @@
 // À l'ouverture, un mot de passe PROVISOIRE est montré UNE SEULE FOIS (à transmettre au contact) ; le contact peut ensuite se connecter comme un client.
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CalendarX, Copy, KeyRound, Save, ShieldOff, ShieldCheck, X } from "lucide-react";
+import { CalendarX, Copy, Fingerprint, History, KeyRound, MessageCircle, RefreshCw, Save, ShieldOff, ShieldCheck, X } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,8 @@ export default function AccesContact({ contact, onFermer }) {
   const [fonction, setFonction] = useState(contact.function || "autre");
   const [fin, setFin] = useState("");
   const [provisoire, setProvisoire] = useState("");       // montré une seule fois
+  const [pin, setPin] = useState(null);                   // { pin, numero_whatsapp, envoye_whatsapp } : PIN WhatsApp montré une seule fois
+  const [journal, setJournal] = useState(null);           // parcours du contact (connexions, pages, actions, refus)
 
   const charger = useCallback(async () => {
     try {
@@ -25,6 +27,20 @@ export default function AccesContact({ contact, onFermer }) {
     } catch (err) { toast.error(extractError(err)); }
   }, [contact.id]);
   useEffect(() => { charger(); }, [charger]);
+
+  // Parcours du contact : relu à l'ouverture et à chaque appui sur « Actualiser » (règle 17 : toast « en cours » puis résultat)
+  const lireJournal = useCallback(async (manuel = false) => {
+    if (manuel) toast.info("Actualisation du parcours en cours…");
+    try { const { data } = await apiClient.get(`/contacts/${contact.id}/journal`, { params: { limit: 100 } }); setJournal(data.journal); if (manuel) toast.success(`${data.journal.length} ligne(s) de parcours.`); }
+    catch (err) { toast.error(extractError(err)); }
+  }, [contact.id]);
+  useEffect(() => { lireJournal(); }, [lireJournal]);
+
+  // PIN de connexion par WhatsApp (route existante /staff-pin) : montré UNE fois, envoyé par WhatsApp si demandé
+  const genererPin = async (envoyer) => {
+    try { const { data } = await apiClient.post(`/staff-pin/${acces.compte_id}`, { envoyer_whatsapp: envoyer }); setPin(data); toast.success(envoyer ? "PIN généré et envoyé par WhatsApp" : "PIN généré"); }
+    catch (err) { toast.error(extractError(err)); }
+  };
 
   const agir = async (requete, message) => {
     try { const { data } = await requete(); if (data?.mot_de_passe_provisoire) setProvisoire(data.mot_de_passe_provisoire); toast.success(message); await charger(); }
@@ -65,6 +81,32 @@ export default function AccesContact({ contact, onFermer }) {
                 {fin && <Button variant="outline" onClick={() => setFin("")} title="Sans date de fin" aria-label="Effacer la date de fin"><CalendarX className="h-4 w-4" /></Button>}
               </div>
               <p className="mt-1 text-xs text-muted-foreground">L'accès cesse à la fin de ce jour. Vide = sans limite.</p>
+            </div>
+            {acces.ouvert && (
+              <div className="space-y-2 rounded-lg border p-3" data-testid="acces-connexion">
+                <p className="text-sm font-semibold">Façons de se connecter</p>
+                <p className="text-xs text-muted-foreground">E-mail + mot de passe + code (toujours possible). Par WhatsApp : numéro + PIN + code reçu par WhatsApp. Par empreinte : enrôlement par le DG.</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={() => genererPin(false)} disabled={!acces.whatsapp} title={acces.whatsapp ? "Générer un PIN de connexion par WhatsApp" : "Ajoutez d'abord son téléphone WhatsApp à la fiche"} data-testid="acces-pin"><MessageCircle className="mr-1 h-4 w-4" />PIN WhatsApp</Button>
+                  <Button variant="outline" size="sm" onClick={() => genererPin(true)} disabled={!acces.whatsapp} title="Générer le PIN et l'envoyer par WhatsApp" data-testid="acces-pin-envoyer"><MessageCircle className="mr-1 h-4 w-4" />PIN + envoi</Button>
+                  <a href="/admin/empreintes" className="inline-flex items-center rounded-md border px-3 py-1 text-sm hover:bg-slate-50" title="Page « Empreintes digitales » (DG) : code d'enrôlement"><Fingerprint className="mr-1 h-4 w-4" />Empreinte</a>
+                </div>
+                {pin && <p className="rounded bg-amber-50 p-2 text-sm text-amber-900" data-testid="acces-pin-valeur">PIN (affiché une seule fois) : <code className="text-lg tracking-widest">{pin.pin}</code> · WhatsApp {pin.numero_whatsapp}{pin.envoye_whatsapp === true ? " · envoyé" : pin.envoye_whatsapp === false ? " · envoi échoué" : ""}</p>}
+              </div>
+            )}
+            <div className="rounded-lg border p-3" data-testid="acces-journal">
+              <div className="flex items-center gap-2"><History className="h-4 w-4 text-[#0B4F8A]" /><p className="flex-1 text-sm font-semibold">Parcours du contact</p>
+                <Button variant="ghost" size="sm" onClick={() => lireJournal(true)} title="Relire le parcours" aria-label="Actualiser le parcours"><RefreshCw className="h-4 w-4" /></Button></div>
+              {journal && journal.length === 0 && <p className="mt-1 text-xs text-muted-foreground">Aucune trace pour l'instant.</p>}
+              <ul className="mt-1 max-h-48 space-y-1 overflow-y-auto text-xs">
+                {(journal || []).map((l) => (
+                  <li key={l.id} className={l.type === "refus" ? "text-red-700" : "text-slate-700"}>
+                    <span className="text-slate-500">{new Date(l.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</span>{" "}
+                    <b>{{ connexion: `Connexion (${l.connexion})`, page: "Page", action: "Action", refus: "Refus" }[l.type] || l.type}</b>{" "}
+                    <span className="font-mono">{l.methode} {l.chemin}</span>{l.motif ? ` — ${l.motif}` : ""}{l.ip ? ` · ${l.ip}` : ""}
+                  </li>
+                ))}
+              </ul>
             </div>
             {provisoire && (
               <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-3" data-testid="acces-provisoire">

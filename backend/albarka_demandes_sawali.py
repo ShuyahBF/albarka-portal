@@ -170,13 +170,11 @@ async def supprimer(demande_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-@router.post("/envoyer")
-async def envoyer(user: dict = Depends(get_current_user)):
-    """Remonte les demandes « à remonter » à SAWALI puis relit le numéro, le statut et le commentaire de toutes les demandes."""
-    _exiger_super_admin(user)
+async def synchroniser(remonter: bool = True) -> Dict[str, int]:
+    """Échange avec SAWALI : remonte les demandes « à remonter » (si `remonter`) puis relit le numéro, le statut, le commentaire et les dates de TOUTES les demandes."""
     from albarka_support_sawali import appeler_sawali   # même canal signé que le support SAWALI
     toutes = await db.demandes_sawali.find({}, {"_id": 0}).to_list(2000)
-    a_envoyer = [d for d in toutes if d.get("statut") == "a_remonter"]
+    a_envoyer = [d for d in toutes if d.get("statut") == "a_remonter"] if remonter else []
     corps = {"demandes": [{"ref_locale": d["id"], "type": d["type"], "texte": d["texte"], "demandee_le": d["demandee_le"],
                            "demandee_par": d.get("demandee_par")} for d in a_envoyer]}
     reponse = await appeler_sawali(CHEMIN_SAWALI, corps)
@@ -188,3 +186,25 @@ async def envoyer(user: dict = Depends(get_current_user)):
             champs["remontee_le"] = maintenant
         await db.demandes_sawali.update_one({"id": ref}, {"$set": champs})
     return {"envoyees": len(a_envoyer), "mises_a_jour": len(maj)}
+
+
+async def releve_automatique() -> Optional[Dict[str, int]]:
+    """RELECTURE AUTOMATIQUE (planificateur, toutes les 15 minutes) : seulement s'il existe des demandes remontées et pas encore validées (réalisée / refusée).
+    Ne remonte rien de nouveau (c'est le bouton « Envoyer à SAWALI ») : elle ne fait que relire les statuts. Rend None si rien à suivre."""
+    if not await db.demandes_sawali.find_one({"statut": "remontee"}, {"_id": 1}):
+        return None
+    return await synchroniser(remonter=False)
+
+
+@router.post("/envoyer")
+async def envoyer(user: dict = Depends(get_current_user)):
+    """Remonte les demandes « à remonter » à SAWALI puis relit le numéro, le statut et le commentaire de toutes les demandes."""
+    _exiger_super_admin(user)
+    return await synchroniser(remonter=True)
+
+
+@router.post("/relire")
+async def relire(user: dict = Depends(get_current_user)):
+    """Relit les statuts SANS rien remonter (appelée par l'écran ouvert, automatiquement, ou par le bouton « Actualiser »)."""
+    _exiger_super_admin(user)
+    return await releve_automatique() or {"envoyees": 0, "mises_a_jour": 0}

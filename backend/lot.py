@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "101"
-LOT_LIBELLE = "Fonctions des contacts (lot 100 : profils à cases voir / agir, liste extensible gérée par le DG) et accès des contacts au portail (lot 101 : fonction, date de fin, révocation, vue limitée du client)."
+LOT = "105"
+LOT_LIBELLE = "Contacts des clients : boutons d'écriture masqués selon « agir », écran « Parcours des contacts » par client et par période (export CSV), comptes de contacts exclus de toutes les listes de clients."
