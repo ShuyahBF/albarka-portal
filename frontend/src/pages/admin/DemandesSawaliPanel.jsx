@@ -69,6 +69,19 @@ export default function DemandesSawaliPanel() {
     return () => clearInterval(t);
   }, [charger]);
 
+  // « Actualiser » : interroge SAWALI (statut, commentaire et date des demandes remontées) puis recharge la liste. Avant, le bouton ne relisait que la liste locale :
+  // une demande traitée chez SAWALI n'apparaissait qu'au passage du serveur (15 min) ou de la relecture automatique de l'écran (2 min).
+  const [relecture, setRelecture] = useState(false);
+  const actualiser = async () => {
+    setRelecture(true);
+    const attente = toast.loading("Actualisation des demandes en cours… (lecture chez SAWALI)");
+    try {
+      const { data: r } = await apiClient.post("/demandes-sawali/relire");
+      await charger();
+      toast.success(r.mises_a_jour ? `${r.mises_a_jour} demande(s) mise(s) à jour d'après SAWALI.` : "Demandes relues chez SAWALI : aucun changement.", { id: attente });
+    } catch (e) { toast.error(extractError(e), { id: attente }); } finally { setRelecture(false); }
+  };
+
   // Remonte les nouvelles demandes puis relit les numéros, statuts et commentaires
   const envoyer = async () => {
     setEnvoi(true);
@@ -92,7 +105,7 @@ export default function DemandesSawaliPanel() {
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <span>{data.total} demande(s) : {c.a_remonter || 0} à remonter · {c.remontee || 0} en attente · {c.realisee || 0} réalisée(s) · {c.refusee || 0} refusée(s)</span>
         <Button onClick={envoyer} disabled={envoi} data-testid="btn-envoyer-sawali"><Send className="w-4 h-4 mr-1" /> Envoyer à SAWALI</Button>
-        <Button variant="outline" onClick={charger}><RefreshCw className="w-4 h-4 mr-1" /> Recharger</Button>
+        <Button variant="outline" onClick={actualiser} disabled={relecture} title="Relire le statut des demandes chez SAWALI" data-testid="btn-actualiser-sawali"><RefreshCw className={`w-4 h-4 mr-1 ${relecture ? "animate-spin" : ""}`} /> Actualiser</Button>
       </div>
 
       <div className="albarka-card p-4 grid gap-3 sm:grid-cols-[200px_1fr_auto] items-end">
