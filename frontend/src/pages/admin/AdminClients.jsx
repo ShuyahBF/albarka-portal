@@ -24,10 +24,12 @@ import { filtrerClients } from "@/lib/rechercheClients";   // lot 29 : recherche
 // Doivent rester identiques aux listes équivalentes côté backend (albarka_models.py).
 const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
 import { X as Ico15X } from "lucide-react";
+import ChampsNom from "@/components/ChampsNom";   // NOM + Prénoms (règle 14/11/2026)
+import { nomDepuisFiche, assemblerNom } from "@/lib/noms";
 const VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"];
 
 const emptyForm = () => ({
-  email: "", full_name: "", company: "", phone: "", whatsapp_number: "", password: "",
+  email: "", nom: "", prenoms: "", full_name: "", company: "", phone: "", whatsapp_number: "", password: "",
   ifu: "", rccm: "", cnss_number: "",     // lot 30 : identité de la société, reprise sur les bulletins de paie
   can_receive_notifications: true, is_active: true,
 });
@@ -81,7 +83,7 @@ export default function AdminClients() {
     setEditing(c);
     setForm({
       email: c.email || "",
-      full_name: c.full_name || "",
+      full_name: c.full_name || "", ...nomDepuisFiche(c),
       company: c.company || "",
       phone: c.phone || "",
       whatsapp_number: c.whatsapp_number || "",
@@ -95,12 +97,12 @@ export default function AdminClients() {
 
   const submit = async () => {
     if (editing) {
-      if (!form.full_name) {
+      if (!assemblerNom(form.nom, form.prenoms)) {
         toast.error("Nom requis"); return;
       }
       try {
         await apiClient.patch(`/clients/${editing.id}`, {
-          full_name: form.full_name,
+          nom: form.nom, prenoms: form.prenoms,   // le serveur corrige l'orthographe et assemble le nom complet
           company: form.company || null,
           phone: form.phone || null,
           whatsapp_number: form.whatsapp_number || null,
@@ -120,7 +122,7 @@ export default function AdminClients() {
       return;
     }
     // Lot 19 : e-mail OU numéro WhatsApp ; mot de passe seulement avec un e-mail (sinon connexion WhatsApp + PIN)
-    if (!form.full_name) { toast.error("Nom requis"); return; }
+    if (!assemblerNom(form.nom, form.prenoms)) { toast.error("Nom requis"); return; }
     if (!form.email && !form.whatsapp_number && !form.phone) {
       toast.error("Renseignez l'e-mail ou le numéro WhatsApp du client"); return;
     }
@@ -196,7 +198,7 @@ export default function AdminClients() {
                   data-testid="client-email-input"
                 />
               </div>
-              <div><Label>Nom complet</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="client-name-input" /></div>
+              <ChampsNom form={form} setForm={setForm} testid="client" />
               <div><Label>Entreprise</Label><Input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} data-testid="client-company-input" /></div>
               <div><Label>Téléphone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="client-phone-input" /></div>
               <div>

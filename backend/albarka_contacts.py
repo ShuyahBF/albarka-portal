@@ -17,7 +17,8 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from albarka_noms import normaliser_entree, completer_document
 
 from albarka_auth import get_current_user, require_staff
 from albarka_models import is_client, tenant_id_of
@@ -40,7 +41,16 @@ CONTACT_CATEGORIES = [
 class ContactCreate(BaseModel):
     scope: str = Field(..., description="'client' ou 'cabinet'")
     tenant_id: Optional[str] = Field(None, description="Requis si scope=client")
-    full_name: str = Field(..., min_length=1, max_length=200)
+    full_name: str = Field("", max_length=200)
+    # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    nom: Optional[str] = Field(None, max_length=120)
+    prenoms: Optional[str] = Field(None, max_length=160)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _noms(cls, data):
+        return normaliser_entree(data)
+
     function: str = Field("autre")
     organization: Optional[str] = Field(None, max_length=200)
     email: Optional[EmailStr] = None
@@ -78,6 +88,15 @@ class ContactCreate(BaseModel):
 
 class ContactUpdate(BaseModel):
     full_name: Optional[str] = None
+    # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    nom: Optional[str] = Field(None, max_length=120)
+    prenoms: Optional[str] = Field(None, max_length=160)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _noms(cls, data):
+        return normaliser_entree(data)
+
     function: Optional[str] = None
     organization: Optional[str] = None
     email: Optional[EmailStr] = None
@@ -159,6 +178,8 @@ async def create_contact(payload: ContactCreate, user: dict = Depends(require_st
         exists = await db.users.find_one({"id": tenant_id, "roles": "client"}, {"_id": 0, "id": 1})
         if not exists:
             raise HTTPException(status_code=404, detail="Client introuvable")
+    if not payload.full_name.strip():
+        raise HTTPException(status_code=400, detail="Le nom est requis")
     if not payload.email and not payload.phone:
         raise HTTPException(status_code=400, detail="Au moins un email ou un téléphone est requis")
     await _verifier_fonction(payload.function)
@@ -168,6 +189,7 @@ async def create_contact(payload: ContactCreate, user: dict = Depends(require_st
         "scope": scope,
         "tenant_id": tenant_id,
         "full_name": payload.full_name.strip(),
+        "nom": payload.nom, "prenoms": payload.prenoms,
         "function": payload.function,
         "organization": (payload.organization or "").strip() or None,
         "email": (payload.email or "").lower() or None,

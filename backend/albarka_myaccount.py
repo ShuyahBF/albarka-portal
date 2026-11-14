@@ -26,7 +26,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from albarka_noms import normaliser_entree, completer_document
 
 from albarka_ai import analyze_document
 from albarka_auth import get_current_user, hash_password, verify_password
@@ -60,6 +61,15 @@ MAX_KYC_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 Mo
 # ---------------------------------------------------------------------
 class AccountUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    nom: Optional[str] = Field(None, max_length=120)
+    prenoms: Optional[str] = Field(None, max_length=160)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _noms(cls, data):
+        return normaliser_entree(data)
+
     phone: Optional[str] = Field(None, max_length=40)
     whatsapp_number: Optional[str] = Field(None, max_length=40)
     can_receive_notifications: Optional[bool] = None
@@ -72,7 +82,7 @@ class PasswordChange(BaseModel):
 
 @router.get("/account")
 async def get_my_account(user: dict = Depends(get_current_user)):
-    return serialize(user)
+    return serialize(completer_document(user))
 
 
 @router.patch("/account")
