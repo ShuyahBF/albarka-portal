@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "99"
-LOT_LIBELLE = "Règles 15 et 16 : un pictogramme sur chaque bouton à texte (une centaine) et en-têtes de tableaux colorés (bleu sobre) sur tout le portail."
+LOT = "101"
+LOT_LIBELLE = "Fonctions des contacts (lot 100 : profils à cases voir / agir, liste extensible gérée par le DG) et accès des contacts au portail (lot 101 : fonction, date de fin, révocation, vue limitée du client)."

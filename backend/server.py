@@ -22,6 +22,7 @@ from albarka_chat_extra import router as chat_extra_router  # noqa: E402
 from albarka_clients import router as clients_router  # noqa: E402
 from albarka_contact_groups import router as contact_groups_router  # noqa: E402
 from albarka_contacts import router as contacts_router  # noqa: E402
+from albarka_fonctions_contacts import router as fonctions_contacts_router  # noqa: E402  (lots 100-101)
 from albarka_contacts_import import router as contacts_import_router  # noqa: E402
 from albarka_contracts import me_router as contracts_me_router, router as contracts_router  # noqa: E402
 from albarka_dashboard import router as dashboard_router  # noqa: E402
@@ -131,6 +132,7 @@ api_router.include_router(branding_router)
 api_router.include_router(signing_router)
 api_router.include_router(clients_router)
 api_router.include_router(contacts_router)
+api_router.include_router(fonctions_contacts_router)   # lots 100-101 : fonctions des contacts et accès de ces contacts
 api_router.include_router(contacts_import_router)
 api_router.include_router(contact_groups_router)
 api_router.include_router(dashboard_router)

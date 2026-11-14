@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Star, Trash2, Pencil, Users, Building, Users2, Contact as ContactIcon } from "lucide-react";
+import { Plus, Star, Trash2, Pencil, Users, Building, Users2, Contact as ContactIcon, KeyRound } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,8 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ImportContactsButton from "@/pages/admin/ImportContactsButton";
+import AccesContact from "@/pages/admin/AccesContact";      // lot 101 : accès d'un contact au portail
+import { useAuth } from "@/contexts/AuthContext";
 import { ContactGroupsPanel } from "@/pages/admin/ContactGroupsPanel";
 
 import { X as Ico15X } from "lucide-react";
@@ -39,6 +41,7 @@ const FUNCTIONS = [
   { value: "autre", label: "Autre" },
 ];
 
+// Liste de repli (hors ligne) ; la vraie liste vient du serveur (fonctions-contacts) : elle est extensible et gérée par le DG.
 const emptyForm = () => ({
   full_name: "", function: "autre", organization: "",
   email: "", phone: "",
@@ -53,6 +56,13 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm());
+  const { user } = useAuth();
+  const peutOuvrirAcces = scope === "client" && (user?.roles || []).some((r) => r === "dg" || r === "superviseur");    // DG et super-admin seulement
+  const [accesDe, setAccesDe] = useState(null);                 // contact dont on règle l'accès au portail
+  const [fonctions, setFonctions] = useState(FUNCTIONS);        // [{ value, label }]
+  useEffect(() => {
+    apiClient.get("/fonctions-contacts").then(({ data }) => setFonctions(data.fonctions.map((f) => ({ value: f.code, label: f.libelle })))).catch(() => {});
+  }, []);
 
   const load = async () => {
     setLoading(true);
@@ -190,7 +200,7 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
                   </div>
                   {c.organization && <div className="text-xs text-muted-foreground">{c.organization}</div>}
                 </TableCell>
-                <TableCell className="text-sm">{FUNCTIONS.find((f) => f.value === c.function)?.label || c.function}</TableCell>
+                <TableCell className="text-sm">{fonctions.find((f) => f.value === c.function)?.label || c.function}</TableCell>
                 <TableCell className="text-sm">{c.email || "—"}</TableCell>
                 <TableCell className="text-sm">{c.phone || "—"}</TableCell>
                 <TableCell>
@@ -211,6 +221,11 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
                       <Star className="w-4 h-4 text-[#E5A24B]" />
                     </Button>
                   )}
+                  {peutOuvrirAcces && (
+                    <Button variant="ghost" size="sm" onClick={() => setAccesDe(c)} title="Accès au portail (fonction, date de fin, révocation)" aria-label="Accès au portail" data-testid={`acces-contact-${c.id}`}>
+                      <KeyRound className="w-4 h-4 text-[#0B4F8A]" />
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" onClick={() => openEdit(c)} title="Éditer" data-testid={`edit-contact-${c.id}`}>
                     <Pencil className="w-4 h-4" />
                   </Button>
@@ -224,6 +239,8 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
         </Table>
       </div>
 
+      {accesDe && <AccesContact contact={accesDe} onFermer={() => setAccesDe(null)} />}
+
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent data-testid="contact-dialog">
           <DialogHeader><DialogTitle>{editing ? "Modifier" : "Ajouter"} un contact</DialogTitle></DialogHeader>
@@ -235,7 +252,7 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
                 <Select value={form.function} onValueChange={(v) => setForm({ ...form, function: v })}>
                   <SelectTrigger data-testid="contact-function-select"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {FUNCTIONS.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                    {fonctions.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>

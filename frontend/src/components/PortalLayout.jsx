@@ -172,6 +172,8 @@ const STAFF_MENU = [
   { to: "/admin/outils-numeriques", label: "Outils Numériques", icon: HardDriveDownload, end: true, alwaysAllowed: true },
   // Lot 89 : enrôlement des empreintes digitales — DG uniquement (fonction activée par le super-admin)
   { to: "/admin/empreintes", label: "Empreintes digitales", icon: Fingerprint, dgOnly: true, depuis: "2026-11-13" },
+  // Lot 100 : fonctions des contacts (profils d'accès) — DG et super-admin seulement
+  { to: "/admin/fonctions-contacts", label: "Fonctions des contacts", icon: Briefcase, dgOuSuper: true, depuis: "2026-11-14" },
   // Lot 92 : demandes de corrections / nouveautés à SAWALI — DG, Direction, Secrétariat (mêmes droits ; le DG hérite de la Direction)
   { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-13" },
   // Lot 90 : frais des services web, rappelés au DG (configurés par le super-admin) — DG uniquement
@@ -207,6 +209,8 @@ export function estNouveau(link, maintenant = Date.now()) {
 function allowedFor(link, roles, email = "") {
   // Lot 89 : réservé au DG (ni le super-admin, ni la Direction)
   if (link.dgOnly) return roles.includes("dg");
+  // Lot 100 : réservé au DG ET au super-admin
+  if (link.dgOuSuper) return roles.includes("dg") || roles.includes("superviseur");
   // Réservé au compte admin du portail, quel que soit le rôle
   if (link.superAdminOnly) return (email || "").toLowerCase() === ADMIN_ACCOUNT_EMAIL;
   if (link.alwaysAllowed) return true;
