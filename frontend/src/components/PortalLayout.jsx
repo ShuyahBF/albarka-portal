@@ -173,6 +173,7 @@ const STAFF_MENU = [
   // Lot 89 : enrôlement des empreintes digitales — DG uniquement (fonction activée par le super-admin)
   { to: "/admin/empreintes", label: "Empreintes digitales", icon: Fingerprint, dgOnly: true, depuis: "2026-11-13" },
   // Lot 100 : fonctions des contacts (profils d'accès) — DG et super-admin seulement
+  { to: "/admin/journal-contacts", label: "Parcours des contacts", icon: History, dgOuSuper: true, depuis: "2026-11-14" },   // lot 105 : journal des contacts des clients
   { to: "/admin/fonctions-contacts", label: "Fonctions des contacts", icon: Briefcase, dgOuSuper: true, depuis: "2026-11-14" },
   // Lot 92 : demandes de corrections / nouveautés à SAWALI — DG, Direction, Secrétariat (mêmes droits ; le DG hérite de la Direction)
   { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-13" },
@@ -262,7 +263,8 @@ export default function PortalLayout({ admin = false }) {
   const links = admin
     ? STAFF_MENU.filter((l) => (l.servicesWeb ? (roles.includes("dg") || accesServicesWeb) : allowedFor(l, roles, user?.email)) || (canIssueTokens && l.to === "/admin/staff"))
     // Espace client : seuls les modules ouverts par le cabinet (aucun réglage = tous)
-    : CLIENT_LINKS.filter((l) => !l.module || !Array.isArray(user?.portal_modules) || user.portal_modules.includes(l.module));
+    // Un CONTACT du client (lots 100-104) ne gère pas le compte du client : « Mon compte » ne lui est pas proposé
+    : CLIENT_LINKS.filter((l) => (!l.module || !Array.isArray(user?.portal_modules) || user.portal_modules.includes(l.module)) && !(user?.contact_nom && l.to === "/portal/mon-compte"));
   // Rôle sans « Tableau de bord » dans son menu (ex. Administrateur, Caissier,
   // Communication, Formulaires) : à l'arrivée sur /admin, on ouvre sa page
   // d'accueil — « Personnels » s'il gère le personnel (Administrateur), sinon

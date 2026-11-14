@@ -367,7 +367,7 @@ async def list_employers(user: dict = Depends(require_roles(HR_ROLES))):
         counts[e.get("tenant_id")] = counts.get(e.get("tenant_id"), 0) + 1
     out = []
     cab = await _employer_identity(CABINET_ID)
-    clients = await db.users.find({"roles": "client"}, {"_id": 0, "id": 1, "company": 1, "full_name": 1}).sort("company", 1).to_list(2000)
+    clients = await db.users.find({"roles": "client", "contact_acces": {"$exists": False}}, {"_id": 0, "id": 1, "company": 1, "full_name": 1}).sort("company", 1).to_list(2000)
     rows = [{"employer_id": CABINET_ID, "name": cab["name"], "kind": "cabinet"}] + [
         {"employer_id": c["id"], "name": c.get("company") or c.get("full_name") or c["id"], "kind": "client"} for c in clients]
     for r in rows:

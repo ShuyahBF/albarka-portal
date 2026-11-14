@@ -164,7 +164,7 @@ def _public(user: dict) -> dict:
 async def list_clients(user: dict = Depends(require_staff())):
     # Comptes de test : visibles du superviseur uniquement
     docs = await db.users.find(
-        {"roles": "client", **hide_test_accounts_filter(user)}, {"_id": 0, "password_hash": 0}
+        {"roles": "client", "contact_acces": {"$exists": False}, **hide_test_accounts_filter(user)}, {"_id": 0, "password_hash": 0}   # lot 100 : jamais les comptes de contacts
     ).sort("created_at", -1).to_list(1000)
     # Lot 19 : adresse technique des clients sans e-mail masquée (champ vide + « sans_email »)
     identites = await _identites([d["id"] for d in docs if d.get("id")])      # lot 30 : IFU, RCCM, CNSS (une seule lecture)

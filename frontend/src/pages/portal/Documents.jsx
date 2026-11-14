@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAgir } from "@/hooks/useAgir";      // lots 100-104 : un contact sans « agir » ne voit pas les boutons d'écriture
 import EntitySelect from "@/components/EntitySelect";
 // Module commun ocr-core (copie identique, source unique : dépôt ShuyahBF/Claude).
 import OcrRunsPanel from "@/components/ocr-core/OcrRunsPanel";
@@ -81,6 +82,8 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
   const [synth, setSynth] = useState({});
   const fileRef = useRef(null);
   const { isClient, user } = useAuth();
+  const { peutAgir } = useAgir();
+  const ecrire = peutAgir("documents");        // faux pour un contact sans la case « agir » sur « Mes pièces »
   const [tenantId, setTenantId] = useState(tenantIdOverride || "");
   // Mesure OCR (cabinet uniquement) : modèles proposés, modèle choisi pour
   // le prochain dépôt, et vue « Pièces » / « Tableau de bord OCR ».
@@ -341,6 +344,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                 />
               </div>
             )}
+            {ecrire && (
             <div>
               <input
                 ref={fileRef}
@@ -361,6 +365,7 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                 {uploading ? "Téléversement…" : "Téléverser une pièce"}
               </Button>
             </div>
+            )}
           </div>
           <p className="text-xs text-muted-foreground mt-3">
             PDF, image (JPG/PNG/WEBP), Word, Excel — 20 Mo max.
@@ -482,9 +487,11 @@ export default function Documents({ tenantIdOverride = null, hideUpload = false 
                         <Button variant="ghost" size="sm" onClick={() => downloadDoc(d)} data-testid={`download-doc-${d.id}`}>
                           <Download className="w-4 h-4" />
                         </Button>
-                        <Button variant="ghost" size="sm" onClick={() => deleteDoc(d)} data-testid={`delete-doc-${d.id}`}>
-                          <Trash2 className="w-4 h-4 text-red-600" />
-                        </Button>
+                        {ecrire && (
+                          <Button variant="ghost" size="sm" onClick={() => deleteDoc(d)} data-testid={`delete-doc-${d.id}`} title="Supprimer" aria-label="Supprimer la pièce">
+                            <Trash2 className="w-4 h-4 text-red-600" />
+                          </Button>
+                        )}
                       </>
                     ) : (
                       <>

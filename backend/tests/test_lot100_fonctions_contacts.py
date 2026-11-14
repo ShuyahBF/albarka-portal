@@ -169,3 +169,11 @@ def test_client_desactive_ou_fiche_desactivee_et_suppression_fonction(env):
     assert c.get("/api/documents", headers=h).status_code == 200
     run(mock_db.users.update_one({"id": "cli1"}, {"$set": {"is_active": False}}))
     assert c.get("/api/documents", headers=h).status_code == 403
+
+
+def test_les_comptes_de_contacts_ne_sont_jamais_comptes_comme_des_clients():
+    """Un compte de contact a le rôle « client » (il voit l'espace du client) : toutes les listes, diffusions et statistiques de CLIENTS l'excluent."""
+    base = Path(__file__).resolve().parents[1]
+    for fichier in ("albarka_clients.py", "albarka_dashboard.py", "albarka_contenus.py", "albarka_forms.py", "albarka_paie.py", "albarka_reports_mgmt.py", "albarka_wa_inbox.py"):
+        texte = (base / fichier).read_text(encoding="utf-8")
+        assert '"contact_acces": {"$exists": False}' in texte, f"{fichier} : le filtre « sans comptes de contacts » manque"

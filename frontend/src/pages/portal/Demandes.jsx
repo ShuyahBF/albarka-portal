@@ -3,6 +3,7 @@
   (fiscalité, RH, comptabilité, autres) par texte, note vocale et pièces jointes,
   et suit l'avancement de ses demandes.
 */
+import { useAgir } from "@/hooks/useAgir";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { apiClient, extractError } from "@/lib/api";
@@ -14,6 +15,7 @@ export const STATUTS = { nouvelle: ["Reçue", "bg-sky-100 text-sky-800"], en_cou
 export const LIBELLES = { fiscalite: "Fiscalité", rh: "Ressources humaines", comptable: "Comptabilité", autres: "Autres demandes" };
 
 export default function Demandes() {
+  const { estContact } = useAgir();       // un contact du client ne peut pas envoyer de demande de services (lecture seule)
   const [liste, setListe] = useState(null);
   const charger = () => apiClient.get("/demandes/mes").then(({ data }) => setListe(data)).catch((e) => { toast.error(extractError(e)); setListe([]); });
   useEffect(() => { charger(); }, []);
@@ -25,9 +27,13 @@ export default function Demandes() {
         <h1 className="font-display text-3xl">Demande de services</h1>
         <p className="text-muted-foreground mt-1">Fiscalité, ressources humaines, comptabilité ou autre : écrivez, parlez ou joignez vos pièces.</p>
       </div>
-      <div className="rounded-xl border bg-white p-5 max-w-2xl">
-        <FormulaireDemande onEnvoyer={async (fd) => { await apiClient.post("/demandes", fd); charger(); }} />
-      </div>
+      {estContact ? (
+        <p className="rounded-xl border bg-slate-50 p-4 text-sm text-slate-700 max-w-2xl" data-testid="demandes-lecture-seule">Votre fonction vous permet de suivre les demandes, pas d'en envoyer : adressez-vous à votre responsable.</p>
+      ) : (
+        <div className="rounded-xl border bg-white p-5 max-w-2xl">
+          <FormulaireDemande onEnvoyer={async (fd) => { await apiClient.post("/demandes", fd); charger(); }} />
+        </div>
+      )}
       <div>
         <h2 className="font-display text-xl mb-3">Mes demandes</h2>
         {liste === null ? <div className="text-sm text-muted-foreground">Chargement…</div>

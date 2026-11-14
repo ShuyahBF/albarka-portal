@@ -573,7 +573,7 @@ async def diffuser_infos_dues(maintenant: Optional[datetime] = None) -> Dict[str
         return bilan
     from albarka_client_space import DEFAULT_BASE_URL   # adresse du site
     lien = DEFAULT_BASE_URL + "/portal/infos"
-    clients = await db.users.find({"roles": "client", "is_active": True, "is_test_account": {"$ne": True},
+    clients = await db.users.find({"roles": "client", "contact_acces": {"$exists": False}, "is_active": True, "is_test_account": {"$ne": True},
                                    "can_receive_notifications": {"$ne": False}}, {"_id": 0, "password_hash": 0}).to_list(2000)
     for doc in dues:
         # Réservation atomique : un seul passage du planificateur envoie cette info
@@ -694,7 +694,7 @@ class RelanceIn(BaseModel):
 
 async def _destinataires_relance(doc: dict, cible: str, maintenant: datetime) -> Dict[str, Any]:
     """Clients à relancer (lecture en bloc) : éligibles WhatsApp, pas relancés récemment."""
-    clients = await db.users.find({"roles": "client", "is_active": True, "is_test_account": {"$ne": True},
+    clients = await db.users.find({"roles": "client", "contact_acces": {"$exists": False}, "is_active": True, "is_test_account": {"$ne": True},
                                    "can_receive_notifications": {"$ne": False}}, {"_id": 0, "password_hash": 0}).to_list(2000)
     achats = {a["tenant_id"] for a in await db.payment_links.find(
         {"kind": "formation", "contenu_id": doc["id"], "status": "completed"}, {"_id": 0, "tenant_id": 1}).to_list(2000)}
