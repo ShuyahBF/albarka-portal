@@ -1,3 +1,4 @@
+import { titreMenu } from "@/lib/titreMenu";   // règle 18 : majuscule à chaque mot des menus
 import React, { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -397,9 +398,9 @@ export default function PortalLayout({ admin = false }) {
                 <div key={`groupe-${G.id}`} data-testid={`sidebar-groupe-${G.id}`}>
                   <button type="button" onClick={G.basculer} aria-expanded={ouvert}
                     className={`albarka-sidebar-link w-full ${actif && !ouvert ? "active" : ""}`}
-                    title={ouvert ? `Replier le menu ${G.libelle}` : `Déplier le menu ${G.libelle}`}>
+                    title={ouvert ? `Replier le menu ${titreMenu(G.libelle)}` : `Déplier le menu ${titreMenu(G.libelle)}`}>
                     <G.Icone className="w-4 h-4" />
-                    <span className="flex-1 text-left">{G.libelle}</span>
+                    <span className="flex-1 text-left">{titreMenu(G.libelle)}</span>
                     <span className="text-[10px] text-white/50">{enfants.length}</span>
                     <ChevronDown className={`w-3.5 h-3.5 transition-transform ${ouvert ? "rotate-180" : ""}`} />
                   </button>
@@ -410,7 +411,7 @@ export default function PortalLayout({ admin = false }) {
                           className={({ isActive }) => `albarka-sidebar-link ${isActive ? "active" : ""}`}
                           data-testid={`sidebar-link-${G.id}-${e.to.split("/").pop()}`}>
                           <e.icon className="w-4 h-4" />
-                          <span className="flex-1">{e.label}</span>
+                          <span className="flex-1">{titreMenu(e.label, e.casseLibre)}</span>
                           {estNouveau(e) && <span className="text-[11px] leading-none" title="Nouveau (moins d'une semaine)" aria-label="Nouveau" data-testid="sidebar-nouveau">🌟</span>}
                         </NavLink>
                       ))}
@@ -438,7 +439,7 @@ export default function PortalLayout({ admin = false }) {
               data-testid={`sidebar-link-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
             >
               <link.icon className="w-4 h-4" />
-              <span className="flex-1">{link.label}</span>
+              <span className="flex-1">{titreMenu(link.label, link.casseLibre)}</span>
               {estNouveau(link) && <span className="text-[11px] leading-none" title="Nouveau (moins d'une semaine)" aria-label="Nouveau" data-testid="sidebar-nouveau">🌟</span>}
               {suspendu && <span className="text-[10px]" aria-label="suspendu">⛔</span>}
               {!!count && (
