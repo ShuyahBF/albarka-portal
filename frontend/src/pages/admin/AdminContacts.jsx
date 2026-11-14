@@ -24,6 +24,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ContactGroupsPanel } from "@/pages/admin/ContactGroupsPanel";
 
 import { X as Ico15X } from "lucide-react";
+import ChampsNom from "@/components/ChampsNom";   // NOM + Prénoms (règle 14/11/2026)
+import { nomDepuisFiche, assemblerNom } from "@/lib/noms";
 const FUNCTIONS = [
   { value: "dg", label: "Directeur Général" },
   { value: "daf", label: "DAF" },
@@ -44,7 +46,7 @@ const FUNCTIONS = [
 
 // Liste de repli (hors ligne) ; la vraie liste vient du serveur (fonctions-contacts) : elle est extensible et gérée par le DG.
 const emptyForm = () => ({
-  full_name: "", function: "autre", organization: "",
+  nom: "", prenoms: "", full_name: "", function: "autre", organization: "",
   email: "", phone: "",
   is_primary: false, can_receive_notifications: true,
   channels: ["email"], notes: "",
@@ -88,7 +90,7 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
   const openEdit = (c) => {
     setEditing(c);
     setForm({
-      full_name: c.full_name || "",
+      full_name: c.full_name || "", ...nomDepuisFiche(c),
       function: c.function || "autre",
       organization: c.organization || "",
       email: c.email || "",
@@ -109,7 +111,7 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
   };
 
   const save = async () => {
-    if (!form.full_name.trim()) { toast.error("Le nom est requis"); return; }
+    if (!assemblerNom(form.nom, form.prenoms)) { toast.error("Le nom est requis"); return; }
     if (!form.email && !form.phone) { toast.error("Email ou téléphone requis"); return; }
     try {
       if (editing) {
@@ -247,7 +249,7 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
           <DialogHeader><DialogTitle>{editing ? "Modifier" : "Ajouter"} un contact</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Nom complet</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="contact-name-input" /></div>
+              <ChampsNom form={form} setForm={setForm} testid="contact" />
               <div>
                 <Label>Fonction</Label>
                 <Select value={form.function} onValueChange={(v) => setForm({ ...form, function: v })}>

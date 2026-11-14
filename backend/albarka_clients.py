@@ -6,7 +6,8 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
+from albarka_noms import normaliser_entree, completer_document
 
 from albarka_auth import get_current_user, hash_password, require_roles, require_staff
 from albarka_admin_settings import get_settings_doc
@@ -42,7 +43,16 @@ class ClientCreate(BaseModel):
     # Lot 19 : e-mail FACULTATIF si le numéro WhatsApp (ou le téléphone) est renseigné — le client se connecte alors
     # par WhatsApp + code PIN. Le mot de passe n'est demandé qu'avec un e-mail.
     email: Optional[EmailStr] = None
-    full_name: str = Field(..., min_length=1, max_length=200)
+    full_name: str = Field("", max_length=200)
+    # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    nom: Optional[str] = Field(None, max_length=120)
+    prenoms: Optional[str] = Field(None, max_length=160)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _noms(cls, data):
+        return normaliser_entree(data)
+
     company: Optional[str] = None
     phone: Optional[str] = None
     # Numéro WhatsApp distinct du téléphone — facultatif, laisser vide si
@@ -57,7 +67,16 @@ class StaffCreate(BaseModel):
     # Lot 18 : e-mail FACULTATIF si le numéro WhatsApp (téléphone) est renseigné — le collaborateur se connecte alors
     # par WhatsApp + code PIN (lot 16). Le mot de passe n'est demandé qu'avec un e-mail (connexion e-mail + code).
     email: Optional[EmailStr] = None
-    full_name: str = Field(..., min_length=1, max_length=200)
+    full_name: str = Field("", max_length=200)
+    # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    nom: Optional[str] = Field(None, max_length=120)
+    prenoms: Optional[str] = Field(None, max_length=160)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _noms(cls, data):
+        return normaliser_entree(data)
+
     roles: List[str] = Field(..., min_length=1)
     company: Optional[str] = None
     phone: Optional[str] = None
@@ -93,6 +112,15 @@ async def _identites(ids: List[str]) -> dict:
 
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
+    # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    nom: Optional[str] = Field(None, max_length=120)
+    prenoms: Optional[str] = Field(None, max_length=160)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _noms(cls, data):
+        return normaliser_entree(data)
+
     company: Optional[str] = None
     phone: Optional[str] = None
     whatsapp_number: Optional[str] = None
@@ -153,6 +181,7 @@ def _identifiants_creation(email: Optional[str], mot_de_passe: Optional[str], te
 
 def _public(user: dict) -> dict:
     user.pop("password_hash", None)
+    completer_document(user)  # règle NOM / Prénoms : comptes anciens pré-découpés pour la fiche
     # Lot 18 : l'adresse technique n'est jamais affichée (champ vide + indicateur « sans e-mail »)
     if est_email_technique(user.get("email")):
         user["email"] = ""
@@ -200,6 +229,8 @@ async def list_staff(user: dict = Depends(require_staff())):
 @router.post("")
 async def create_client(payload: ClientCreate, user: dict = Depends(require_roles(CLIENT_MANAGE_ROLES))):
     # Lot 19 : même règle que le personnel (lot 18) — e-mail OU numéro WhatsApp ; sans e-mail, adresse technique
+    if not payload.full_name.strip():
+        raise HTTPException(status_code=400, detail="Le nom est requis")
     email, mot_de_passe = _identifiants_creation(payload.email, payload.password,
                                                  payload.whatsapp_number or payload.phone, "client")
     existing = await db.users.find_one({"email": email})
@@ -211,6 +242,7 @@ async def create_client(payload: ClientCreate, user: dict = Depends(require_role
         "email": email,
         "password_hash": hash_password(mot_de_passe),
         "full_name": payload.full_name,
+        "nom": payload.nom, "prenoms": payload.prenoms,
         "roles": ["client"],
         "company": payload.company,
         "phone": payload.phone,
@@ -250,6 +282,8 @@ async def create_staff(payload: StaffCreate, user: dict = Depends(require_roles(
             detail="Seul un Administrateur ou le Superviseur peut créer un Administrateur",
         )
     # Lot 18 : e-mail OU numéro WhatsApp obligatoire ; sans e-mail, adresse technique et mot de passe aléatoire
+    if not payload.full_name.strip():
+        raise HTTPException(status_code=400, detail="Le nom est requis")
     email, mot_de_passe = _identifiants_creation(payload.email, payload.password, payload.phone, "collaborateur")
     existing = await db.users.find_one({"email": email})
     if existing:
@@ -260,6 +294,7 @@ async def create_staff(payload: StaffCreate, user: dict = Depends(require_roles(
         "email": email,
         "password_hash": hash_password(mot_de_passe),
         "full_name": payload.full_name,
+        "nom": payload.nom, "prenoms": payload.prenoms,
         "roles": payload.roles,
         "company": payload.company,
         "phone": payload.phone,

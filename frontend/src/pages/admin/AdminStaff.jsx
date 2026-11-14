@@ -19,6 +19,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 
 import { Plus as Ico15Plus, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
+import ChampsNom from "@/components/ChampsNom";   // NOM + Prénoms (règle 14/11/2026)
+import { nomDepuisFiche, assemblerNom } from "@/lib/noms";
 const STAFF_ROLES = [
   { value: "superviseur", label: "Superviseur" },
   { value: "direction", label: "Direction" },
@@ -42,7 +44,7 @@ const STAFF_ROLES = [
 ];
 
 const emptyForm = () => ({
-  email: "", full_name: "", phone: "", password: "", roles: ["comptable"],
+  email: "", nom: "", prenoms: "", full_name: "", phone: "", password: "", roles: ["comptable"],
   can_receive_notifications: true, is_active: true,
 });
 
@@ -144,7 +146,7 @@ export default function AdminStaff() {
     setEditing(s);
     setForm({
       email: s.email || "",
-      full_name: s.full_name || "",
+      full_name: s.full_name || "", ...nomDepuisFiche(s),
       phone: s.phone || "",
       password: "", // not editable here
       roles: s.roles || [],
@@ -157,12 +159,12 @@ export default function AdminStaff() {
   const submit = async () => {
     if (editing) {
       // Edit mode: PATCH (email + password are read-only here)
-      if (!form.full_name || form.roles.length === 0) {
+      if (!assemblerNom(form.nom, form.prenoms) || form.roles.length === 0) {
         toast.error("Nom et au moins un rôle requis"); return;
       }
       try {
         await apiClient.patch(`/clients/${editing.id}`, {
-          full_name: form.full_name,
+          nom: form.nom, prenoms: form.prenoms,   // le serveur corrige l'orthographe et assemble le nom complet
           phone: form.phone || null,
           roles: form.roles,
           can_receive_notifications: form.can_receive_notifications,
@@ -180,7 +182,7 @@ export default function AdminStaff() {
     }
     // Create mode
     // Lot 18 : e-mail OU téléphone WhatsApp ; mot de passe seulement avec un e-mail (sinon connexion WhatsApp + PIN)
-    if (!form.full_name || form.roles.length === 0) {
+    if (!assemblerNom(form.nom, form.prenoms) || form.roles.length === 0) {
       toast.error("Nom et au moins un rôle requis"); return;
     }
     if (!form.email && !form.phone) {
@@ -301,7 +303,7 @@ export default function AdminStaff() {
                   data-testid="staff-email-input"
                 />
               </div>
-              <div><Label>Nom complet</Label><Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="staff-name-input" /></div>
+              <ChampsNom form={form} setForm={setForm} testid="staff" />
               <div><Label>Téléphone (WhatsApp)</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="staff-phone-input" />
                 {/* Lot 18 : sans e-mail, connexion par WhatsApp + code PIN (bouton « PIN » de la liste) */}
                 {!editing && !form.email && <p className="mt-1 text-[11px] text-muted-foreground">Sans e-mail, le collaborateur se connecte avec son numéro WhatsApp et un code PIN : générez-le ensuite avec le bouton « PIN ».</p>}

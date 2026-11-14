@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "112"
-LOT_LIBELLE = "Règle 18 : première lettre de chaque mot en majuscule dans tous les menus et sous-menus de la barre latérale (fonction titreMenu)."
+LOT = "113"
+LOT_LIBELLE = "Fiche client, contact et personnel : NOM de famille (majuscules) + Prénoms (initiales) à la place du Nom complet, qui en devient la concaténation."

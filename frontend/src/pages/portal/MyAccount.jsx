@@ -9,13 +9,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/contexts/AuthContext";
 import TachesPersonnel from "@/pages/portal/TachesPersonnel";
+import ChampsNom from "@/components/ChampsNom";   // NOM + Prénoms (règle 14/11/2026)
+import { nomDepuisFiche, assemblerNom } from "@/lib/noms";
 
 // Accessible à TOUT utilisateur connecté, staff comme client — contrairement
 // au reste de l'admin, réservé au cabinet (voir PortalLayout.jsx).
 export default function MyAccount() {
   const { user, isClient, isStaff, refresh } = useAuth();
   const [form, setForm] = useState({
-    full_name: "", phone: "", whatsapp_number: "", can_receive_notifications: true,
+    nom: "", prenoms: "", phone: "", whatsapp_number: "", can_receive_notifications: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -27,7 +29,7 @@ export default function MyAccount() {
     try {
       const { data } = await apiClient.get("/me/account");
       setForm({
-        full_name: data.full_name || "",
+        ...nomDepuisFiche(data),
         phone: data.phone || "",
         whatsapp_number: data.whatsapp_number || "",
         can_receive_notifications: data.can_receive_notifications !== false,
@@ -39,7 +41,7 @@ export default function MyAccount() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
-    if (!form.full_name.trim()) { toast.error("Le nom complet est requis"); return; }
+    if (!assemblerNom(form.nom, form.prenoms)) { toast.error("Le nom est requis"); return; }
     setSaving(true);
     try {
       await apiClient.patch("/me/account", form);
@@ -84,10 +86,7 @@ export default function MyAccount() {
               <Label>Email</Label>
               <Input value={user?.email || ""} readOnly className="bg-muted" data-testid="my-account-email" />
             </div>
-            <div>
-              <Label>Nom complet</Label>
-              <Input value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} data-testid="my-account-name" />
-            </div>
+            <ChampsNom form={form} setForm={setForm} testid="my-account" />
             <div>
               <Label>Téléphone</Label>
               <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="my-account-phone" />
