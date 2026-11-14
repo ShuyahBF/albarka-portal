@@ -56,6 +56,7 @@ import MesServicesWeb from "@/pages/admin/MesServicesWeb";   // lot 90
 import DemandesSawali from "@/pages/admin/DemandesSawali";   // lot 92
 import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminFonctionsContacts from "@/pages/admin/AdminFonctionsContacts";   // lot 100
+import AdminJournalContacts from "@/pages/admin/AdminJournalContacts";   // lot 105
 import AdminContracts from "@/pages/admin/AdminContracts";
 import AdminBilling from "@/pages/admin/AdminBilling";
 import AdminPayments from "@/pages/admin/AdminPayments";
@@ -149,6 +150,7 @@ function App() {
             <Route path="clients/:id" element={<AdminClientDetail />} />
             <Route path="contacts" element={<AdminContacts />} />
             <Route path="fonctions-contacts" element={<AdminFonctionsContacts />} />
+            <Route path="journal-contacts" element={<AdminJournalContacts />} />
             <Route path="staff" element={<AdminStaff />} />
             <Route path="documents" element={<AdminDocuments />} />
             <Route path="missions" element={<AdminMissions />} />

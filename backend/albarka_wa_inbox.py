@@ -57,7 +57,7 @@ async def _resolve_contact(phone: str) -> tuple[Optional[str], Optional[str]]:
     if c:
         return c.get("id"), c.get("full_name")
     # Compte client cabinet
-    u = await db.users.find_one({"phone": phone, "roles": "client"}, {"_id": 0, "id": 1, "full_name": 1})
+    u = await db.users.find_one({"phone": phone, "roles": "client", "contact_acces": {"$exists": False}}, {"_id": 0, "id": 1, "full_name": 1})
     if u:
         return u.get("id"), u.get("full_name")
     return None, None

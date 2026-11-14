@@ -56,7 +56,7 @@ async def dashboard_summary(user: dict = Depends(dashboard_user)):
     if not is_client(user):
         # Comptes de test comptés pour le superviseur seulement
         hide = hide_test_accounts_filter(user)
-        clients_total = await db.users.count_documents({"roles": "client", **hide})
+        clients_total = await db.users.count_documents({"roles": "client", "contact_acces": {"$exists": False}, **hide})
         staff_total = await db.users.count_documents({"roles": {"$nin": ["client"]}, **hide})
 
     return {
