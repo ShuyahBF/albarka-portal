@@ -92,17 +92,17 @@ def test_un_paiement_sms_ne_sert_qu_une_fois(env):
     assert env.post(f"/api/admin/services-web/{b['id']}/paiements-sms", json={"sms_ids": ["t2"]}, headers=H).status_code == 200
 
 
-def test_service_mensuel_chaque_sms_regle_une_echeance(env):
+def test_service_mensuel_paiements_sms_echeance_un_mois_apres_le_dernier(env):
     s = env.post("/api/admin/services-web", json={"service": "Hébergement", "montant": 25000, "jour_du_mois": 8}, headers=H).json()
     assert s["mode"] == "mensuel" and s["jour_du_mois"] == 8 and s["reste_a_payer"] is None
-    avant = s["payable_avant"]
+    # deux paiements SMS (2 et 5 novembre) : l'échéance = 1 mois après le DERNIER (5/11 → 8/12), sur le jour 8
     v = env.post(f"/api/admin/services-web/{s['id']}/paiements-sms", json={"sms_ids": ["t1", "t2"]}, headers=H).json()
-    assert v["payable_avant"] > avant and len(v["paiements"]) == 2                       # deux échéances réglées : l'échéance recule de deux mois
-    d1 = v["payable_avant"]
-    pid = v["paiements"][-1]["id"]
-    assert env.delete(f"/api/admin/services-web/{s['id']}/paiements/{v['paiements'][0]['id']}", headers=H).status_code == 409     # seul le dernier s'annule
-    v2 = env.delete(f"/api/admin/services-web/{s['id']}/paiements/{pid}", headers=H).json()
-    assert v2["payable_avant"] < d1 and len(v2["paiements"]) == 1
+    assert v["payable_avant"] == "2026-12-08" and len(v["paiements"]) == 2
+    # n'importe quel paiement s'annule ; l'échéance suit ceux qui restent
+    v2 = env.delete(f"/api/admin/services-web/{s['id']}/paiements/{v['paiements'][0]['id']}", headers=H).json()
+    assert len(v2["paiements"]) == 1 and v2["payable_avant"] == "2026-12-08"
+    v3 = env.delete(f"/api/admin/services-web/{s['id']}/paiements/{v2['paiements'][0]['id']}", headers=H).json()
+    assert v3["paiements"] == []
 
 
 def test_paiement_manuel_dans_l_historique_et_droits(env):
@@ -120,34 +120,52 @@ def test_paiement_manuel_dans_l_historique_et_droits(env):
     assert vue["reste_a_payer"] == 40000 and len(vue["paiements"]) == 1 and "echeance_avant" not in vue["paiements"][0]
 
 
-# ---------------------------------------------------------------- lot 95 : échéance recalculée d'après la date de règlement
+# ---------------------------------------------------------------- lot 96 : échéance = 1 mois après le dernier paiement constaté
 from datetime import date  # noqa: E402
 
 
-def test_prochaine_apres_reglement_pure():
-    f = sw.prochaine_apres_reglement
-    assert f(date(2026, 11, 8), date(2026, 11, 8), 8) == date(2026, 12, 8)         # réglé à l'heure : le mois suivant
-    assert f(date(2026, 11, 8), date(2026, 11, 3), 8) == date(2026, 12, 8)         # réglé en avance : pas deux fois la même échéance
-    assert f(date(2026, 10, 8), date(2026, 11, 20), 8) == date(2026, 12, 8)        # réglé en retard : repart de la date de règlement
-    assert f(date(2026, 1, 31), date(2026, 1, 31), 31) == date(2026, 2, 28)        # le 31 devient le dernier jour du mois (février)
-    assert f(date(2026, 12, 8), date(2026, 12, 8), 8) == date(2027, 1, 8)          # passage d'année
+def test_prochaine_apres_paiement_pure():
+    f = sw.prochaine_apres_paiement
+    assert f(date(2026, 11, 20), 15) == date(2026, 12, 15)         # payé le 20/11 → cible 20/12 → 15/12
+    assert f(date(2026, 11, 10), 15) == date(2026, 12, 15)         # payé le 10/11 (en avance) → 15/12
+    assert f(date(2026, 11, 15), 15) == date(2026, 12, 15)         # payé à l'heure
+    assert f(date(2026, 12, 1), 15) == date(2027, 1, 15)           # payé le 01/12 → cible 01/01 → 15/01 (le plus proche)
+    assert f(date(2026, 12, 20), 15) == date(2027, 1, 15)          # passage d'année
+    assert f(date(2026, 1, 31), 31) == date(2026, 2, 28)           # le 31 devient le dernier jour de février
+    assert f(date(2026, 1, 15), 8) > date(2026, 1, 15)             # toujours après le paiement
 
 
-def test_nom_modifiable_et_echeance_recalculee(env):
-    s = env.post("/api/admin/services-web", json={"service": "Hébergement", "montant": 25000, "jour_du_mois": 8}, headers=H).json()
-    # renommer le service
-    r = env.put(f"/api/admin/services-web/{s['id']}", json={"service": "  Hébergement Render  "}, headers=H).json()
-    assert r["service"] == "Hébergement Render" and r["jour_du_mois"] == 8
-    # un règlement tardif fait repartir l'échéance de sa date, toujours sur le jour 8
-    v = env.post(f"/api/admin/services-web/{s['id']}/paiement", json={"paye_le": "2026-11-20T10:00", "montant": 25000, "reference": "R1"}, headers=H).json()
-    assert v["payable_avant"] > s["payable_avant"] and v["payable_avant"].endswith("-08") and v["jour_du_mois"] == 8     # toujours sur le jour 8
-    # changer le jour du mois : la prochaine échéance garde son mois et prend le nouveau jour
-    v2 = env.put(f"/api/admin/services-web/{s['id']}", json={"jour_du_mois": 15}, headers=H).json()
-    assert v2["payable_avant"][:7] == v["payable_avant"][:7] and v2["payable_avant"].endswith("-15")
-    # annuler le dernier paiement rend l'échéance d'avant
-    avant = s["payable_avant"]
-    pid = v["paiements"][-1]["id"]
-    assert env.delete(f"/api/admin/services-web/{s['id']}/paiements/{pid}", headers=H).json()["payable_avant"] == avant
-    # paiements SMS (t1 du 2 nov. puis t2 du 5 nov.) : chaque paiement règle une échéance, la prochaine part du dernier règlement, sur le jour 15
-    v3 = env.post(f"/api/admin/services-web/{s['id']}/paiements-sms", json={"sms_ids": ["t1", "t2"]}, headers=H).json()
-    assert v3["jour_du_mois"] == 15 and v3["payable_avant"].endswith("-15") and v3["payable_avant"] > avant
+def test_echeance_suit_le_dernier_paiement_constate(env):
+    s = env.post("/api/admin/services-web", json={"service": "Hébergement", "montant": 25000, "jour_du_mois": 15}, headers=H).json()
+    # nom modifiable
+    assert env.put(f"/api/admin/services-web/{s['id']}", json={"service": "  Hébergement Render "}, headers=H).json()["service"] == "Hébergement Render"
+    # paiements : l'échéance suit le paiement le plus RÉCENT (par date), même saisi avant un autre
+    env.post(f"/api/admin/services-web/{s['id']}/paiement", json={"paye_le": "2026-11-20T10:00", "montant": 25000, "reference": "R2"}, headers=H)
+    v = env.post(f"/api/admin/services-web/{s['id']}/paiement", json={"paye_le": "2026-10-18T10:00", "montant": 25000, "reference": "R1"}, headers=H).json()
+    assert v["payable_avant"] == "2026-12-15" and v["jour_du_mois"] == 15
+    # changer le jour du mois : recalcul sur le nouveau jour, d'après le dernier paiement
+    assert env.put(f"/api/admin/services-web/{s['id']}", json={"jour_du_mois": 5}, headers=H).json()["payable_avant"] == "2026-12-05"
+    env.put(f"/api/admin/services-web/{s['id']}", json={"jour_du_mois": 15}, headers=H)
+    # annuler le paiement le plus récent (n'importe lequel peut l'être) : l'échéance suit celui qui reste (18/10 → 15/11)
+    pid = next(p["id"] for p in v["paiements"] if p["reference"] == "R2")
+    assert env.delete(f"/api/admin/services-web/{s['id']}/paiements/{pid}", headers=H).json()["payable_avant"] == "2026-11-15"
+    # annuler le dernier restant : retour à l'état d'avant
+    pid2 = env.get("/api/admin/services-web", headers=H).json()["services"][0]["paiements"][0]["id"]
+    assert env.delete(f"/api/admin/services-web/{s['id']}/paiements/{pid2}", headers=H).json()["paiements"] == []
+
+
+def test_recu_avec_prochaine_echeance_et_droits(env):
+    m = env.post("/api/admin/services-web", json={"service": "Hébergement", "montant": 25000, "jour_du_mois": 15}, headers=H).json()
+    v = env.post(f"/api/admin/services-web/{m['id']}/paiement", json={"paye_le": "2026-11-20T10:00", "montant": 25000, "reference": "R1"}, headers=H).json()
+    pid = v["paiements"][0]["id"]
+    r = env.get(f"/api/admin/services-web/{m['id']}/paiements/{pid}/recu", headers=H).json()
+    assert r["numero"].startswith("RECU-SW-20261120-") and r["prochaine_echeance"] == "2026-12-15" and r["montant"] == 25000 and r["origine"] == "Saisi à la main"
+    # montant unique : le reçu donne le payé cumulé et le reste à payer
+    u = env.post("/api/admin/services-web", json={"service": "Création du site", "montant": 250000, "mode": "unique"}, headers=H).json()
+    ids = [p["id"] for p in env.post(f"/api/admin/services-web/{u['id']}/paiements-sms", json={"sms_ids": ["t1", "t2", "t3"]}, headers=H).json()["paiements"]]
+    r2 = env.get(f"/api/admin/services-web/{u['id']}/paiements/{ids[1]}/recu", headers=H).json()
+    assert r2["total_paye_apres"] == 100000 and r2["reste_apres"] == 150000 and r2["prochaine_echeance"] is None and r2["origine"] == "SMS reçu"
+    # droits : le DG lit (consultation), un autre rôle non ; reçu inexistant = 404
+    assert env.get(f"/api/me/services-web/{m['id']}/paiements/{pid}/recu", headers={"X-User": "dg"}).status_code == 200
+    assert env.get(f"/api/admin/services-web/{m['id']}/paiements/{pid}/recu", headers={"X-User": "dg"}).status_code == 403
+    assert env.get(f"/api/admin/services-web/{m['id']}/paiements/inconnu/recu", headers=H).status_code == 404

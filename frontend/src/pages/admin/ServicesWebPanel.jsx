@@ -5,12 +5,13 @@
 */
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Banknote, X, Check, Smartphone, Undo2, CheckCircle2 } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
+import { Plus, Trash2, Save, Banknote, X, Check, Smartphone, Undo2, CheckCircle2, Printer } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EtatService } from "@/pages/admin/MesServicesWeb";
+import { imprimerRecu } from "@/lib/recuServiceWeb";
 
 const vide = { service: "", mode: "mensuel", montant: "", jour_du_mois: "" };
 const LIBELLES_ROLES = { direction: "Direction", secretariat: "Secrétariat", administrateur: "Administrateur", fiscaliste: "Fiscaliste", comptable: "Comptable", aide_comptable: "Aide-comptable", rh: "Ressources humaines", communication: "Communication" };
@@ -177,7 +178,8 @@ export default function ServicesWebPanel() {
                   <tbody>{sv.paiements.map((p) => (<tr key={p.id} className="border-b last:border-0"><td className="p-2 whitespace-nowrap">{new Date(p.paye_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</td>
                     <td className="p-2 font-mono text-xs">{p.reference}</td><td className="p-2 text-xs">{p.source === "sms" ? "SMS reçu" : "Saisi à la main"}</td>
                     <td className="p-2 text-right tabular-nums">{Number(p.montant).toLocaleString("fr-FR")}</td>
-                    <td className="p-2 text-right"><Button size="sm" variant="ghost" className="text-red-700" onClick={() => annulerPaiement(p)} title="Annuler ce paiement" aria-label="Annuler ce paiement"><Undo2 className="w-4 h-4 mr-1" /> Annuler</Button></td></tr>))}</tbody></table>
+                    <td className="p-2 text-right"><Button size="sm" variant="outline" className="mr-1" onClick={() => imprimerRecu(`/admin/services-web/${sv.id}/paiements/${p.id}/recu`).catch((e) => toast.error(extractError(e)))} title="Imprimer le reçu de ce paiement" aria-label="Imprimer le reçu de ce paiement" data-testid={`recu-${p.id}`}><Printer className="w-4 h-4 mr-1" /> Imprimer le reçu</Button>
+                      <Button size="sm" variant="ghost" className="text-red-700" onClick={() => annulerPaiement(p)} title="Annuler ce paiement" aria-label="Annuler ce paiement"><Undo2 className="w-4 h-4 mr-1" /> Annuler</Button></td></tr>))}</tbody></table>
               )}
             </div>
             <div className="space-y-2">
