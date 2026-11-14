@@ -132,3 +132,28 @@ def test_modification_et_suppression_tant_que_non_validee(env, monkeypatch):
     # Remontée non validée : suppression relayée puis locale
     assert env.delete(f"/api/demandes-sawali/{b['id']}", headers=H).status_code == 200
     assert appels[-1]["suppressions"] == [b["id"]]
+
+
+def test_relecture_automatique_ne_remonte_rien_et_ne_tourne_que_si_necessaire(env, monkeypatch):
+    """Lot 102 — relecture des statuts (toutes les 15 min par le planificateur, 2 min par l'écran) : sans remontée, et seulement s'il y a des demandes remontées non validées."""
+    import asyncio
+    appels = []
+
+    async def faux_sawali(chemin, corps, delai=15):
+        appels.append(corps)
+        # 1er échange (remontée) : « remontée » ; ensuite SAWALI a réalisé la demande
+        statut = "remontee" if len(appels) == 1 else "realisee"
+        return {"demandes": [{"ref_locale": a["id"], "numero": "DEM-ALB-0009", "statut": statut, "commentaire": "Fait", "realisee_le": "2026-11-15" if statut == "realisee" else None}]}
+    monkeypatch.setattr(albarka_support_sawali, "appeler_sawali", faux_sawali)
+    a = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Premier point à corriger"}, headers=H).json()
+    # Rien de remonté : aucune relecture (aucun appel à SAWALI)
+    assert asyncio.run(dm.releve_automatique()) is None and appels == []
+    assert env.post("/api/demandes-sawali/relire", headers=H).json() == {"envoyees": 0, "mises_a_jour": 0}
+    # Après la remontée, la demande est « remontée » : la relecture automatique relit les statuts
+    env.post("/api/demandes-sawali/envoyer", headers=H)
+    n = len(appels)
+    r = env.post("/api/demandes-sawali/relire", headers=H)
+    assert r.status_code == 200 and len(appels) == n + 1 and appels[-1] == {"demandes": []}          # relit sans rien remonter
+    # SAWALI l'a réalisée : plus rien à suivre, plus d'appel
+    assert env.get("/api/demandes-sawali", headers=H).json()["demandes"][0]["statut"] == "realisee"
+    assert asyncio.run(dm.releve_automatique()) is None and len(appels) == n + 1
