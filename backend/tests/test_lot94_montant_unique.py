@@ -118,3 +118,36 @@ def test_paiement_manuel_dans_l_historique_et_droits(env):
     # le DG (consultation) voit le reste à payer et l'historique, en lecture seule
     vue = env.get("/api/me/services-web", headers={"X-User": "dg"}).json()["services"][0]
     assert vue["reste_a_payer"] == 40000 and len(vue["paiements"]) == 1 and "echeance_avant" not in vue["paiements"][0]
+
+
+# ---------------------------------------------------------------- lot 95 : échéance recalculée d'après la date de règlement
+from datetime import date  # noqa: E402
+
+
+def test_prochaine_apres_reglement_pure():
+    f = sw.prochaine_apres_reglement
+    assert f(date(2026, 11, 8), date(2026, 11, 8), 8) == date(2026, 12, 8)         # réglé à l'heure : le mois suivant
+    assert f(date(2026, 11, 8), date(2026, 11, 3), 8) == date(2026, 12, 8)         # réglé en avance : pas deux fois la même échéance
+    assert f(date(2026, 10, 8), date(2026, 11, 20), 8) == date(2026, 12, 8)        # réglé en retard : repart de la date de règlement
+    assert f(date(2026, 1, 31), date(2026, 1, 31), 31) == date(2026, 2, 28)        # le 31 devient le dernier jour du mois (février)
+    assert f(date(2026, 12, 8), date(2026, 12, 8), 8) == date(2027, 1, 8)          # passage d'année
+
+
+def test_nom_modifiable_et_echeance_recalculee(env):
+    s = env.post("/api/admin/services-web", json={"service": "Hébergement", "montant": 25000, "jour_du_mois": 8}, headers=H).json()
+    # renommer le service
+    r = env.put(f"/api/admin/services-web/{s['id']}", json={"service": "  Hébergement Render  "}, headers=H).json()
+    assert r["service"] == "Hébergement Render" and r["jour_du_mois"] == 8
+    # un règlement tardif fait repartir l'échéance de sa date, toujours sur le jour 8
+    v = env.post(f"/api/admin/services-web/{s['id']}/paiement", json={"paye_le": "2026-11-20T10:00", "montant": 25000, "reference": "R1"}, headers=H).json()
+    assert v["payable_avant"] > s["payable_avant"] and v["payable_avant"].endswith("-08") and v["jour_du_mois"] == 8     # toujours sur le jour 8
+    # changer le jour du mois : la prochaine échéance garde son mois et prend le nouveau jour
+    v2 = env.put(f"/api/admin/services-web/{s['id']}", json={"jour_du_mois": 15}, headers=H).json()
+    assert v2["payable_avant"][:7] == v["payable_avant"][:7] and v2["payable_avant"].endswith("-15")
+    # annuler le dernier paiement rend l'échéance d'avant
+    avant = s["payable_avant"]
+    pid = v["paiements"][-1]["id"]
+    assert env.delete(f"/api/admin/services-web/{s['id']}/paiements/{pid}", headers=H).json()["payable_avant"] == avant
+    # paiements SMS (t1 du 2 nov. puis t2 du 5 nov.) : chaque paiement règle une échéance, la prochaine part du dernier règlement, sur le jour 15
+    v3 = env.post(f"/api/admin/services-web/{s['id']}/paiements-sms", json={"sms_ids": ["t1", "t2"]}, headers=H).json()
+    assert v3["jour_du_mois"] == 15 and v3["payable_avant"].endswith("-15") and v3["payable_avant"] > avant
