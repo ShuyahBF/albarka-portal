@@ -31,6 +31,7 @@ logger = logging.getLogger("albarka.planificateur")
 
 HEURE_RAPPELS_UTC = 7          # rappels d'échéances : chaque jour à 07h00 UTC (comme sur Emergent)
 INTERVALLE_WA_SECONDES = 300   # envois WhatsApp planifiés : toutes les 5 minutes
+INTERVALLE_DEMANDES_SECONDES = 900   # relecture automatique des demandes à SAWALI : toutes les 15 minutes
 PAS_SECONDES = 60              # la boucle se réveille chaque minute
 
 
@@ -109,6 +110,7 @@ async def boucle_planificateur() -> None:
     """Boucle de fond : chaque minute, rappels du jour si dus ; toutes les 5 minutes, envois WA ;
     sauvegarde nocturne. Les envois et la sauvegarde sont réglés séparément (voir plus haut)."""
     dernier_envoi_wa = 0.0
+    derniere_releve_demandes = 0.0
     while True:
         maintenant = datetime.now(timezone.utc)
         envois = planificateur_actif()
@@ -153,4 +155,12 @@ async def boucle_planificateur() -> None:
                 await lancer_diffusion_infos()
             except Exception:  # noqa: BLE001
                 logger.exception("Planificateur : diffusion de l'info de la semaine en erreur")
+        # 4) Lot 102 : relecture automatique des statuts des demandes à SAWALI (toutes les 15 minutes, envois actifs seulement)
+        if envois and horloge - derniere_releve_demandes >= INTERVALLE_DEMANDES_SECONDES:
+            derniere_releve_demandes = horloge
+            try:
+                from albarka_demandes_sawali import releve_automatique
+                await releve_automatique()
+            except Exception:  # noqa: BLE001 — SAWALI injoignable : on réessaiera au prochain passage
+                logger.exception("Planificateur : relecture des demandes à SAWALI en erreur")
         await asyncio.sleep(PAS_SECONDES)
