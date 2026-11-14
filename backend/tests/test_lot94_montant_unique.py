@@ -189,3 +189,26 @@ def test_nom_de_service_250_caracteres(env):
     assert r.status_code == 200 and r.json()["service"] == long.strip()
     assert env.post("/api/admin/services-web", json={"service": "x" * 251, "montant": 1, "mode": "unique"}, headers=H).status_code == 422
     assert env.put(f"/api/admin/services-web/{r.json()['id']}", json={"service": "y" * 251}, headers=H).status_code == 422
+
+
+def test_historique_des_impressions_de_recus(env):
+    m = env.post("/api/admin/services-web", json={"service": "Hébergement", "montant": 25000, "jour_du_mois": 15}, headers=H).json()
+    v = env.post(f"/api/admin/services-web/{m['id']}/paiement", json={"paye_le": "2026-11-20T10:00", "montant": 25000, "reference": "R1"}, headers=H).json()
+    pid = v["paiements"][0]["id"]
+    # impressions par le super-admin puis par le DG : chacune est enregistrée et le reçu est renvoyé
+    r = env.post(f"/api/admin/services-web/{m['id']}/paiements/{pid}/recu/impression", headers=H)
+    assert r.status_code == 200 and r.json()["numero"].startswith("RECU-SW-20261120-")
+    assert env.post(f"/api/me/services-web/{m['id']}/paiements/{pid}/recu/impression", headers={"X-User": "dg"}).status_code == 200
+    assert env.post(f"/api/admin/services-web/{m['id']}/paiements/inconnu/recu/impression", headers=H).status_code == 404
+    assert env.post(f"/api/admin/services-web/{m['id']}/paiements/{pid}/recu/impression", headers={"X-User": "dg"}).status_code == 403      # le DG passe par sa route
+    # le super-admin consulte l'historique (plus récent d'abord, avec l'auteur) ; le DG n'y a pas accès
+    h = env.get("/api/admin/services-web/impressions", headers=H).json()
+    assert h["total"] == 2 and h["impressions"][0]["par"] == "DG" and h["impressions"][1]["par"] == "Super" and h["impressions"][0]["service"] == "Hébergement"
+    assert h["impressions"][0]["imprime_le"] >= h["impressions"][1]["imprime_le"] and h["impressions"][0]["montant"] == 25000
+    assert env.get("/api/admin/services-web/impressions", headers={"X-User": "dg"}).status_code == 403
+    # filtres : service et dates
+    assert env.get("/api/admin/services-web/impressions", params={"service_id": "autre"}, headers=H).json()["total"] == 0
+    assert env.get("/api/admin/services-web/impressions", params={"du": "2999-01-01"}, headers=H).json()["total"] == 0
+    assert env.get("/api/admin/services-web/impressions", params={"du": "pas une date"}, headers=H).status_code == 422
+    # l'historique n'apparaît pas dans la vue du service (jamais envoyé au DG)
+    assert "impressions" not in env.get("/api/me/services-web", headers={"X-User": "dg"}).json()["services"][0]

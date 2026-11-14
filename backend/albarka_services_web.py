@@ -589,6 +589,61 @@ async def mon_recu(service_id: str, paiement_id: str, user: dict = Depends(get_c
     return await _recu_ou_404(service_id, paiement_id)
 
 
+MAX_IMPRESSIONS_PAR_SERVICE = 1000          # historique des impressions gardé par service (les plus récentes)
+
+
+async def _noter_impression(doc: dict, recu: dict, user: dict, paiement_id: str) -> None:
+    """Lot 97 — ENREGISTRE l'impression d'un reçu : date et heure (UTC), reçu, montant et QUI l'a imprimé. Consultable par le super-admin seulement."""
+    entree = {"id": str(uuid.uuid4()), "imprime_le": datetime.now(timezone.utc).isoformat(), "paiement_id": paiement_id,
+              "numero": recu["numero"], "montant": recu["montant"], "reference": recu.get("reference"),
+              "par": user.get("full_name") or user.get("email") or "—", "email": user.get("email"), "roles": list(user.get("roles") or [])}
+    await db.services_web.update_one({"id": doc["id"]}, {"$push": {"impressions": {"$each": [entree], "$slice": -MAX_IMPRESSIONS_PAR_SERVICE}}})
+
+
+@router.post("/admin/services-web/{service_id}/paiements/{paiement_id}/recu/impression")
+async def admin_imprimer_recu(service_id: str, paiement_id: str, user: dict = Depends(get_current_user)):
+    """Lot 97 — le super-admin imprime un reçu : l'impression est enregistrée puis le reçu est renvoyé."""
+    _exiger_super_admin(user)
+    recu = await _recu_ou_404(service_id, paiement_id)
+    await _noter_impression(await db.services_web.find_one({"id": service_id}, {"_id": 0}), recu, user, paiement_id)
+    return recu
+
+
+@router.post("/me/services-web/{service_id}/paiements/{paiement_id}/recu/impression")
+async def mon_imprimer_recu(service_id: str, paiement_id: str, user: dict = Depends(get_current_user)):
+    """Lot 97 — le DG (ou un rôle de consultation) imprime un reçu : l'impression est enregistrée puis le reçu est renvoyé."""
+    await _exiger_consultation(user)
+    recu = await _recu_ou_404(service_id, paiement_id)
+    await _noter_impression(await db.services_web.find_one({"id": service_id}, {"_id": 0}), recu, user, paiement_id)
+    return recu
+
+
+def lister_impressions(services: List[dict], service_id: str = "", du: str = "", au: str = "") -> List[dict]:
+    """Logique pure (testée) : impressions de tous les services (ou d'un seul), de la plus récente à la plus ancienne ; `du` / `au` = dates AAAA-MM-JJ incluses."""
+    sortie = []
+    for d in services:
+        if service_id and d.get("id") != service_id:
+            continue
+        for i in d.get("impressions") or []:
+            jour = str(i.get("imprime_le") or "")[:10]
+            if (du and jour < du) or (au and jour > au):
+                continue
+            sortie.append({**i, "service_id": d.get("id"), "service": d.get("service"), "devise": d.get("devise") or "FCFA"})
+    sortie.sort(key=lambda i: i.get("imprime_le") or "", reverse=True)
+    return sortie
+
+
+@router.get("/admin/services-web/impressions")
+async def admin_impressions(service_id: str = "", du: str = "", au: str = "", user: dict = Depends(get_current_user)):
+    """Lot 97 — HISTORIQUE des impressions de reçus (date et heure, reçu, service, montant, imprimé par), pour le super-admin seulement."""
+    _exiger_super_admin(user)
+    for v in (du, au):
+        if v:
+            _date_valide(v)
+    liste = lister_impressions(await db.services_web.find({}, {"_id": 0}).to_list(500), service_id, du, au)
+    return {"total": len(liste), "impressions": liste[:1000]}
+
+
 @router.delete("/admin/services-web/{service_id}")
 async def admin_supprimer(service_id: str, user: dict = Depends(get_current_user)):
     _exiger_super_admin(user)

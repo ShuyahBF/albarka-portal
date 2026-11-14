@@ -5,7 +5,7 @@
 */
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Banknote, X, Check, Smartphone, Undo2, CheckCircle2, Printer } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
+import { Plus, Trash2, Save, Banknote, X, Check, Smartphone, Undo2, CheckCircle2, Printer, RefreshCw, History } from "lucide-react";   // règle 15 : un pictogramme sur chaque action
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,54 @@ const LIBELLES_ROLES = { direction: "Direction", secretariat: "Secrétariat", ad
 
 // Règle 15 — un champ modifiable n'est JAMAIS enregistré « en silence » à la sortie : le bouton ✓ Enregistrer apparaît (actif) dès que la valeur a changé,
 // avec la mention « modifié, non enregistré » ; sans changement, il est grisé.
+// Lot 97 — HISTORIQUE des impressions de reçus (super-admin) : date et heure, reçu, service, montant, imprimé par ; filtres service et dates.
+function HistoriqueImpressions({ services }) {
+  const [ouvert, setOuvert] = useState(false);
+  const [liste, setListe] = useState([]);
+  const [filtre, setFiltre] = useState({ service_id: "", du: "", au: "" });
+  const charger = async (f = filtre) => {
+    try { const { data } = await apiClient.get("/admin/services-web/impressions", { params: Object.fromEntries(Object.entries(f).filter(([, v]) => v)) }); setListe(data.impressions); }
+    catch (e) { toast.error(extractError(e)); }
+  };
+  const basculer = () => { const o = !ouvert; setOuvert(o); if (o) charger(); };
+  return (
+    <div className="albarka-card p-4 space-y-3" data-testid="historique-impressions">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm font-semibold inline-flex items-center gap-1"><History className="w-4 h-4" /> Historique des impressions de reçus</p>
+        <Button size="sm" variant="outline" onClick={basculer} data-testid="btn-historique-impressions">{ouvert ? <><X className="w-4 h-4 mr-1" /> Masquer</> : <><History className="w-4 h-4 mr-1" /> Afficher l'historique</>}</Button>
+      </div>
+      {ouvert && (
+        <>
+          <div className="flex flex-wrap items-end gap-3">
+            <div><Label>Service</Label>
+              <select className="rounded-md border border-input bg-background px-3 py-2 text-sm max-w-[16rem]" value={filtre.service_id} onChange={(e) => setFiltre({ ...filtre, service_id: e.target.value })}>
+                <option value="">Tous les services</option>{services.map((s) => <option key={s.id} value={s.id}>{s.service.slice(0, 60)}</option>)}</select></div>
+            <div><Label>Du</Label><Input type="date" value={filtre.du} onChange={(e) => setFiltre({ ...filtre, du: e.target.value })} /></div>
+            <div><Label>Au</Label><Input type="date" value={filtre.au} onChange={(e) => setFiltre({ ...filtre, au: e.target.value })} /></div>
+            <Button size="sm" onClick={() => charger()}><RefreshCw className="w-4 h-4 mr-1" /> Actualiser</Button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm tableau">
+              <thead><tr className="text-left border-b"><th className="p-2">Imprimé le</th><th className="p-2">Reçu</th><th className="p-2">Service</th><th className="p-2 text-right">Montant</th><th className="p-2">Imprimé par</th></tr></thead>
+              <tbody>
+                {liste.map((i) => (
+                  <tr key={i.id} className="border-b last:border-0">
+                    <td className="p-2 whitespace-nowrap">{new Date(i.imprime_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "medium" })}</td>
+                    <td className="p-2 font-mono text-xs">{i.numero}</td>
+                    <td className="p-2 whitespace-pre-line">{i.service}</td>
+                    <td className="p-2 text-right tabular-nums">{Number(i.montant).toLocaleString("fr-FR")} {i.devise}</td>
+                    <td className="p-2">{i.par}<div className="text-xs text-muted-foreground">{(i.roles || []).join(", ")}</div></td>
+                  </tr>))}
+                {liste.length === 0 && <tr><td colSpan={5} className="p-3 text-center text-muted-foreground">Aucun reçu imprimé pour ces critères.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ChampEnregistrable({ valeur, min, max, largeur = "w-24", surEnregistrer, libelle, type = "number", longueurMax }) {
   const [saisie, setSaisie] = useState(String(valeur ?? ""));
   useEffect(() => { setSaisie(String(valeur ?? "")); }, [valeur]);
@@ -215,6 +263,9 @@ export default function ServicesWebPanel() {
           </div>
         );
       })()}
+
+      {/* Lot 97 : historique des impressions de reçus (super-admin) */}
+      <HistoriqueImpressions services={services} />
 
       {/* Lot 93.1 : qui peut CONSULTER (lecture seule, l'option « Mes Services Web » apparaît dans leur menu). Seul le super-admin met à jour les paiements. */}
       <div className="albarka-card p-4 space-y-2" data-testid="consultation">
