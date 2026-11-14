@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "114"
-LOT_LIBELLE = "Fiche client, contact et personnel : champ Titre (Mr, Mme, Mlle, Dr, Pr, Sr…) dans le Nom complet, inversion NOM / Prénoms et enregistrement de la correction du nom."
+LOT = "115"
+LOT_LIBELLE = "Fiche existante : le premier mot du Nom complet devient le NOM de famille, tout ce qui suit l'espace devient les Prénoms."

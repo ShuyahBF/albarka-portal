@@ -23,7 +23,8 @@ def test_orthographe_nom_et_prenoms():
 def test_separation_des_anciens_noms_complets():
     assert separer("SANA Azize") == ("SANA", "Azize")
     assert separer("sana azize") == ("SANA", "Azize")
-    assert separer("OUEDRAOGO KABORE Awa Marie") == ("OUEDRAOGO KABORE", "Awa Marie")
+    assert separer("OUEDRAOGO KABORE Awa Marie") == ("OUEDRAOGO", "Kabore Awa Marie")
+    assert separer("SANA AZIZE") == ("SANA", "Azize")      # tout en majuscules : 1er mot = NOM, le reste = Prénoms
     assert separer("") == ("", "")
     assert completer_document({"full_name": "SANA Azize"})["prenoms"] == "Azize"
 

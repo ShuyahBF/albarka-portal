@@ -59,18 +59,13 @@ def extraire_titre(nom_complet: Optional[str]) -> tuple[str, str]:
 
 
 def separer(nom_complet: Optional[str]) -> tuple[str, str]:
-    """Découpe un ancien « Nom complet » en (NOM, Prénoms) : les mots TOUT en majuscules du début forment le
-    NOM ; sinon, le premier mot est le NOM. Sert à pré-remplir la fiche des comptes créés avant cette règle."""
-    mots = re.sub(r"\s+", " ", (nom_complet or "").strip()).split(" ")
-    mots = [m for m in mots if m]
+    """Découpe un ancien « Nom complet » en (NOM, Prénoms) : le PREMIER mot est le NOM de famille, tout ce qui
+    suit l'espace forme les Prénoms (règle du propriétaire, 14/11/2026). Sert à pré-remplir la fiche des comptes
+    créés avant la séparation ; l'utilisateur corrige ensuite avec le pictogramme d'inversion si besoin."""
+    mots = [m for m in re.sub(r"\s+", " ", (nom_complet or "").strip()).split(" ") if m]
     if not mots:
         return "", ""
-    i = 0
-    while i < len(mots) and mots[i].upper() == mots[i] and any(c.isalpha() for c in mots[i]):
-        i += 1
-    if i == 0:
-        i = 1
-    return formater_nom(" ".join(mots[:i])), formater_prenoms(" ".join(mots[i:]))
+    return formater_nom(mots[0]), formater_prenoms(" ".join(mots[1:]))
 
 
 def normaliser_entree(data: Any) -> Any:
