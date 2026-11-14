@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "109"
-LOT_LIBELLE = "Liste des clients triée par ordre alphabétique (raison sociale, sinon nom) dans toutes les listes et tous les sélecteurs de clients."
+LOT = "110"
+LOT_LIBELLE = "Menu « Contacts Clients » dépliable : Gestion des contacts (ancien menu Contacts), Fonctions et Parcours regroupés en sous-menus."

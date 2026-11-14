@@ -111,7 +111,8 @@ const STAFF_MENU = [
   // Lot 78 : « Contrats clients » juste sous « Clients »
   { to: "/admin/contrats", label: "Contrats clients", icon: FileSignature,
     roles: ["superviseur", "direction", "administrateur", "secretariat"] },
-  { to: "/admin/contacts", label: "Contacts", icon: Contact,
+  // Lot 110 : menu « Contacts Clients » dépliable : Gestion des contacts (l'ancien menu « Contacts »), Fonctions, Parcours
+  { to: "/admin/contacts", label: "Gestion des contacts", icon: Contact, groupe: "contacts_clients",
     roles: ["superviseur", "direction", "secretariat", "comptable", "fiscaliste"] },
   { to: "/admin/staff", label: "Personnels", icon: UserCog,
     roles: ["superviseur", "direction", "administrateur"] },
@@ -173,8 +174,8 @@ const STAFF_MENU = [
   // Lot 89 : enrôlement des empreintes digitales — DG uniquement (fonction activée par le super-admin)
   { to: "/admin/empreintes", label: "Empreintes digitales", icon: Fingerprint, dgOnly: true, depuis: "2026-11-13" },
   // Lot 100 : fonctions des contacts (profils d'accès) — DG et super-admin seulement
-  { to: "/admin/journal-contacts", label: "Parcours des contacts", icon: History, dgOuSuper: true, depuis: "2026-11-14" },   // lot 105 : journal des contacts des clients
-  { to: "/admin/fonctions-contacts", label: "Fonctions des contacts", icon: Briefcase, dgOuSuper: true, depuis: "2026-11-14" },
+  { to: "/admin/journal-contacts", label: "Parcours", icon: History, dgOuSuper: true, depuis: "2026-11-14", groupe: "contacts_clients" },   // lot 105 : journal des contacts des clients
+  { to: "/admin/fonctions-contacts", label: "Fonctions", icon: Briefcase, dgOuSuper: true, depuis: "2026-11-14", groupe: "contacts_clients" },
   // Lot 92 : demandes de corrections / nouveautés à SAWALI — DG, Direction, Secrétariat (mêmes droits ; le DG hérite de la Direction)
   { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-13", badgeKey: "demandes_sawali_maj" },   // lot 108 : pastille = demandes mises à jour par SAWALI
   // Lot 90 : frais des services web, rappelés au DG (configurés par le super-admin) — DG uniquement
@@ -326,6 +327,7 @@ export default function PortalLayout({ admin = false }) {
   // Lot 18 — groupe dépliable « Traitements » (comme les menus dépliables de SAWALI) : ouvert d'office quand la page
   // affichée en fait partie, sinon il garde le dernier choix (navigateur)
   const [rolesOuverts, setRolesOuverts] = useState(false);   // boîte des rôles : repliée par défaut
+  const [contactsOuvert, setContactsOuvert] = useState(false);   // lot 110 : « Contacts Clients » replié au lancement
   const [traitementsOuvert, setTraitementsOuvert] = useState(() => {
     try { return localStorage.getItem("albarka.menu.traitements") === "1"; } catch { return false; }
   });
@@ -382,18 +384,23 @@ export default function PortalLayout({ admin = false }) {
             const count = link.badgeKey ? badges[link.badgeKey] : 0;
             // Lot 18 : les liens du groupe « Traitements » sont dessinés sous un seul titre dépliable,
             // à la place du premier d'entre eux (les suivants sont sautés ici)
-            if (link.groupe === "traitements") {
-              if (links.findIndex((l) => l.groupe === "traitements") !== index) return null;
-              const enfants = links.filter((l) => l.groupe === "traitements");
+            const G = {
+              traitements: { libelle: "Traitements", Icone: Layers, ouvert: traitementsOuvert, basculer: basculerTraitements, id: "traitements" },
+              contacts_clients: { libelle: "Contacts Clients", Icone: Contact, ouvert: contactsOuvert, basculer: () => setContactsOuvert((v) => !v), id: "contacts-clients" },   // lot 110
+            }[link.groupe];
+            if (G) {
+              if (links.findIndex((l) => l.groupe === link.groupe) !== index) return null;
+              const enfants = links.filter((l) => l.groupe === link.groupe);
               const actif = enfants.some((e) => location.pathname.startsWith(e.to));
-              const ouvert = traitementsOuvert || actif;
+              const ouvert = G.ouvert || actif;
               return (
-                <div key="groupe-traitements" data-testid="sidebar-groupe-traitements">
-                  <button type="button" onClick={basculerTraitements} aria-expanded={ouvert}
+                <div key={`groupe-${G.id}`} data-testid={`sidebar-groupe-${G.id}`}>
+                  <button type="button" onClick={G.basculer} aria-expanded={ouvert}
                     className={`albarka-sidebar-link w-full ${actif && !ouvert ? "active" : ""}`}
-                    title={ouvert ? "Replier le menu Traitements" : "Déplier le menu Traitements"}>
-                    <Layers className="w-4 h-4" />
-                    <span className="flex-1 text-left">Traitements</span>
+                    title={ouvert ? `Replier le menu ${G.libelle}` : `Déplier le menu ${G.libelle}`}>
+                    <G.Icone className="w-4 h-4" />
+                    <span className="flex-1 text-left">{G.libelle}</span>
+                    <span className="text-[10px] text-white/50">{enfants.length}</span>
                     <ChevronDown className={`w-3.5 h-3.5 transition-transform ${ouvert ? "rotate-180" : ""}`} />
                   </button>
                   {ouvert && (
@@ -401,7 +408,7 @@ export default function PortalLayout({ admin = false }) {
                       {enfants.map((e) => (
                         <NavLink key={e.to} to={e.to} onClick={() => setOpenSidebar(false)}
                           className={({ isActive }) => `albarka-sidebar-link ${isActive ? "active" : ""}`}
-                          data-testid={`sidebar-link-traitement-${e.to.split("/").pop()}`}>
+                          data-testid={`sidebar-link-${G.id}-${e.to.split("/").pop()}`}>
                           <e.icon className="w-4 h-4" />
                           <span className="flex-1">{e.label}</span>
                           {estNouveau(e) && <span className="text-[11px] leading-none" title="Nouveau (moins d'une semaine)" aria-label="Nouveau" data-testid="sidebar-nouveau">🌟</span>}
