@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import EntitySelect from "@/components/EntitySelect";
 
+import { RefreshCw as Ico15RefreshCw, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 const STATUSES = [
   { value: "en_cours", label: "En cours" },
   { value: "suspendu", label: "Suspendu" },
@@ -269,8 +270,8 @@ export default function AdminContracts({ tenantId = null }) {
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                       <button type="button" className="underline text-[#0F6B4A]" onClick={() => ouvrirDocument(cur)} data-testid="contract-document-open">{cur.document.filename}</button>
                       <span className="text-xs text-muted-foreground">{tailleLisible(cur.document.size)}</span>
-                      <Button type="button" size="sm" variant="outline" onClick={() => choisirDocument(cur)} disabled={envoiId === cur.id} data-testid="contract-document-replace">Remplacer</Button>
-                      <Button type="button" size="sm" variant="ghost" className="text-red-600" onClick={() => retirerDocument(cur)} data-testid="contract-document-remove">Retirer</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => choisirDocument(cur)} disabled={envoiId === cur.id} data-testid="contract-document-replace"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Remplacer</Button>
+                      <Button type="button" size="sm" variant="ghost" className="text-red-600" onClick={() => retirerDocument(cur)} data-testid="contract-document-remove"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</Button>
                     </div>
                   ) : (
                     <Button type="button" size="sm" variant="outline" className="mt-2" onClick={() => choisirDocument(cur)} disabled={envoiId === cur.id} data-testid="contract-document-attach">
@@ -287,7 +288,7 @@ export default function AdminContracts({ tenantId = null }) {
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
               <Button onClick={submit} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="contract-submit-btn">
                 {editing ? "Enregistrer" : "Créer"}
               </Button>

@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { ui } from "@/components/forms-core/ui";
 
+import { Save as Ico15Save } from "lucide-react";
 // Doit rester identique à CLIENT_MANAGE_ROLES côté backend : qui peut ouvrir/fermer les modules.
 const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
 // Libellé du canal par lequel le client a été prévenu.
@@ -145,7 +146,7 @@ export default function ClientSpacePanel({ tenantId }) {
           </div>
           <p className="text-xs text-muted-foreground mt-2">Tableau de bord et Mon compte restent toujours visibles.</p>
           {canManageModules && (
-            <Button size="sm" className="mt-3 bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={saveModules} disabled={savingModules} data-testid="modules-save">Enregistrer les modules</Button>
+            <Button size="sm" className="mt-3 bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={saveModules} disabled={savingModules} data-testid="modules-save"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer les modules</Button>
           )}
         </div>
       )}

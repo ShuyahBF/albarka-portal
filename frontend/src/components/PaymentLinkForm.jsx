@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import EntitySelect from "@/components/EntitySelect";
 
+import { Plus as Ico15Plus } from "lucide-react";
 /**
  * Corps partagé du formulaire "Générer un lien de paiement" (POST
  * /payments/pawapay/link) — utilisé à la fois par la page Paiements
@@ -61,8 +62,7 @@ export default function PaymentLinkForm({ onCreated, compact = false }) {
           </a>
         </div>
         <Button variant="ghost" size="sm" onClick={reset} data-testid="payment-new-btn">
-          Créer un autre lien
-        </Button>
+          <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer un autre lien</Button>
       </div>
     );
   }

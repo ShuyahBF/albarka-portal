@@ -40,6 +40,7 @@ import PushOptIn from "@/components/PushOptIn";                          // lot 
  */
 
 const POLL_MS = 10000;
+import { Plus as Ico15Plus, Send as Ico15Send, X as Ico15X } from "lucide-react";
 // Même compte que ADMIN_ACCOUNT_EMAIL côté serveur (albarka_models.py) : seul lui peut vider les conversations
 const ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com";
 
@@ -557,7 +558,7 @@ export default function AdminWhatsAppConversations() {
                       <Button type="submit" size="sm" disabled={ncSaving} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="wa-inbox-nc-save">
                         {ncSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Créer et écrire"}
                       </Button>
-                      <Button type="button" size="sm" variant="outline" onClick={() => setNouveauContact(false)}>Annuler</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => setNouveauContact(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
                     </div>
                   </form>
                 )}
@@ -930,8 +931,8 @@ export default function AdminWhatsAppConversations() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setHorsFenetre(false)} data-testid="wa-inbox-hors-fenetre-annuler">Annuler</Button>
-            <Button onClick={() => send(true)} disabled={sending} data-testid="wa-inbox-hors-fenetre-confirmer">Envoyer avec un modèle (facturé)</Button>
+            <Button variant="outline" onClick={() => setHorsFenetre(false)} data-testid="wa-inbox-hors-fenetre-annuler"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
+            <Button onClick={() => send(true)} disabled={sending} data-testid="wa-inbox-hors-fenetre-confirmer"><Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Envoyer avec un modèle (facturé)</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -948,7 +949,7 @@ export default function AdminWhatsAppConversations() {
           </DialogHeader>
           <Input value={purgeTexte} onChange={(e) => setPurgeTexte(e.target.value)} placeholder="SUPPRIMER" data-testid="wa-inbox-purge-input" />
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPurgeOuvert(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setPurgeOuvert(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={purgerConversations} disabled={purgeEnCours || purgeTexte.trim().toUpperCase() !== "SUPPRIMER"}
               className="bg-red-700 hover:bg-red-800 text-white" data-testid="wa-inbox-purge-confirm">
               {purgeEnCours ? <Loader2 className="w-4 h-4 animate-spin" /> : "Vider définitivement"}
@@ -984,8 +985,7 @@ export default function AdminWhatsAppConversations() {
                         onClick={() => { setNewConvOpen(false); navigate("/admin/contacts"); }}
                         data-testid="wa-inbox-new-conv-goto-contacts"
                       >
-                        Créer un contact →
-                      </Button>
+                        <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer un contact →</Button>
                     </div>
                   </CommandEmpty>
                   <CommandGroup>
@@ -1048,7 +1048,7 @@ export default function AdminWhatsAppConversations() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setQrDialogOpen(false)} data-testid="wa-inbox-qr-cancel-btn">Annuler</Button>
+            <Button variant="outline" onClick={() => setQrDialogOpen(false)} data-testid="wa-inbox-qr-cancel-btn"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={saveQr} disabled={qrSaving} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="wa-inbox-qr-save-btn">
               {qrSaving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
               Enregistrer

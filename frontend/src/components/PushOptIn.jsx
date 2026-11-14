@@ -13,6 +13,7 @@ import { Bell, BellOff, BellRing } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 
+import { FlaskConical as Ico15FlaskConical, Power as Ico15Power, PowerOff as Ico15PowerOff } from "lucide-react";
 const b64ToBytes = (b64) => {
   const s = atob((b64 + "=".repeat((4 - (b64.length % 4)) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
   return Uint8Array.from(s, (c) => c.charCodeAt(0));
@@ -100,11 +101,11 @@ export default function PushOptIn({ contexte = "documents" }) {
         <div className="font-medium text-sm">Notifications sur cet appareil</div>
         <div className="text-xs text-muted-foreground">{text}</div>
       </div>
-      {state === "off" && <Button size="sm" className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={enable} disabled={busy} data-testid="push-enable">Activer</Button>}
+      {state === "off" && <Button size="sm" className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={enable} disabled={busy} data-testid="push-enable"><Ico15Power className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Activer</Button>}
       {state === "on" && (
         <>
-          <Button size="sm" variant="outline" onClick={test} data-testid="push-test">Tester</Button>
-          <Button size="sm" variant="ghost" onClick={disable} disabled={busy} data-testid="push-disable">Désactiver</Button>
+          <Button size="sm" variant="outline" onClick={test} data-testid="push-test"><Ico15FlaskConical className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Tester</Button>
+          <Button size="sm" variant="ghost" onClick={disable} disabled={busy} data-testid="push-disable"><Ico15PowerOff className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Désactiver</Button>
         </>
       )}
     </div>

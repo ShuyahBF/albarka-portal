@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import LiensJuridiques from "@/components/LiensJuridiques";
 
+import { MessageCircle as Ico15MessageCircle, Send as Ico15Send } from "lucide-react";
 const SPECIALITES = [
   {
     icon: Calculator,
@@ -83,8 +84,7 @@ export default function Home() {
                     className="border-[#E5A24B]/60 bg-transparent text-[#E5A24B] hover:bg-[#E5A24B]/10 hover:text-[#E5A24B] h-12 px-6 text-base"
                     data-testid="hero-cta-demande"
                   >
-                    Demander un service
-                  </Button>
+                    <Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Demander un service</Button>
                 </Link>
                 <Link to="/contact">
                   <Button
@@ -92,8 +92,7 @@ export default function Home() {
                     className="border-white/20 bg-transparent text-white hover:bg-white/10 hover:text-white h-12 px-6 text-base"
                     data-testid="hero-cta-contact"
                   >
-                    Nous contacter
-                  </Button>
+                    <Ico15MessageCircle className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Nous contacter</Button>
                 </Link>
               </div>
               <div className="mt-10 flex flex-wrap gap-x-6 gap-y-3 text-sm text-white/60">

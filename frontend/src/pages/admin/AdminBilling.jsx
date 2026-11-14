@@ -21,6 +21,7 @@ import { useAuth } from "@/contexts/AuthContext";
 // Lot 14 : réglage « Encaissement PI-SPI » (onglet réservé Superviseur / Direction)
 import PispiPanel from "@/pages/admin/PispiPanel";
 
+import { Calendar as Ico15Calendar, Check as Ico15Check, Plus as Ico15Plus, Save as Ico15Save, Send as Ico15Send, X as Ico15X } from "lucide-react";
 // Doit rester identique à CAISSE_DATE_RANGE_ROLES côté backend (albarka_models.py).
 const CAISSE_DATE_RANGE_ROLES = ["administrateur", "dg", "superviseur"];
 // Doit rester identique à CAISSE_PDF_ACTION_ROLES côté backend (albarka_models.py).
@@ -424,8 +425,7 @@ export default function AdminBilling() {
                 className={rangeMode === "custom" ? "bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" : ""}
                 onClick={selectCustomPeriod} data-testid="billing-range-custom"
               >
-                Période
-              </Button>
+                <Ico15Calendar className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Période</Button>
             </div>
             {rangeMode === "custom" && (
               <>
@@ -437,7 +437,7 @@ export default function AdminBilling() {
                   <Label className="text-xs">Au</Label>
                   <Input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="h-10" data-testid="billing-date-to" />
                 </div>
-                <Button variant="outline" onClick={applyDateRange} data-testid="billing-date-apply-btn">Appliquer</Button>
+                <Button variant="outline" onClick={applyDateRange} data-testid="billing-date-apply-btn"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Appliquer</Button>
               </>
             )}
           </div>
@@ -456,8 +456,7 @@ export default function AdminBilling() {
           <Dialog open={openSend} onOpenChange={setOpenSend}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" data-testid="billing-send-statement-btn">
-                Envoyer au client
-              </Button>
+                <Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Envoyer au client</Button>
             </DialogTrigger>
             <DialogContent data-testid="billing-send-statement-dialog">
               <DialogHeader><DialogTitle>Envoyer la situation de compte</DialogTitle></DialogHeader>
@@ -477,7 +476,7 @@ export default function AdminBilling() {
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setOpenSend(false)}>Annuler</Button>
+                <Button variant="outline" onClick={() => setOpenSend(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
                 <Button onClick={() => sendStatement(false)} disabled={sending} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="billing-send-statement-submit">
                   {sending ? "Envoi…" : "Envoyer"}
                 </Button>
@@ -681,8 +680,8 @@ export default function AdminBilling() {
                   )}
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setOpenInv(false)}>Annuler</Button>
-                  <Button onClick={submitInvoice} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="invoice-submit-btn">Créer</Button>
+                  <Button variant="outline" onClick={() => setOpenInv(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
+                  <Button onClick={submitInvoice} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="invoice-submit-btn"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>
@@ -851,7 +850,7 @@ export default function AdminBilling() {
           </div>
           <DialogFooter>
             {canOuvrirNumeroManuel && <Button variant="outline" onClick={refermerNumero}>Refermer sans modifier</Button>}
-            <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={enregistrerNumero} data-testid="manual-number-save">Enregistrer</Button>
+            <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={enregistrerNumero} data-testid="manual-number-save"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -880,7 +879,7 @@ export default function AdminBilling() {
             <div><Label>{payForm.method === "pispi" ? "Référence bancaire PI-SPI (obligatoire)" : "Référence"}</Label><Input value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} data-testid="payment-ref-input" /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenPay(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setOpenPay(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={submitPayment} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="payment-submit-btn">Valider</Button>
           </DialogFooter>
         </DialogContent>

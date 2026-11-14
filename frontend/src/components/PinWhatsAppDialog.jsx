@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
+import { X as Ico15X } from "lucide-react";
 /**
  * cible : compte visé (null = fenêtre fermée) ; etatPin : {defini_le, defini_par_nom} ou undefined ;
  * titulaire : « le client » / « le collaborateur » (textes) ; onFermer() ; onChange() après génération / retrait.
@@ -100,7 +101,7 @@ export default function PinWhatsAppDialog({ cible, etatPin, titulaire = "le clie
               <Trash2 className="w-4 h-4 mr-2" />Retirer le PIN
             </Button>
           )}
-          <Button variant="outline" onClick={fermer}>Fermer</Button>
+          <Button variant="outline" onClick={fermer}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</Button>
           {!resultat && (
             <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={generer} disabled={occupe} data-testid="pin-generate">
               {occupe ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}

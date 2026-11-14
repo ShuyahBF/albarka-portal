@@ -22,6 +22,8 @@ import SignatureLogPanel from "@/pages/admin/SignatureLogPanel";
 import WhatsAppLogPanel from "@/pages/admin/WhatsAppLogPanel";
 import ScheduledWaPanel from "@/pages/admin/ScheduledWaPanel";
 
+import { Sparkles as Ico15Sparkles, X as Ico15X } from "lucide-react";
+import { ArrowLeft as Ico15ArrowLeft, FolderOpen as Ico15FolderOpen } from "lucide-react";
 const REPORT_KINDS = [
   { value: "mensuel", label: "Rapport mensuel" },
   { value: "trimestriel", label: "Rapport trimestriel" },
@@ -424,8 +426,8 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setGenOpen(false)}>Annuler</Button>
-            <Button onClick={generate} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="gen-submit-btn">Générer</Button>
+            <Button variant="outline" onClick={() => setGenOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
+            <Button onClick={generate} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="gen-submit-btn"><Ico15Sparkles className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Générer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -458,7 +460,7 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
             <div className="text-xs text-muted-foreground">Le rapport PDF sera joint automatiquement.</div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSendOpen(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setSendOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={doSend} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="send-submit-btn">
               <Send className="w-4 h-4 mr-2" />Envoyer
             </Button>
@@ -540,7 +542,7 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setWaOpen(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setWaOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={doWa} className="bg-emerald-600 hover:bg-emerald-700 text-white" data-testid="wa-submit-btn">
               {waForm.schedule_enabled
                 ? <><CalIcon className="w-4 h-4 mr-2" />Programmer</>
@@ -574,7 +576,7 @@ export function ClientReportsPanel({ tenantId, clientEmail }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setSignOpen(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setSignOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={doSign} className="bg-[#E5A24B] hover:bg-[#c8871a] text-[#0B1912]" data-testid="sign-submit-btn">
               <PenTool className="w-4 h-4 mr-2" />Signer
             </Button>
@@ -667,8 +669,7 @@ export default function AdminReports() {
                         <TableCell className="text-sm">{c.email}</TableCell>
                         <TableCell className="text-right">
                           <Button size="sm" onClick={() => setSelectedClient(c)} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid={`open-reports-${c.id}`}>
-                            Ouvrir
-                          </Button>
+                            <Ico15FolderOpen className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ouvrir</Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -685,8 +686,7 @@ export default function AdminReports() {
                   {selectedClient.company && <div className="text-sm text-muted-foreground">{selectedClient.company}</div>}
                 </div>
                 <Button variant="outline" onClick={() => setSelectedClient(null)} data-testid="back-to-client-list-btn">
-                  ← Retour à la liste
-                </Button>
+                  <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour à la liste</Button>
               </div>
               <ClientReportsPanel tenantId={selectedClient.id} clientEmail={selectedClient.email} />
             </div>

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "98"
-LOT_LIBELLE = "Services Web : tableau des paiements avec la référence et le bouton bleu Imprimer le reçu bien visibles ; couleurs sobres sur les champs importants."
+LOT = "99"
+LOT_LIBELLE = "Règles 15 et 16 : un pictogramme sur chaque bouton à texte (une centaine) et en-têtes de tableaux colorés (bleu sobre) sur tout le portail."

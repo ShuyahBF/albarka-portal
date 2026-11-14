@@ -22,6 +22,7 @@ import { filtrerClients } from "@/lib/rechercheClients";   // lot 29 : recherche
 
 // Doivent rester identiques aux listes équivalentes côté backend (albarka_models.py).
 const CLIENT_MANAGE_ROLES = ["administrateur", "superviseur", "dg", "direction", "secretariat"];
+import { X as Ico15X } from "lucide-react";
 const VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"];
 
 const emptyForm = () => ({
@@ -233,7 +234,7 @@ export default function AdminClients() {
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
               <Button onClick={submit} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="client-submit-btn">
                 {editing ? "Enregistrer" : "Créer"}
               </Button>

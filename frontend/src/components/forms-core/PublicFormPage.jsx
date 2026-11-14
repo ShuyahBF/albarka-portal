@@ -24,6 +24,7 @@ import FormRenderer from "./FormRenderer";
 import { errorText, texteErreur } from "./fieldTypes";
 import { ui, cx } from "./ui";
 
+import { RefreshCw as Ico15RefreshCw } from "lucide-react";
 // Durée de conservation du brouillon sur l'appareil : 30 jours
 const DUREE_BROUILLON_MS = 30 * 24 * 3600 * 1000;
 const heureCourte = (t) => new Date(t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
@@ -62,7 +63,7 @@ export class BoiteErreur extends React.Component {
       <div className="text-center py-8 space-y-3" role="alert" data-testid="public-form-plantage">
         <p className="text-lg font-display font-bold text-slate-900">Un incident d'affichage est survenu</p>
         <p className="text-sm text-slate-600">Vos réponses sont <b>gardées sur cet appareil</b> : rechargez la page, elles seront restaurées. L'incident a été signalé.</p>
-        <button type="button" className={ui.btnPrimary} onClick={() => window.location.reload()}>Recharger la page</button>
+        <button type="button" className={ui.btnPrimary} onClick={() => window.location.reload()}><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Recharger la page</button>
       </div>
     );
   }

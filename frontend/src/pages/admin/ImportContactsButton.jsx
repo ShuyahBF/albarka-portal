@@ -8,6 +8,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
+import { X as Ico15X } from "lucide-react";
 export default function ImportContactsButton({ scope, tenantId, onDone }) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState(null);
@@ -101,7 +102,7 @@ export default function ImportContactsButton({ scope, tenantId, onDone }) {
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Fermer</Button>
+          <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</Button>
           <Button onClick={submit} disabled={!file || busy} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="import-submit-btn">
             <Upload className="w-4 h-4 mr-2" />{busy ? "Import en cours…" : "Importer"}
           </Button>

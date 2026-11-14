@@ -14,6 +14,7 @@ import { ui } from "@/components/forms-core/ui";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
+import { Send as Ico15Send } from "lucide-react";
 const DURATIONS = [[4, "4 heures"], [8, "8 heures"], [24, "24 heures"], [72, "3 jours"], [168, "7 jours"]];
 
 export default function TemporaryAccessButton({ account }) {
@@ -68,7 +69,7 @@ export default function TemporaryAccessButton({ account }) {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={close}>{result ? "Fermer" : "Annuler"}</Button>
-            {!result && <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={create} disabled={busy} data-testid="temp-access-create">Créer et envoyer</Button>}
+            {!result && <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={create} disabled={busy} data-testid="temp-access-create"><Ico15Send className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer et envoyer</Button>}
           </DialogFooter>
         </DialogContent>
       </Dialog>

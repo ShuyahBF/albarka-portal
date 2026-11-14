@@ -4,6 +4,7 @@ import { Sprout, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import PublicWhatsAppFAB from "@/components/PublicWhatsAppFAB";
 
+import { LogIn as Ico15LogIn } from "lucide-react";
 const NAV = [
   { to: "/", label: "Accueil" },
   { to: "/missions", label: "Missions" },
@@ -54,8 +55,7 @@ export default function PublicLayout({ children }) {
                 className="border-white/20 text-white bg-transparent hover:bg-white/10 hover:text-white"
                 data-testid="header-login-btn"
               >
-                Espace client
-              </Button>
+                <Ico15LogIn className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Espace client</Button>
             </Link>
           </div>
           <button

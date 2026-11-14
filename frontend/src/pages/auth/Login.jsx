@@ -16,6 +16,7 @@ import EtatServeur from "@/components/EtatServeur";
 import ConnexionEmpreinte from "@/components/ConnexionEmpreinte";   // lot 89
 import InstallerApplication from "@/components/InstallerApplication";
 
+import { ArrowLeft as Ico15ArrowLeft, KeyRound as Ico15KeyRound } from "lucide-react";
 // Champ secret (mot de passe ou code PIN) avec pictogramme « œil » pour
 // voir / masquer la saisie (règle du propriétaire sur tous les sites).
 function ChampSecret({ id, value, onChange, visible, onToggle, testId, ...props }) {
@@ -396,8 +397,7 @@ export default function Login() {
                 </div>
               ) : (
                 <button type="button" onClick={() => setShowAccessField(true)} className="text-xs text-muted-foreground hover:text-[#0F6B4A]" data-testid="show-access-code">
-                  J'ai un code d'accès temporaire
-                </button>
+                  <Ico15KeyRound className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />J'ai un code d'accès temporaire</button>
               )}
 
               <Button
@@ -414,8 +414,7 @@ export default function Login() {
                 className="w-full text-sm text-muted-foreground hover:text-[#0F6B4A]"
                 data-testid="back-to-credentials"
               >
-                ← Modifier mes identifiants
-              </button>
+                <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Modifier mes identifiants</button>
             </form>
           )}
           {/* Application Android : bouton d'installation (masqué si déjà installée) */}

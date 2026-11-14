@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import EntitySelect from "@/components/EntitySelect";
 
+import { Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 const JOURNALS = ["OD", "VE", "AC", "BQ", "CA"];
 
 export default function AdminAccounting() {
@@ -171,8 +172,8 @@ export default function AdminAccounting() {
                     </div>
                   </div>
                   <DialogFooter>
-                    <Button variant="outline" onClick={() => setOpenEntry(false)}>Annuler</Button>
-                    <Button onClick={submitEntry} disabled={!totals.ok} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="entry-submit-btn">Créer</Button>
+                    <Button variant="outline" onClick={() => setOpenEntry(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
+                    <Button onClick={submitEntry} disabled={!totals.ok} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="entry-submit-btn"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer</Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>

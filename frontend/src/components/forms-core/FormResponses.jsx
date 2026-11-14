@@ -18,6 +18,7 @@ import { apiClient } from "@/lib/api";
 import { errorText, formatDateTime, readableValue, isVisible, downloadBlob } from "./fieldTypes";
 import { ui, cx } from "./ui";
 
+import { X as Ico15X } from "lucide-react";
 const SOURCES = { invitation: "Invitation", public: "Lien public", portal: "Espace client" };
 
 export default function FormResponses({ apiBase = "/forms", form }) {
@@ -145,7 +146,7 @@ export default function FormResponses({ apiBase = "/forms", form }) {
                 );
               })}
             </dl>
-            <div className={ui.modalFooter}><button type="button" onClick={() => setOpen(null)} className={ui.btnSecondary}>Fermer</button>
+            <div className={ui.modalFooter}><button type="button" onClick={() => setOpen(null)} className={ui.btnSecondary}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</button>
               <button type="button" onClick={() => exportPdf(open.id)} disabled={pdfEnCours} className={ui.btnSecondary} data-testid="response-pdf"><FileText className="h-4 w-4" /> PDF de cette réponse</button><button type="button" onClick={() => remove(open)} className={ui.btnDanger}><Trash2 className="h-4 w-4" /> Supprimer cette réponse</button></div>
           </div>
         </div>

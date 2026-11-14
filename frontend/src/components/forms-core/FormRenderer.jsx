@@ -19,6 +19,7 @@ import { Star, Paperclip, X, Loader2, ChevronLeft, ChevronRight, Eraser, Plus, T
 import { isVisible, isEmpty, texteErreur } from "./fieldTypes";
 import { ui, cx } from "./ui";
 
+import { PenLine as Ico15PenLine } from "lucide-react";
 // Lot 32 (18/10/2026) — durcissement après un « écran tout blanc » signalé à la dernière étape du formulaire de paie :
 //   - un message d'erreur n'est JAMAIS affiché tel quel s'il n'est pas du texte (liste, objet) : un objet dans l'écran fait planter toute la page ;
 //   - l'envoi d'un fichier qui échoue n'interrompt plus l'écran (l'erreur s'affiche sous la question) ;
@@ -62,7 +63,7 @@ function SignaturePad({ value, onUpload, disabled }) {
     return (
       <div className="flex items-center gap-2 text-sm text-emerald-700">
         ✔ Signature enregistrée
-        {!disabled && <button type="button" onClick={() => onUpload(null)} className="text-xs text-slate-500 underline">Signer à nouveau</button>}
+        {!disabled && <button type="button" onClick={() => onUpload(null)} className="text-xs text-slate-500 underline"><Ico15PenLine className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Signer à nouveau</button>}
       </div>
     );
   }

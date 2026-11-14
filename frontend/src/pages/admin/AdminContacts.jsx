@@ -20,6 +20,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ImportContactsButton from "@/pages/admin/ImportContactsButton";
 import { ContactGroupsPanel } from "@/pages/admin/ContactGroupsPanel";
 
+import { X as Ico15X } from "lucide-react";
 const FUNCTIONS = [
   { value: "dg", label: "Directeur Général" },
   { value: "daf", label: "DAF" },
@@ -270,7 +271,7 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
             <div><Label>Notes (optionnel)</Label><Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} data-testid="contact-notes-input" /></div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={save} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="contact-submit-btn">
               {editing ? "Enregistrer" : "Ajouter"}
             </Button>
