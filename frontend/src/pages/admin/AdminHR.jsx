@@ -18,6 +18,7 @@ import PaieSettings from "@/components/paie/PaieSettings";
 import PaieRetenues from "@/components/paie/PaieRetenues";   // lot 85 : déclaration des retenues SND / SFED / CENAMU
 import PaieCnss, { CHOIX_CNSS_INITIAL } from "@/components/paie/PaieCnss";
 
+import { Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 export default function AdminHR() {
   const [employees, setEmployees] = useState([]);
   const [payslips, setPayslips] = useState([]);
@@ -118,8 +119,8 @@ export default function AdminHR() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button variant="outline" onClick={() => setOpenPay(false)}>Annuler</Button>
-                  <Button onClick={submitPay} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="payslip-submit-btn">Créer</Button>
+                  <Button variant="outline" onClick={() => setOpenPay(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
+                  <Button onClick={submitPay} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="payslip-submit-btn"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer</Button>
                 </DialogFooter>
               </DialogContent>
             </Dialog>

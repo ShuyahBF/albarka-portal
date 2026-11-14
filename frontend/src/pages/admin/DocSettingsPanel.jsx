@@ -25,6 +25,7 @@ import { apiClient, extractError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { ui, cx } from "@/components/forms-core/ui";
 
+import { Star as Ico15Star, Trash2 as Ico15Trash2 } from "lucide-react";
 const WRITERS = ["superviseur", "direction", "dg", "administrateur"];
 
 // Hauteur et largeur d'une feuille A4 en millimètres (aperçu « page entière »)
@@ -129,7 +130,7 @@ function LetterheadCard({ lh, stamp, canWrite, update, remove, fileBtn }) {
       <div className="flex items-center justify-between gap-2">
         <p className="font-display font-bold">{lh.name}</p>
         {lh.is_default ? <span className={ui.badge.green}><Star className="h-3 w-3" /> Par défaut</span>
-          : canWrite && <button type="button" onClick={() => update(lh, { is_default: "true" })} className={ui.btnTool}>Mettre par défaut</button>}
+          : canWrite && <button type="button" onClick={() => update(lh, { is_default: "true" })} className={ui.btnTool}><Ico15Star className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Mettre par défaut</button>}
       </div>
       {/* Type de papier (lot 12) */}
       {lh.has_header && (
@@ -170,7 +171,7 @@ function LetterheadCard({ lh, stamp, canWrite, update, remove, fileBtn }) {
           {fileBtn(lh.has_header ? (isPage ? "Changer l'image A4" : "Changer l'en-tête") : "Ajouter l'en-tête", (f) => update(lh, { header: f }))}
           {!isPage && fileBtn(lh.has_footer ? "Changer le pied" : "Ajouter le pied", (f) => update(lh, { footer: f }))}
           {lh.has_header && <button type="button" onClick={() => update(lh, { remove_header: "true" })} className={ui.btnTool}>{isPage ? "Retirer l'image" : "Retirer l'en-tête"}</button>}
-          {lh.has_footer && <button type="button" onClick={() => update(lh, { remove_footer: "true" })} className={ui.btnTool}>Retirer le pied</button>}
+          {lh.has_footer && <button type="button" onClick={() => update(lh, { remove_footer: "true" })} className={ui.btnTool}><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer le pied</button>}
           <button type="button" onClick={() => remove(lh)} className={ui.act.iconDanger} title="Supprimer"><Trash2 className="h-3.5 w-3.5" /></button>
         </div>
       )}

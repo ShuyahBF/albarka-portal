@@ -21,6 +21,7 @@ import { apiClient, extractError } from "@/lib/api";
 import { Plus, Pencil, Trash2, X } from "lucide-react";
 import { EmployerSelect, useEmployers, fcfa, GREEN } from "@/components/paie/paieCommon";
 
+import { Save as Ico15Save, X as Ico15X } from "lucide-react";
 const empty = { full_name: "", role: "", matricule: "", cnss_number: "", category: "", grade: "", echelon: "", dependents: 0, hire_date: "",
   pay_mode: "gross", base_salary: "", net_target: "", allowances: {}, non_exempt: [], in_kind: "", cnss_exempt: false, special_deductions: {}, email: "", phone: "" };
 const inp = "mt-1 block h-9 w-full rounded border border-slate-300 px-2 text-sm";
@@ -190,8 +191,8 @@ function EmployeeDialog({ employerId, params, officine, initial, onClose, onSave
           </div>
         </div>
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100">Annuler</button>
-          <button type="button" onClick={save} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: GREEN }} data-testid="emp-save">Enregistrer</button>
+          <button type="button" onClick={onClose} className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-100"><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
+          <button type="button" onClick={save} disabled={busy} className="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" style={{ background: GREEN }} data-testid="emp-save"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</button>
         </div>
       </div>
     </div>

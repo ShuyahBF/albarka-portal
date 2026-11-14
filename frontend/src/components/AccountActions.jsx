@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
+import { RefreshCw as Ico15RefreshCw, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 // Date et heure lisibles (« 26/09/2026 14:05 »), ou « Jamais »
 export const fmtDateTime = (iso, empty = "Jamais") => {
   if (!iso) return empty;
@@ -123,7 +124,7 @@ export default function AccountActions({ account, onChanged, canManage = true, c
           )}
           <DialogFooter>
             <Button variant="outline" onClick={closeReset}>{newPwd ? "Fermer" : "Annuler"}</Button>
-            {!newPwd && <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={resetPassword} disabled={busy} data-testid="reset-pwd-confirm">Réinitialiser</Button>}
+            {!newPwd && <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={resetPassword} disabled={busy} data-testid="reset-pwd-confirm"><Ico15RefreshCw className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réinitialiser</Button>}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -134,8 +135,8 @@ export default function AccountActions({ account, onChanged, canManage = true, c
           <DialogHeader><DialogTitle>Supprimer {deleteLabel} ?</DialogTitle></DialogHeader>
           <p className="text-sm text-left">Le compte <b>{account.full_name}</b> ({account.email}) sera supprimé définitivement : la personne ne pourra plus se connecter. La suppression est tracée dans le Journal plateforme.</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpenDelete(false)}>Annuler</Button>
-            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={remove} data-testid="delete-account-confirm">Supprimer</Button>
+            <Button variant="outline" onClick={() => setOpenDelete(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={remove} data-testid="delete-account-confirm"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Supprimer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

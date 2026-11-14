@@ -17,6 +17,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 
+import { X as Ico15X } from "lucide-react";
 const KINDS = [
   { value: "mensuel", label: "Mensuel" },
   { value: "trimestriel", label: "Trimestriel" },
@@ -208,7 +209,7 @@ export default function ReportTemplatesPanel() {
             </label>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={save} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="template-submit-btn">
               {editing ? "Enregistrer" : "Créer"}
             </Button>

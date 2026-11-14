@@ -19,6 +19,7 @@ import {
   Braces, Rows3, Columns3, Trash2, Palette, Highlighter,
 } from "lucide-react";
 
+import { Plus as Ico15Plus } from "lucide-react";
 // Polices proposées (le PDF utilise la famille la plus proche : sans empattement / avec empattement)
 const FONTS = [["Arial", "Arial, sans-serif"], ["Calibri", "Calibri, sans-serif"], ["Times New Roman", "'Times New Roman', serif"],
   ["Book Antiqua", "'Book Antiqua', serif"], ["Courier New", "'Courier New', monospace"]];
@@ -260,7 +261,7 @@ export default function RichTextEditor({ value, onChange, variables = [], minHei
                 <label className="flex-1">Lignes<input type="number" min="1" max="30" value={rowsCols.rows} onChange={(e) => setRowsCols({ ...rowsCols, rows: e.target.value })} className="mt-0.5 w-full rounded border border-slate-300 px-1.5 py-1" data-testid={`${testId}-rows`} /></label>
                 <label className="flex-1">Colonnes<input type="number" min="1" max="12" value={rowsCols.cols} onChange={(e) => setRowsCols({ ...rowsCols, cols: e.target.value })} className="mt-0.5 w-full rounded border border-slate-300 px-1.5 py-1" data-testid={`${testId}-cols`} /></label>
               </div>
-              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={insertTable} className="w-full rounded-md bg-primary py-1.5 text-primary-foreground" data-testid={`${testId}-table-insert`}>Insérer</button>
+              <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={insertTable} className="w-full rounded-md bg-primary py-1.5 text-primary-foreground" data-testid={`${testId}-table-insert`}><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Insérer</button>
             </div>
           )}
         </div>

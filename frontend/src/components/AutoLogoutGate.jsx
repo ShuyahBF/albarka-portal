@@ -14,6 +14,7 @@ import { useIdleTimer } from "@/lib/useIdleTimer";
 import { installBusyInterceptor } from "@/lib/busyTasks";
 import { sendOffline } from "@/components/Presence";
 
+import { LogIn as Ico15LogIn } from "lucide-react";
 // Suivi automatique des requêtes d'écriture en cours (une seule fois)
 installBusyInterceptor(apiClient);
 
@@ -68,8 +69,7 @@ export default function AutoLogoutGate() {
             <LogOut className="h-3.5 w-3.5" /> Se déconnecter maintenant
           </button>
           <button onClick={stayConnected} className="text-sm rounded-lg bg-[#0F6B4A] hover:bg-[#0A4E36] text-white px-4 py-2 font-semibold" data-testid="idle-warning-stay">
-            Rester connecté(e)
-          </button>
+            <Ico15LogIn className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Rester connecté(e)</button>
         </div>
       </div>
     </div>

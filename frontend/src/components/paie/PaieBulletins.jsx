@@ -23,6 +23,7 @@ import { RefreshCw, Printer, FileText, Lock, Unlock, Plus, Trash2, X, FileSpread
 import EnvoiResponsable from "@/components/paie/EnvoiResponsable";
 import { EmployerSelect, MonthInput, useEmployers, fcfa, previousMonth, GREEN } from "@/components/paie/paieCommon";
 
+import { Save as Ico15Save } from "lucide-react";
 // Ouvre un PDF (bulletin, lot du mois, livre de paie) ; génération parfois
 // longue : toast « Patientez… » pendant l'attente (règle du propriétaire)
 const openPdf = async (url, params) => {
@@ -148,7 +149,7 @@ function BulletinDrawer({ id, onClose, onChanged }) {
             <input type="number" value={vars.seniority_amount} disabled={locked} onChange={(e) => setVars({ ...vars, seniority_amount: e.target.value })} className="mt-1 block h-8 w-40 rounded border border-slate-300 px-2 text-sm" /></label>
           <label className="block text-xs text-slate-600">Observations
             <input value={vars.notes} disabled={locked} onChange={(e) => setVars({ ...vars, notes: e.target.value })} className="mt-1 block h-8 w-full rounded border border-slate-300 px-2 text-sm" /></label>
-          {!locked && <button type="button" onClick={save} disabled={busy} className="rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ background: GREEN }} data-testid="bulletin-save">Enregistrer et recalculer</button>}
+          {!locked && <button type="button" onClick={save} disabled={busy} className="rounded-lg px-3 py-2 text-sm font-medium text-white disabled:opacity-50" style={{ background: GREEN }} data-testid="bulletin-save"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer et recalculer</button>}
         </div>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={toggle} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="bulletin-toggle">

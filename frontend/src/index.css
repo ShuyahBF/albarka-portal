@@ -271,3 +271,23 @@ body.portal-ui main img, body.portal-ui main video { max-width: 100%; height: au
 :is(div, section, article, aside, fieldset, details)[class*="ring-1"]:is([class*="rounded-lg"], [class*="rounded-xl"], [class*="rounded-2xl"], [class*="rounded-md"]):not(.albarka-hero *) {
     --tw-ring-color: var(--cadre-bloc) !important;
 }
+
+/* ---------------------------------------------------------------------------
+   Règle 16 du propriétaire (14/11/2026) — tableaux jamais « tout en noir » :
+   en-tête bleu très clair avec filet bleu et titres bleu nuit (contraste > 7:1), pour attirer l'œil
+   sur la structure ; les couleurs des montants / références / échéances sont posées écran par écran.
+   Le survol bleu clair et la sélection orange (règle 3) restent prioritaires sur les lignes.
+   --------------------------------------------------------------------------- */
+body.portal-ui main table thead,
+body.portal-ui main table thead tr {
+    background: #eff6ff;                       /* bleu 50 */
+}
+body.portal-ui main table thead th {
+    color: #1e3a8a;                            /* bleu 900 */
+    border-bottom: 2px solid #93c5fd;          /* filet bleu 300 */
+}
+/* Colonne d'action (dernier bouton d'une ligne) : les boutons-icônes gardent un cadre coloré visible */
+body.portal-ui main table tbody td button:has(> svg:only-child) {
+    border: 1px solid #bfdbfe;
+    border-radius: 0.5rem;
+}

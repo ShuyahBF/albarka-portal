@@ -18,6 +18,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import EntitySelect from "@/components/EntitySelect";
 
+import { Plus as Ico15Plus, X as Ico15X } from "lucide-react";
 const TYPES = [
   { value: "tva", label: "TVA" },
   { value: "is", label: "Impôt sur les sociétés (IS)" },
@@ -182,8 +183,8 @@ export default function Echeances({ tenantIdOverride = null, staffMode = false }
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
-                <Button onClick={submit} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="echeance-submit-btn">Créer</Button>
+                <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
+                <Button onClick={submit} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="echeance-submit-btn"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

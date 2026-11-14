@@ -25,6 +25,7 @@ import { ui, cx } from "./ui";
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell } from "recharts";
 import { PALETTE, ChartStyles, KpiCard, ChartCard, ChartTip } from "./charts";
 
+import { X as Ico15X } from "lucide-react";
 const COLORS = ["#0F6B4A", "#2563eb", "#7c3aed", "#db2777", "#ea580c", "#ca8a04", "#0891b2", "#475569"];
 
 function CategoriesManager({ apiBase, categories, onClose, onChanged }) {
@@ -296,7 +297,7 @@ export default function FormsLibrary({ apiBase = "/forms", basePath = "/admin/fo
                 <option value="">Sans catégorie</option>{categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
             </div>
             <div className={ui.modalFooter}>
-              <button type="button" onClick={() => setCreating(false)} disabled={busy} className={ui.btnSecondary}>Annuler</button>
+              <button type="button" onClick={() => setCreating(false)} disabled={busy} className={ui.btnSecondary}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</button>
               <button type="button" onClick={create} disabled={!newTitle.trim() || busy || !!titleConflict} className={ui.btnPrimary} data-testid="forms-create-submit">
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Créer et construire</button>
             </div>

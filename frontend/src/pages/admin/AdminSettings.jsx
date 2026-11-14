@@ -26,6 +26,7 @@ import AlerteMaintenanceCard from "@/pages/admin/AlerteMaintenanceCard";   // lo
 
 const FIELDS_TABS = ["cabinet", "whatsapp", "notifications", "rapports"];
 
+import { Copy as Ico15Copy, Sparkles as Ico15Sparkles } from "lucide-react";
 export default function AdminSettings() {
   const { user } = useAuth();
   // RGPD : modifiable par le Superviseur (seul à accéder aux Paramètres)
@@ -501,8 +502,7 @@ export default function AdminSettings() {
                   <Input readOnly value={`${apiClient.defaults.baseURL}/whatsapp/webhook`} className="font-mono text-xs" data-testid="wa-callback-url" />
                   <Button type="button" variant="outline"
                     onClick={() => { navigator.clipboard?.writeText(`${apiClient.defaults.baseURL}/whatsapp/webhook`); toast.success("URL copiée"); }}>
-                    Copier
-                  </Button>
+                    <Ico15Copy className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Copier</Button>
                 </div>
               </div>
               <div>
@@ -523,8 +523,7 @@ export default function AdminSettings() {
                       setWaNewVerify(Array.from(octets, (o) => "abcdefghijkmnpqrstuvwxyz23456789"[o % 32]).join(""));
                     }}
                     data-testid="wa-verify-token-generate">
-                    Générer
-                  </Button>
+                    <Ico15Sparkles className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Générer</Button>
                 </div>
                 <div className="text-xs text-muted-foreground mt-1">
                   Collez le MÊME jeton dans Meta (champ « Vérifier le token »). Après « Enregistrer », il est masqué : copiez-le avant.

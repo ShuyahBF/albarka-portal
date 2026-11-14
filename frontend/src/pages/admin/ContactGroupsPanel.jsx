@@ -14,6 +14,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 
+import { X as Ico15X } from "lucide-react";
 /** Manage contact groups for a given (scope, tenantId). */
 export function ContactGroupsPanel({ scope = "client", tenantId }) {
   const [items, setItems] = useState([]);
@@ -178,7 +179,7 @@ export function ContactGroupsPanel({ scope = "client", tenantId }) {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={save} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="group-submit-btn">
               {editing ? "Enregistrer" : "Créer"}
             </Button>

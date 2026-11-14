@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
+import { Ban as Ico15Ban, Plus as Ico15Plus, Users as Ico15Users } from "lucide-react";
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—");
 
 export default function StaffAccessPanel({ settings, setSettings, save, saving }) {
@@ -84,7 +85,7 @@ export default function StaffAccessPanel({ settings, setSettings, save, saving }
           <textarea rows={3} value={ipText} onChange={(e) => setIpText(e.target.value)} className="mt-1 w-full rounded-md border p-2 text-sm font-mono" placeholder="41.207.12.0/24" data-testid="ip-whitelist" />
           <div className="text-xs text-muted-foreground">
             Votre adresse actuelle : <span className="font-mono">{myIp || "…"}</span>
-            {myIp && <button type="button" className="ml-2 text-[#0F6B4A] underline" onClick={() => setIpText((t) => (t ? `${t}\n${myIp}` : myIp))}>ajouter</button>}
+            {myIp && <button type="button" className="ml-2 text-[#0F6B4A] underline" onClick={() => setIpText((t) => (t ? `${t}\n${myIp}` : myIp))}><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />ajouter</button>}
             {" "}— utile seulement si le bureau a une adresse fixe (les connexions mobiles changent souvent d'adresse).
           </div>
         </div>
@@ -121,7 +122,7 @@ export default function StaffAccessPanel({ settings, setSettings, save, saving }
                     <div className="text-[11px] text-muted-foreground truncate max-w-md">{r.user_agent}</div>
                   </div>
                   <Button size="sm" className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={() => approve(r, false)} data-testid={`approve-${r.id}`}><Check className="w-3.5 h-3.5 mr-1" />Pour ce collaborateur</Button>
-                  <Button size="sm" variant="outline" onClick={() => approve(r, true)}>Poste partagé</Button>
+                  <Button size="sm" variant="outline" onClick={() => approve(r, true)}><Ico15Users className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Poste partagé</Button>
                   <Button size="sm" variant="ghost" className="text-red-600" onClick={() => reject(r)}><X className="w-3.5 h-3.5 mr-1" />Refuser</Button>
                 </div>
               ))}
@@ -163,7 +164,7 @@ export default function StaffAccessPanel({ settings, setSettings, save, saving }
                   <td className="py-2 pr-3">{t.created_by_name}</td>
                   <td className="py-2 pr-3 tabular-nums">{fmt(t.expires_at)} {t.active ? <span className="albarka-chip text-[10px] bg-emerald-100 text-emerald-800 ml-1">actif</span> : <span className="albarka-chip text-[10px] bg-slate-100 text-slate-500 ml-1">{t.revoked ? "révoqué" : "expiré"}</span>}</td>
                   <td className="py-2 pr-3">{(t.uses || []).length}</td>
-                  <td className="py-2 text-right">{t.active && <Button size="sm" variant="ghost" className="text-red-600" onClick={() => revokeToken(t)}>Révoquer</Button>}</td>
+                  <td className="py-2 text-right">{t.active && <Button size="sm" variant="ghost" className="text-red-600" onClick={() => revokeToken(t)}><Ico15Ban className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Révoquer</Button>}</td>
                 </tr>
               ))}
             </tbody>

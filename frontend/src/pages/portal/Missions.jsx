@@ -19,6 +19,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import EntitySelect from "@/components/EntitySelect";
 
+import { X as Ico15X } from "lucide-react";
 const TYPES = [
   { value: "tenue_comptable", label: "Tenue comptable" },
   { value: "declaration_fiscale", label: "Déclaration fiscale" },
@@ -177,7 +178,7 @@ export default function Missions({ tenantIdOverride = null, staffMode = false })
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+                <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
                 <Button onClick={submit} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="mission-submit-btn">{editingId ? "Enregistrer" : "Créer"}</Button>
               </DialogFooter>
             </DialogContent>

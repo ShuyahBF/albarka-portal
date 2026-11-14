@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+import { Power as Ico15Power, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 const GRAVITES = [
   { v: "info", t: "Information" },
   { v: "warning", t: "Avertissement" },
@@ -90,7 +91,7 @@ export default function AlerteMaintenanceCard() {
             <div className="flex items-center gap-2">
               <label className="inline-flex h-9 cursor-pointer items-center gap-1 rounded-md border border-input bg-white px-3 text-sm"><Upload className="h-4 w-4" /> Choisir
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={choisirImage} data-testid="bandeau-image" /></label>
-              {b.image && <button type="button" onClick={() => setB({ ...b, image: "" })} className="text-xs underline">Retirer l'image</button>}
+              {b.image && <button type="button" onClick={() => setB({ ...b, image: "" })} className="text-xs underline"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer l'image</button>}
             </div></div>
           <div><Label>Lien (facultatif)</Label>
             <Input value={b.lien_url} placeholder="https://…" onChange={(e) => setB({ ...b, lien_url: e.target.value })} /></div>
@@ -143,12 +144,12 @@ export default function AlerteMaintenanceCard() {
           </>
         )}
         {(phase === "annonce" || phase === "verrouillage") && (
-          <Button variant="outline" disabled={occupe} data-testid="maintenance-annuler" onClick={() => agir(() => apiClient.post("/maintenance/annuler"), "Déconnexion annulée")}>Annuler la déconnexion</Button>
+          <Button variant="outline" disabled={occupe} data-testid="maintenance-annuler" onClick={() => agir(() => apiClient.post("/maintenance/annuler"), "Déconnexion annulée")}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler la déconnexion</Button>
         )}
         {phase === "maintenance" && (
           <Button disabled={occupe} data-testid="maintenance-reactiver"
             onClick={() => { if (window.confirm("Rouvrir la connexion ? Chaque utilisateur devra se reconnecter.")) agir(() => apiClient.post("/maintenance/reactiver"), "Connexions rétablies"); }}>
-            Réactiver les connexions</Button>
+            <Ico15Power className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Réactiver les connexions</Button>
         )}
         <p className="text-xs text-muted-foreground">Vous n'êtes jamais déconnecté : seul le super-admin peut se reconnecter pendant la maintenance et rouvrir la connexion.</p>
         {journal.length > 0 && (

@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 
+import { Plus as Ico15Plus } from "lucide-react";
 // Rôles qui peuvent consulter les tâches de tout le personnel (le superviseur l'est toujours côté serveur).
 const ROLES_VUE_PERSONNEL = ["dg", "direction", "secretariat", "superviseur"];
 
@@ -85,8 +86,7 @@ export function ListeACocher({ elements, onChange, lectureSeule = false, surEntr
             style={{ background: ORANGE }}
             data-testid="liste-ajout-bouton"
           >
-            Ajouter
-          </button>
+            <Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter</button>
         </div>
       )}
       <ul className="space-y-1">

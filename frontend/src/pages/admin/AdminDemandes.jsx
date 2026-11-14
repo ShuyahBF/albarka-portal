@@ -8,6 +8,7 @@ import { apiClient, extractError } from "@/lib/api";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { STATUTS, LIBELLES } from "@/pages/portal/Demandes";
 
+import { Play as Ico15Play } from "lucide-react";
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "");
 const TOUS = "tous";
 
@@ -71,7 +72,7 @@ export default function AdminDemandes() {
                 {d.description && <p className="whitespace-pre-wrap text-slate-700">{d.description}</p>}
                 {d.vocal && (vocaux[d.id]
                   ? <audio controls autoPlay src={vocaux[d.id]} className="h-9" />
-                  : <button type="button" className="text-[#0F6B4A] font-medium" onClick={() => ecouter(d)}>▶ Écouter la note vocale</button>)}
+                  : <button type="button" className="text-[#0F6B4A] font-medium" onClick={() => ecouter(d)}><Ico15Play className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Écouter la note vocale</button>)}
                 {!!d.fichiers?.length && (
                   <div className="flex flex-wrap gap-3">
                     {d.fichiers.map((f) => <button key={f.index} type="button" className="text-[#0F6B4A] underline" onClick={() => ouvrir(d, f)}>{f.nom}</button>)}

@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import GrilleContenus from "@/components/contenus/GrilleContenus";
 
+import { Check as Ico15Check, Plus as Ico15Plus, Save as Ico15Save, Trash2 as Ico15Trash2 } from "lucide-react";
 const VIDE = { titre: "", description: "", theme: "comptabilite", format: "video", url: "", prix: "0", publie_le: "", publie: true };
 
 export default function AdminContenus() {
@@ -159,7 +160,7 @@ export default function AdminContenus() {
                 {c.type === "info" && c.publie && <Button variant="ghost" size="sm" onClick={() => diffuser(c)}><Send className="w-4 h-4 mr-1" />Diffuser</Button>}
                 <Button variant="ghost" size="sm" onClick={() => basculer(c)}>{c.publie ? <><EyeOff className="w-4 h-4 mr-1" />Masquer</> : <><Eye className="w-4 h-4 mr-1" />Publier</>}</Button>
                 {selection === c.id
-                  ? <Button variant="destructive" size="sm" onClick={() => supprimer(c)}>Confirmer la suppression</Button>
+                  ? <Button variant="destructive" size="sm" onClick={() => supprimer(c)}><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Confirmer la suppression</Button>
                   : <Button variant="ghost" size="icon" onClick={() => setSelection(c.id)} aria-label="Supprimer"><Trash2 className="w-4 h-4" /></Button>}
               </div>
             ))}
@@ -189,7 +190,7 @@ export default function AdminContenus() {
             {["video", "lien"].includes(lecon.format)
               ? <Input placeholder="Lien https://" value={lecon.url} onChange={(e) => setLecon({ ...lecon, url: e.target.value })} data-testid="lecon-url" />
               : <input type="file" accept={lecon.format === "pdf" ? ".pdf" : "audio/*"} onChange={(e) => setLeconFichier(e.target.files?.[0] || null)} />}
-            <Button type="submit" className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="lecon-ajouter">Ajouter la leçon</Button>
+            <Button type="submit" className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="lecon-ajouter"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Ajouter la leçon</Button>
           </form>
         </DialogContent>
       </Dialog>
@@ -246,14 +247,14 @@ export default function AdminContenus() {
               <SelectTrigger data-testid="acces-client"><SelectValue placeholder="Choisir un client" /></SelectTrigger>
               <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.company || c.full_name}</SelectItem>)}</SelectContent>
             </Select>
-            <Button onClick={accorder} className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="acces-accorder">Accorder</Button>
+            <Button onClick={accorder} className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="acces-accorder"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Accorder</Button>
           </div>
           <div className="space-y-1 text-sm">
             {acces.map((a) => (
               <div key={a.tenant_id + a.date} className="flex items-center gap-2 border rounded p-2">
                 <span className="font-medium">{a.client}</span>
                 <span className="text-muted-foreground">{a.source === "manuel" ? "accordé par le cabinet" : `payé ${Math.round(a.montant).toLocaleString("fr-FR")} FCFA`}</span>
-                {a.source === "manuel" && <button type="button" className="ml-auto text-rose-600" onClick={() => retirerAcces(a.tenant_id)}>Retirer</button>}
+                {a.source === "manuel" && <button type="button" className="ml-auto text-rose-600" onClick={() => retirerAcces(a.tenant_id)}><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</button>}
               </div>
             ))}
             {!acces.length && <div className="text-muted-foreground">Aucun accès pour le moment.</div>}
@@ -291,7 +292,7 @@ export default function AdminContenus() {
                 {type === "formation" && <label>Prix en FCFA (0 = gratuit)<Input type="number" min="0" value={form.prix} onChange={(e) => maj("prix", e.target.value)} /></label>}
               </div>
               <label className="flex items-center gap-2"><input type="checkbox" checked={form.publie} onChange={(e) => maj("publie", e.target.checked)} />Publier tout de suite (sinon brouillon)</label>
-              <Button type="submit" disabled={envoi} className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="ct-enregistrer">Enregistrer</Button>
+              <Button type="submit" disabled={envoi} className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="ct-enregistrer"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer</Button>
             </form>
           )}
         </DialogContent>

@@ -12,6 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 
+import { X as Ico15X } from "lucide-react";
 // Valeurs par défaut (identité de signature du cabinet — pas une donnée
 // client à ne jamais faire persister) : réinitialisées à l'identique à
 // chaque ouverture du formulaire, pour qu'une valeur modifiée pour un
@@ -183,7 +184,7 @@ export default function CertificatesPanel() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
             <Button onClick={create} disabled={busy} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="cert-submit-btn">
               {busy ? "Génération…" : "Créer & activer"}
             </Button>

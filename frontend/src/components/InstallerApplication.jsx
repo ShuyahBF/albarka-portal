@@ -11,6 +11,7 @@ import { Download, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
+import { Check as Ico15Check } from "lucide-react";
 // L'application tourne-t-elle déjà « installée » (plein écran, sans barre d'adresse) ?
 const dejaInstallee = () =>
   window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true;
@@ -87,7 +88,7 @@ export default function InstallerApplication({ className = "", sombre = false, t
               </p>
             </>
           )}
-          <Button type="button" onClick={() => setAide(false)} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white">Compris</Button>
+          <Button type="button" onClick={() => setAide(false)} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Compris</Button>
         </DialogContent>
       </Dialog>
     </>

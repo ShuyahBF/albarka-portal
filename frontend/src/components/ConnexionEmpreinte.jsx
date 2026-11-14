@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { empreinteSupportee, optionsEnrolement, reponseEnrolement } from "@/lib/empreinte";
 
+import { Save as Ico15Save, X as Ico15X } from "lucide-react";
+import { KeyRound as Ico15KeyRound } from "lucide-react";
 export default function ConnexionEmpreinte({ onConnecte }) {
   const { loginPasskey } = useAuth();
   const [actif, setActif] = useState(false);
@@ -71,16 +73,15 @@ export default function ConnexionEmpreinte({ onConnecte }) {
       </Button>
       {!enrolement ? (
         <button type="button" className="block mx-auto text-xs text-muted-foreground hover:text-[#0F6B4A] underline" onClick={() => setEnrolement(true)} data-testid="lien-enrolement">
-          J'ai un code d'enrôlement
-        </button>
+          <Ico15KeyRound className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />J'ai un code d'enrôlement</button>
       ) : (
         <div className="border rounded-lg p-3 space-y-2" data-testid="form-enrolement">
           <div className="text-xs text-muted-foreground">Saisissez le code remis par le DG, puis posez votre doigt quand l'appareil le demande.</div>
           <Input placeholder="Code (ex. ABCD-2345)" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={10} data-testid="input-code-enrolement" />
           <Input placeholder="Nom de cet appareil (ex. Mon téléphone)" value={nomAppareil} onChange={(e) => setNomAppareil(e.target.value)} maxLength={60} />
           <div className="flex gap-2">
-            <Button type="button" size="sm" onClick={enroler} disabled={occupe} data-testid="btn-enroler">Enregistrer cet appareil</Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setEnrolement(false)}>Annuler</Button>
+            <Button type="button" size="sm" onClick={enroler} disabled={occupe} data-testid="btn-enroler"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer cet appareil</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setEnrolement(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
           </div>
         </div>
       )}

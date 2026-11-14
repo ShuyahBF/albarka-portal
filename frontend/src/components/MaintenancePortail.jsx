@@ -12,6 +12,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 
+import { Check as Ico15Check } from "lucide-react";
 const ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com";   // même compte que côté serveur (albarka_models.py)
 const mmss = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 
@@ -71,7 +72,7 @@ export default function MaintenancePortail() {
             <div className="flex items-center gap-2 font-semibold text-lg"><Wrench className="h-5 w-5 text-rose-700" /> Maintenance annoncée</div>
             <p className="text-sm whitespace-pre-line">{etat.message}</p>
             <p className="text-sm">Vous serez déconnecté dans <b className="tabular-nums">{mmss(reste)}</b>. Enregistrez votre travail.</p>
-            <Button onClick={() => setAnnonceVue(true)} data-testid="maintenance-annonce-ok">J'ai compris</Button>
+            <Button onClick={() => setAnnonceVue(true)} data-testid="maintenance-annonce-ok"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />J'ai compris</Button>
           </div>
         </div>
       )}

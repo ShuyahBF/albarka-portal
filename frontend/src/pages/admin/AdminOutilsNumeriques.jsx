@@ -25,6 +25,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
+import { Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 // Même compte que ADMIN_ACCOUNT_EMAIL côté serveur (albarka_models.py)
 const ADMIN_ACCOUNT_EMAIL = "admin@sawalismartsystems.com";
 const AUDIENCE_LABELS = { tous: "Clients et personnel", clients: "Clients", personnel: "Personnel" };
@@ -303,13 +304,13 @@ function ToolDialog({ tool, onClose, onSaved }) {
                 </Button>
               )}
               {!isNew && current.has_image && !imageFile && (
-                <Button type="button" variant="ghost" size="sm" className="text-rose-600" onClick={removeImage}>Retirer</Button>
+                <Button type="button" variant="ghost" size="sm" className="text-rose-600" onClick={removeImage}><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retirer</Button>
               )}
             </div>
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={onClose}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
           <Button onClick={save} disabled={saving} className="bg-[#0F6B4A] hover:bg-[#0B5439]" data-testid="outil-save-btn">
             {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Enregistrer
           </Button>

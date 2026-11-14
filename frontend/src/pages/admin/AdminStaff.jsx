@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useAuth } from "@/contexts/AuthContext";
 
+import { Plus as Ico15Plus, Trash2 as Ico15Trash2, X as Ico15X } from "lucide-react";
 const STAFF_ROLES = [
   { value: "superviseur", label: "Superviseur" },
   { value: "direction", label: "Direction" },
@@ -347,7 +348,7 @@ export default function AdminStaff() {
               )}
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setOpen(false)}>Annuler</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>
               <Button onClick={submit} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid="staff-submit-btn">
                 {editing ? "Enregistrer" : "Créer"}
               </Button>
@@ -485,7 +486,7 @@ export default function AdminStaff() {
                 <Trash2 className="w-4 h-4 mr-2" />Retirer le PIN
               </Button>
             )}
-            <Button variant="outline" onClick={() => { setPinCible(null); setPinResultat(null); }}>Fermer</Button>
+            <Button variant="outline" onClick={() => { setPinCible(null); setPinResultat(null); }}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</Button>
             {!pinResultat && (
               <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={genererPin} disabled={pinBusy} data-testid="pin-generate">
                 {pinBusy ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <KeyRound className="w-4 h-4 mr-2" />}
@@ -527,9 +528,9 @@ export default function AdminStaff() {
             </div>
           )}
           <DialogFooter className="flex-wrap gap-2">
-            <Button variant="outline" className="text-red-600 mr-auto" onClick={deleteTestAccounts} disabled={testBusy} data-testid="delete-test-accounts">Supprimer les comptes de test</Button>
-            <Button variant="outline" onClick={() => setOpenTest(false)}>Fermer</Button>
-            {!testResult && <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={createTestAccounts} disabled={testBusy} data-testid="create-test-accounts">Créer / remettre à neuf</Button>}
+            <Button variant="outline" className="text-red-600 mr-auto" onClick={deleteTestAccounts} disabled={testBusy} data-testid="delete-test-accounts"><Ico15Trash2 className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Supprimer les comptes de test</Button>
+            <Button variant="outline" onClick={() => setOpenTest(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Fermer</Button>
+            {!testResult && <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={createTestAccounts} disabled={testBusy} data-testid="create-test-accounts"><Ico15Plus className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Créer / remettre à neuf</Button>}
           </DialogFooter>
         </DialogContent>
       </Dialog>
