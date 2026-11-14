@@ -176,7 +176,7 @@ const STAFF_MENU = [
   { to: "/admin/journal-contacts", label: "Parcours des contacts", icon: History, dgOuSuper: true, depuis: "2026-11-14" },   // lot 105 : journal des contacts des clients
   { to: "/admin/fonctions-contacts", label: "Fonctions des contacts", icon: Briefcase, dgOuSuper: true, depuis: "2026-11-14" },
   // Lot 92 : demandes de corrections / nouveautés à SAWALI — DG, Direction, Secrétariat (mêmes droits ; le DG hérite de la Direction)
-  { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-13" },
+  { to: "/admin/demandes-sawali", label: "Demandes à SAWALI", icon: Send, roles: ["direction", "secretariat"], depuis: "2026-11-13", badgeKey: "demandes_sawali_maj" },   // lot 108 : pastille = demandes mises à jour par SAWALI
   // Lot 90 : frais des services web, rappelés au DG (configurés par le super-admin) — DG uniquement
   { to: "/admin/services-web", label: "Mes Services Web", icon: Globe, servicesWeb: true, depuis: "2026-11-13" },
   // Accessible à TOUT collaborateur, quel que soit son rôle (alwaysAllowed) —
@@ -313,7 +313,7 @@ export default function PortalLayout({ admin = false }) {
 
   const markSeen = (page) => {
     apiClient.post("/me/badges/mark-seen", { page }).catch(() => {});
-    setBadges((b) => ({ ...b, [`${page === "diffusion" ? "diffusion_new" : page}`]: 0 }));
+    setBadges((b) => ({ ...b, [{ diffusion: "diffusion_new", demandes_sawali: "demandes_sawali_maj" }[page] || page]: 0 }));
   };
 
   // Thème « portail » (design SAWALI) : classe sur <body> pour couvrir aussi
@@ -426,6 +426,7 @@ export default function PortalLayout({ admin = false }) {
               onClick={() => {
                 setOpenSidebar(false);
                 if (link.badgeKey === "diffusion_new") markSeen("diffusion");
+                if (link.badgeKey === "demandes_sawali_maj") markSeen("demandes_sawali");
               }}
               data-testid={`sidebar-link-${link.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
             >

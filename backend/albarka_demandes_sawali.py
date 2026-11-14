@@ -100,6 +100,22 @@ def appliquer_reponse(locales: List[dict], distantes: List[dict]) -> Dict[str, D
     return maj
 
 
+CHAMPS_SUIVIS = ("numero_sawali", "statut", "commentaire", "realisee_le", "prevue_le")
+
+
+def marquer_changements(locales: List[dict], maj: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Logique pure (testée) : ajoute `modifiee_sawali_le` aux demandes dont SAWALI a CHANGÉ le numéro, le statut, le commentaire ou une date.
+    Alimente la pastille de la barre latérale. La toute première remontée (« à remonter » → numérotée) n'est pas un changement fait par SAWALI :
+    c'est l'action de l'utilisateur lui-même, pas de pastille."""
+    par_id = {d["id"]: d for d in locales}
+    maintenant = datetime.now(timezone.utc).isoformat()
+    for ref, champs in maj.items():
+        ancienne = par_id.get(ref) or {}
+        if ancienne.get("statut") != "a_remonter" and any((ancienne.get(k) or None) != (champs.get(k) or None) for k in CHAMPS_SUIVIS):
+            champs["modifiee_sawali_le"] = maintenant
+    return maj
+
+
 @router.get("")
 async def lister(q: str = Query(default="", max_length=200), user: dict = Depends(get_current_user)):
     _exiger_super_admin(user)
@@ -131,7 +147,7 @@ async def _relayer(corps: Dict[str, Any], ref: str) -> None:
     from albarka_support_sawali import appeler_sawali
     reponse = await appeler_sawali(CHEMIN_SAWALI, corps)
     toutes = await db.demandes_sawali.find({}, {"_id": 0}).to_list(2000)
-    for r, champs in appliquer_reponse(toutes, reponse.get("demandes") or []).items():
+    for r, champs in marquer_changements(toutes, appliquer_reponse(toutes, reponse.get("demandes") or [])).items():
         await db.demandes_sawali.update_one({"id": r}, {"$set": champs})
     for refus in reponse.get("refus") or []:
         if refus.get("ref_locale") == ref:
@@ -178,7 +194,7 @@ async def synchroniser(remonter: bool = True) -> Dict[str, int]:
     corps = {"demandes": [{"ref_locale": d["id"], "type": d["type"], "texte": d["texte"], "demandee_le": d["demandee_le"],
                            "demandee_par": d.get("demandee_par")} for d in a_envoyer]}
     reponse = await appeler_sawali(CHEMIN_SAWALI, corps)
-    maj = appliquer_reponse(toutes, reponse.get("demandes") or [])
+    maj = marquer_changements(toutes, appliquer_reponse(toutes, reponse.get("demandes") or []))
     maintenant = datetime.now(timezone.utc).isoformat()
     envoyees = {d["id"] for d in a_envoyer}
     for ref, champs in maj.items():

@@ -157,3 +157,33 @@ def test_relecture_automatique_ne_remonte_rien_et_ne_tourne_que_si_necessaire(en
     # SAWALI l'a réalisée : plus rien à suivre, plus d'appel
     assert env.get("/api/demandes-sawali", headers=H).json()["demandes"][0]["statut"] == "realisee"
     assert asyncio.run(dm.releve_automatique()) is None and len(appels) == n + 1
+
+
+def test_marquer_changements_pour_la_pastille():
+    """Lot 108 — seule une VRAIE modification faite par SAWALI donne `modifiee_sawali_le` ; la première remontée (action de l'utilisateur) et une relecture sans changement, non."""
+    locales = [{"id": "a", "statut": "a_remonter"}, {"id": "b", "statut": "remontee", "numero_sawali": "DEM-1", "commentaire": None},
+               {"id": "c", "statut": "remontee", "numero_sawali": "DEM-3", "commentaire": "ok"}]
+    maj = {"a": {"numero_sawali": "DEM-0", "statut": "remontee", "commentaire": None},               # 1re remontée : pas de pastille
+           "b": {"numero_sawali": "DEM-1", "statut": "realisee", "commentaire": "Fait", "realisee_le": "2026-11-15"},    # changement fait par SAWALI
+           "c": {"numero_sawali": "DEM-3", "statut": "remontee", "commentaire": "ok"}}                # relue sans changement
+    r = dm.marquer_changements(locales, maj)
+    assert "modifiee_sawali_le" not in r["a"] and "modifiee_sawali_le" in r["b"] and "modifiee_sawali_le" not in r["c"]
+
+
+def test_pastille_demandes_par_utilisateur(env, monkeypatch):
+    """La pastille compte les demandes modifiées par SAWALI depuis la dernière ouverture de la page par CET utilisateur."""
+    import asyncio
+    import albarka_badges
+    a = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Point à suivre chez SAWALI"}, headers=H).json()
+    etat = {"n": 0}
+
+    async def faux_sawali(chemin, corps, delai=15):
+        etat["n"] += 1
+        statut = "remontee" if etat["n"] == 1 else "realisee"
+        return {"demandes": [{"ref_locale": a["id"], "numero": "DEM-ALB-0010", "statut": statut, "commentaire": "Fait" if statut == "realisee" else None}]}
+    monkeypatch.setattr(albarka_support_sawali, "appeler_sawali", faux_sawali)
+    env.post("/api/demandes-sawali/envoyer", headers=H)                  # 1re remontée : pas de pastille
+    from db import db as base
+    assert asyncio.run(base.demandes_sawali.count_documents({"modifiee_sawali_le": {"$exists": True}})) == 0
+    env.post("/api/demandes-sawali/relire", headers=H)                   # SAWALI a réalisé la demande : pastille
+    assert asyncio.run(base.demandes_sawali.count_documents({"modifiee_sawali_le": {"$exists": True}})) == 1

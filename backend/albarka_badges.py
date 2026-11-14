@@ -49,7 +49,15 @@ async def get_badge_counts(user: dict = Depends(get_current_user)):
             q["created_at"] = {"$gt": mark["seen_at"]}
         diffusion_new = await db.broadcasts.count_documents(q)
 
-    return {"wa_unread": wa_unread, "diffusion_new": diffusion_new}
+    # Lot 108 : demandes à SAWALI mises à jour par SAWALI (statut, commentaire, date, numéro) depuis la dernière ouverture de la page par CET utilisateur
+    demandes_maj = 0
+    from albarka_demandes_sawali import DEMANDES_ROLES
+    if _has_any(user, list(DEMANDES_ROLES)):
+        marque = await db.user_view_marks.find_one({"user_id": user["id"], "page": "demandes_sawali"}, {"_id": 0, "seen_at": 1})
+        requete = {"modifiee_sawali_le": {"$gt": marque["seen_at"]}} if marque and marque.get("seen_at") else {"modifiee_sawali_le": {"$exists": True, "$ne": None}}
+        demandes_maj = await db.demandes_sawali.count_documents(requete)
+
+    return {"wa_unread": wa_unread, "diffusion_new": diffusion_new, "demandes_sawali_maj": demandes_maj}
 
 
 class MarkSeenPayload(BaseModel):

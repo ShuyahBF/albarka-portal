@@ -37,7 +37,8 @@ export default function DemandesSawaliPanel() {
   const [envoi, setEnvoi] = useState(false);
   const [edition, setEdition] = useState(null);   // { id, type, texte } : demande en cours de modification
 
-  const charger = useCallback(() => apiClient.get("/demandes-sawali", { params: { q } }).then(({ data: d }) => setData(d)).catch((e) => toast.error(extractError(e))), [q]);
+  // Chaque chargement de la liste vaut « page vue » : la pastille de la barre latérale (demandes mises à jour par SAWALI) retombe à zéro tant qu'on est sur cet écran
+  const charger = useCallback(() => apiClient.get("/demandes-sawali", { params: { q } }).then(({ data: d }) => { setData(d); apiClient.post("/me/badges/mark-seen", { page: "demandes_sawali" }).catch(() => {}); }).catch((e) => toast.error(extractError(e))), [q]);
   useEffect(() => { const t = setTimeout(charger, 250); return () => clearTimeout(t); }, [charger]);   // recherche en direct
 
   const ajouter = async () => {
