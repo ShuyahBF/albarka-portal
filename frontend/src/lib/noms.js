@@ -37,14 +37,11 @@ export function extraireTitre(nomComplet) {
   return t ? { titre: t, reste: texte.slice(t.length + 1) } : { titre: "", reste: texte };
 }
 
-/** Découpe un ancien « Nom complet » : les mots TOUT en majuscules du début = NOM ; sinon le 1er mot. */
+/** Découpe un ancien « Nom complet » : le PREMIER mot = NOM de famille, tout le reste après l'espace = Prénoms. */
 export function separerNom(nomComplet) {
   const mots = String(nomComplet || "").trim().split(/\s+/).filter(Boolean);
   if (!mots.length) return { nom: "", prenoms: "" };
-  let i = 0;
-  while (i < mots.length && mots[i] === mots[i].toLocaleUpperCase("fr-FR") && /\p{L}/u.test(mots[i])) i += 1;
-  if (i === 0) i = 1;
-  return { nom: formaterNom(mots.slice(0, i).join(" ")), prenoms: formaterPrenoms(mots.slice(i).join(" ")) };
+  return { nom: formaterNom(mots[0]), prenoms: formaterPrenoms(mots.slice(1).join(" ")) };
 }
 
 /** Valeurs de départ d'une fiche existante : champs enregistrés, sinon découpe du Nom complet. */
