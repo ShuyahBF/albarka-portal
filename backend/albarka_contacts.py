@@ -43,6 +43,7 @@ class ContactCreate(BaseModel):
     tenant_id: Optional[str] = Field(None, description="Requis si scope=client")
     full_name: str = Field("", max_length=200)
     # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    titre: Optional[str] = Field(None, max_length=30)   # Mr, Mme, Mlle, Dr, Pr, Sr…
     nom: Optional[str] = Field(None, max_length=120)
     prenoms: Optional[str] = Field(None, max_length=160)
 
@@ -89,6 +90,7 @@ class ContactCreate(BaseModel):
 class ContactUpdate(BaseModel):
     full_name: Optional[str] = None
     # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    titre: Optional[str] = Field(None, max_length=30)   # Mr, Mme, Mlle, Dr, Pr, Sr…
     nom: Optional[str] = Field(None, max_length=120)
     prenoms: Optional[str] = Field(None, max_length=160)
 
@@ -189,7 +191,7 @@ async def create_contact(payload: ContactCreate, user: dict = Depends(require_st
         "scope": scope,
         "tenant_id": tenant_id,
         "full_name": payload.full_name.strip(),
-        "nom": payload.nom, "prenoms": payload.prenoms,
+        "titre": payload.titre, "nom": payload.nom, "prenoms": payload.prenoms,
         "function": payload.function,
         "organization": (payload.organization or "").strip() or None,
         "email": (payload.email or "").lower() or None,

@@ -17,7 +17,7 @@ import { nomDepuisFiche, assemblerNom } from "@/lib/noms";
 export default function MyAccount() {
   const { user, isClient, isStaff, refresh } = useAuth();
   const [form, setForm] = useState({
-    nom: "", prenoms: "", phone: "", whatsapp_number: "", can_receive_notifications: true,
+    titre: "", nom: "", prenoms: "", phone: "", whatsapp_number: "", can_receive_notifications: true,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -41,7 +41,7 @@ export default function MyAccount() {
   useEffect(() => { load(); }, []);
 
   const save = async () => {
-    if (!assemblerNom(form.nom, form.prenoms)) { toast.error("Le nom est requis"); return; }
+    if (!assemblerNom(form.nom, form.prenoms, form.titre)) { toast.error("Le nom est requis"); return; }
     setSaving(true);
     try {
       await apiClient.patch("/me/account", form);
@@ -86,7 +86,8 @@ export default function MyAccount() {
               <Label>Email</Label>
               <Input value={user?.email || ""} readOnly className="bg-muted" data-testid="my-account-email" />
             </div>
-            <ChampsNom form={form} setForm={setForm} testid="my-account" />
+            <ChampsNom form={form} setForm={setForm} testid="my-account"
+                onSave={async (v) => { await apiClient.patch("/me/account", v); await refresh(); }} />
             <div>
               <Label>Téléphone</Label>
               <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="my-account-phone" />

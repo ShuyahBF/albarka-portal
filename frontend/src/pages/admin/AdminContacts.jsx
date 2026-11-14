@@ -46,7 +46,7 @@ const FUNCTIONS = [
 
 // Liste de repli (hors ligne) ; la vraie liste vient du serveur (fonctions-contacts) : elle est extensible et gérée par le DG.
 const emptyForm = () => ({
-  nom: "", prenoms: "", full_name: "", function: "autre", organization: "",
+  titre: "", nom: "", prenoms: "", full_name: "", function: "autre", organization: "",
   email: "", phone: "",
   is_primary: false, can_receive_notifications: true,
   channels: ["email"], notes: "",
@@ -111,7 +111,7 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
   };
 
   const save = async () => {
-    if (!assemblerNom(form.nom, form.prenoms)) { toast.error("Le nom est requis"); return; }
+    if (!assemblerNom(form.nom, form.prenoms, form.titre)) { toast.error("Le nom est requis"); return; }
     if (!form.email && !form.phone) { toast.error("Email ou téléphone requis"); return; }
     try {
       if (editing) {
@@ -249,7 +249,8 @@ export function ContactsPanel({ scope = "client", tenantId, hideHeader = false }
           <DialogHeader><DialogTitle>{editing ? "Modifier" : "Ajouter"} un contact</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <ChampsNom form={form} setForm={setForm} testid="contact" />
+              <ChampsNom form={form} setForm={setForm} testid="contact"
+                onSave={editing ? async (v) => { await apiClient.patch(`/contacts/${editing.id}`, v); await load(); } : undefined} />
               <div>
                 <Label>Fonction</Label>
                 <Select value={form.function} onValueChange={(v) => setForm({ ...form, function: v })}>
