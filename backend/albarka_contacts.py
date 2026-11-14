@@ -58,13 +58,6 @@ class ContactCreate(BaseModel):
             raise ValueError(f"scope invalide : {v}")
         return v
 
-    @field_validator("function")
-    @classmethod
-    def _function(cls, v):
-        if v not in CONTACT_FUNCTIONS:
-            raise ValueError(f"function invalide : {v}")
-        return v
-
     @field_validator("channels")
     @classmethod
     def _channels(cls, v):
@@ -95,13 +88,6 @@ class ContactUpdate(BaseModel):
     channels: Optional[List[str]] = None
     categories: Optional[List[str]] = None
     notes: Optional[str] = None
-
-    @field_validator("function")
-    @classmethod
-    def _function(cls, v):
-        if v is not None and v not in CONTACT_FUNCTIONS:
-            raise ValueError(f"function invalide : {v}")
-        return v
 
     @field_validator("channels")
     @classmethod
@@ -136,6 +122,13 @@ def _resolve_scope(user: dict, scope: Optional[str], tenant_id: Optional[str]):
     return "client", tenant_id
 
 
+async def _verifier_fonction(code: str) -> None:
+    """La fonction doit exister dans la liste (extensible, gérée par le DG : albarka_fonctions_contacts)."""
+    from albarka_fonctions_contacts import fonction_existe
+    if not await fonction_existe(code):
+        raise HTTPException(status_code=422, detail=f"Fonction inconnue : {code}")
+
+
 async def _demote_other_primaries(scope: str, tenant_id: str, keep_id: Optional[str] = None):
     query = {"scope": scope, "tenant_id": tenant_id, "is_primary": True}
     if keep_id:
@@ -168,6 +161,7 @@ async def create_contact(payload: ContactCreate, user: dict = Depends(require_st
             raise HTTPException(status_code=404, detail="Client introuvable")
     if not payload.email and not payload.phone:
         raise HTTPException(status_code=400, detail="Au moins un email ou un téléphone est requis")
+    await _verifier_fonction(payload.function)
 
     contact = {
         "id": secrets.token_urlsafe(12),
@@ -209,6 +203,8 @@ async def update_contact(contact_id: str, payload: ContactUpdate, user: dict = D
     changes = {k: v for k, v in payload.model_dump(exclude_none=True).items()}
     if not changes:
         return c
+    if "function" in changes:
+        await _verifier_fonction(changes["function"])
     if changes.get("is_primary") is True:
         await _demote_other_primaries(c["scope"], c["tenant_id"], keep_id=contact_id)
     changes["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -221,6 +217,8 @@ async def update_contact(contact_id: str, payload: ContactUpdate, user: dict = D
 async def delete_contact(contact_id: str, user: dict = Depends(require_staff())):
     c = await _get_owned(contact_id, user)
     await db.contacts.delete_one({"id": contact_id})
+    # Son compte du portail (accès de contact) est supprimé avec lui : plus aucune connexion possible
+    await db.users.delete_many({"contact_acces.contact_id": contact_id})
     return {"ok": True, "id": contact_id}
 
 

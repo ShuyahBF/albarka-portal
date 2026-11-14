@@ -95,7 +95,7 @@ async def send_otp_email(to_email: str, full_name: str, code: str) -> bool:
         return False
 
 
-async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_security)) -> dict:
+async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_security), request: Request = None) -> dict:
     try:
         payload = jwt.decode(creds.credentials, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
@@ -124,6 +124,10 @@ async def get_current_user(creds: HTTPAuthorizationCredentials = Depends(_securi
     # Lot 20 : le super-admin du portail n'envoie jamais rien aux clients (envois redirigés vers ses contacts de test)
     from albarka_envoi_test import marquer_acteur
     marquer_acteur(user)
+    # Lots 100-101 : compte d'un CONTACT du client (fonction, accès révocable / à durée limitée) → vue du client limitée à sa fonction
+    if user.get("contact_acces"):
+        from albarka_fonctions_contacts import appliquer_acces_contact
+        user = await appliquer_acces_contact(user, request)
     return user
 
 

@@ -88,6 +88,10 @@ async def import_contacts(
     else:
         raise HTTPException(status_code=400, detail="Format non supporté (attendu .csv ou .xlsx)")
 
+    # Fonctions connues : la liste est extensible (gérée par le DG, albarka_fonctions_contacts)
+    from albarka_fonctions_contacts import assurer_fonctions_de_depart
+    await assurer_fonctions_de_depart()
+    codes_fonctions = {f["code"] async for f in db.fonctions_contacts.find({}, {"_id": 0, "code": 1})}
     imported = updated = skipped = 0
     errors: List[dict] = []
     for idx, raw in enumerate(rows, start=2):  # +2 = header row is 1
@@ -105,7 +109,7 @@ async def import_contacts(
             continue
 
         function = row.get("function", "autre") or "autre"
-        if function not in CONTACT_FUNCTIONS:
+        if function not in codes_fonctions:
             errors.append({"row": idx, "reason": f"function inconnue '{function}' → 'autre'"})
             function = "autre"
 

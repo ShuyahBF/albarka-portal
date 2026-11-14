@@ -190,6 +190,10 @@ class User(BaseModel):
     portal_modules: Optional[List[str]] = None
     created_at: str = Field(default_factory=_now_iso)
     last_login: Optional[str] = None
+    # Lots 100-101 : renseignés seulement quand la personne connectée est un CONTACT du client (fonction + options où elle peut agir)
+    contact_nom: Optional[str] = None
+    contact_fonction: Optional[str] = None
+    contact_agir: Optional[List[str]] = None
 
 
 def is_client(user: dict) -> bool:
