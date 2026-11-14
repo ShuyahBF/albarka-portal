@@ -40,7 +40,8 @@ export function htmlRecu(r) {
 
 /** Charge le reçu auprès du serveur puis ouvre la boîte d'impression. `chemin` = « /admin/services-web/{id}/paiements/{id}/recu » ou la version « /me/… ». */
 export async function imprimerRecu(chemin) {
-  const { data } = await apiClient.get(chemin);
+  // Lot 97 : le serveur ENREGISTRE l'impression (date, heure, auteur) puis renvoie le reçu
+  const { data } = await apiClient.post(`${chemin}/impression`);
   const cadre = document.createElement("iframe");
   cadre.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0";
   document.body.appendChild(cadre);
