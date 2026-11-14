@@ -29,6 +29,7 @@ LOTS 103-104 — CONNEXION ET JOURNAL
 
 ROUTES (sous /api)
    GET    /contacts/{contact_id}/journal             — parcours d'un contact (DG, super-admin)
+   GET    /journal-superadmin?du=&au=&limit          — parcours du super-administrateur (DG SEULEMENT, lot 106)
    GET    /journal-contacts?client_id=&du=&au=&limit — parcours des contacts d'un client ou de tous (DG, super-admin)
    GET    /fonctions-contacts                        — fonctions + catalogue des options (tout le personnel)
    POST   /fonctions-contacts                        — créer {libelle, voir[], agir[]}            (DG, super-admin)
@@ -176,16 +177,25 @@ def a_journaliser(methode: str, chemin: str, maintenant: float, derniere: Dict[s
     return True
 
 
+def est_super_admin(compte: dict) -> bool:
+    """Le super-administrateur : rôle « superviseur » ou compte admin du portail. Son parcours est tracé et seul le DG le consulte (lot 106)."""
+    from albarka_models import is_admin_account
+    return "superviseur" in (compte.get("roles") or []) or is_admin_account(compte)
+
+
 async def journaliser(compte: dict, type_: str, methode: str = "", chemin: str = "", statut: int = 200, motif: str = "", request: Optional[Request] = None,
-                      methode_connexion: str = "") -> None:
-    """Ajoute une ligne au journal d'un contact. Ne bloque ni ne fait jamais échouer la requête."""
+                      methode_connexion: str = "", categorie: str = "contact") -> None:
+    """Ajoute une ligne au journal (catégorie « contact » : un contact d'un client ; « superadmin » : le super-administrateur, lot 106).
+    Ne bloque ni ne fait jamais échouer la requête."""
     try:
         from albarka_access import client_ip
         acces = compte.get("contact_acces") or {}
+        if categorie == "superadmin":
+            acces = {"fonction": "super-administrateur"}
         await db.journal_contacts.insert_one({
             "id": secrets.token_urlsafe(10), "at": datetime.now(timezone.utc).isoformat(), "contact_id": acces.get("contact_id"), "client_id": acces.get("client_id"),
             "nom": compte.get("full_name"), "fonction": acces.get("fonction"), "type": type_, "methode": methode, "chemin": chemin[:200], "statut": statut,
-            "motif": motif[:200], "ip": client_ip(request)[:60] if request is not None else "", "connexion": methode_connexion,
+            "motif": motif[:200], "ip": client_ip(request)[:60] if request is not None else "", "connexion": methode_connexion, "categorie": categorie,
         })
         if secrets.randbelow(100) == 0:      # nettoyage occasionnel des traces trop anciennes
             limite = (datetime.now(timezone.utc) - timedelta(days=JOURS_JOURNAL)).isoformat()
@@ -195,9 +205,20 @@ async def journaliser(compte: dict, type_: str, methode: str = "", chemin: str =
 
 
 async def journaliser_connexion(compte: dict, methode_connexion: str, request: Optional[Request] = None) -> None:
-    """Appelée après une connexion réussie (code, WhatsApp, empreinte) : seulement pour un compte de contact."""
+    """Appelée après une connexion réussie (code, WhatsApp, empreinte) : pour un compte de contact ou pour le super-administrateur (lot 106)."""
     if compte.get("contact_acces"):
         await journaliser(compte, "connexion", "POST", "/api/auth", 200, request=request, methode_connexion=methode_connexion)
+    elif est_super_admin(compte):
+        await journaliser(compte, "connexion", "POST", "/api/auth", 200, request=request, methode_connexion=methode_connexion, categorie="superadmin")
+
+
+async def tracer_super_admin(compte: dict, request: Optional[Request]) -> None:
+    """Trace chaque page / action du SUPER-ADMINISTRATEUR (mêmes règles que pour un contact : sondages ignorés, page relue dans la minute notée une fois, écriture toujours notée).
+    Appelée par get_current_user à chaque requête authentifiée."""
+    if request is None or not est_super_admin(compte):
+        return
+    if a_journaliser(request.method, request.url.path, time.monotonic(), _derniere_page, "sa:" + str(compte.get("id"))):
+        await journaliser(compte, "action" if request.method.upper() in METHODES_ECRITURE else "page", request.method, request.url.path, 200, request=request, categorie="superadmin")
 
 
 # =====================================================================================
@@ -418,7 +439,9 @@ async def revoquer_acces(contact_id: str, user: dict = Depends(get_current_user)
 # Routes — journal des parcours (lot 104)
 # =====================================================================================
 
-async def _lire_journal(filtre: Dict[str, Any], limite: int) -> List[dict]:
+async def _lire_journal(filtre: Dict[str, Any], limite: int, superadmin: bool = False) -> List[dict]:
+    """Lignes du journal, les plus récentes d'abord. Les lignes du super-administrateur (catégorie « superadmin ») ne sont lues que par la route réservée au DG."""
+    filtre = {**filtre, "categorie": "superadmin"} if superadmin else {**filtre, "categorie": {"$ne": "superadmin"}}
     return await db.journal_contacts.find(filtre, {"_id": 0}).sort("at", -1).to_list(max(1, min(limite, 500)))
 
 
@@ -444,3 +467,16 @@ async def journal_des_contacts(client_id: str = "", du: str = "", au: str = "", 
     if plage:
         filtre["at"] = plage
     return {"journal": await _lire_journal(filtre, limit)}
+
+
+@router.get("/journal-superadmin")
+async def journal_du_super_admin(du: str = "", au: str = "", limit: int = 200, user: dict = Depends(get_current_user)):
+    """Parcours du SUPER-ADMINISTRATEUR (connexions, pages, actions) : réservé au DG, qui contrôle ainsi l'usage des pouvoirs les plus larges."""
+    if "dg" not in (user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="Réservé au DG")
+    plage: Dict[str, str] = {}
+    if du:
+        plage["$gte"] = _date_fin(du) or ""
+    if au:
+        plage["$lt"] = (date.fromisoformat(_date_fin(au)) + timedelta(days=1)).isoformat()
+    return {"journal": await _lire_journal({"at": plage} if plage else {}, limit, superadmin=True)}

@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Download, History, RefreshCw } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,8 +14,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 const TYPES = { connexion: "Connexion", page: "Page", action: "Action", refus: "Refus" };
 const COULEURS = { connexion: "bg-sky-100 text-sky-800", page: "bg-slate-100 text-slate-700", action: "bg-emerald-100 text-emerald-800", refus: "bg-red-100 text-red-800" };
 const TOUS = "tous";
+const CONTACTS = "contacts", SUPERADMIN = "superadmin";
 
 export default function AdminJournalContacts() {
+  const { user } = useAuth();
+  const estDg = (user?.roles || []).includes("dg");     // seul le DG voit le parcours du super-administrateur
+  const [quoi, setQuoi] = useState(CONTACTS);            // contacts des clients | super-administrateur
   const [clients, setClients] = useState([]);
   const [client, setClient] = useState(TOUS);
   const [type, setType] = useState(TOUS);
@@ -29,14 +34,14 @@ export default function AdminJournalContacts() {
     if (manuel) toast.info("Actualisation du parcours en cours…");              // règle 17 : toast « en cours » puis résultat
     try {
       const params = { limit: 500 };
-      if (client !== TOUS) params.client_id = client;
+      if (quoi === CONTACTS && client !== TOUS) params.client_id = client;
       if (du) params.du = du;
       if (au) params.au = au;
-      const { data } = await apiClient.get("/journal-contacts", { params });
+      const { data } = await apiClient.get(quoi === SUPERADMIN ? "/journal-superadmin" : "/journal-contacts", { params });
       setLignes(data.journal);
       if (manuel) toast.success(`${data.journal.length} ligne(s) lue(s).`);
     } catch (e) { toast.error(extractError(e)); setLignes([]); }
-  }, [client, du, au]);
+  }, [quoi, client, du, au]);
   useEffect(() => { charger(); }, [charger]);
 
   const affichees = (lignes || []).filter((l) => type === TOUS || l.type === type);
@@ -62,14 +67,22 @@ export default function AdminJournalContacts() {
         <Button variant="outline" onClick={exporter} disabled={!affichees.length} title="Exporter les lignes affichées en CSV" data-testid="journal-export"><Download className="mr-1 h-4 w-4" />Exporter</Button>
       </div>
 
+      {estDg && (
+        <div className="flex gap-2" data-testid="journal-quoi">
+          <Button variant={quoi === CONTACTS ? "default" : "outline"} size="sm" onClick={() => { setQuoi(CONTACTS); setLignes(null); }}>Contacts des clients</Button>
+          <Button variant={quoi === SUPERADMIN ? "default" : "outline"} size="sm" onClick={() => { setQuoi(SUPERADMIN); setLignes(null); }} data-testid="journal-superadmin">Super-administrateur</Button>
+        </div>
+      )}
+      {quoi === SUPERADMIN && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Parcours du super-administrateur : connexions, pages ouvertes et actions. Visible du DG seulement.</p>}
+
       <div className="grid gap-3 md:grid-cols-4">
-        <div>
+        {quoi === CONTACTS ? (<div>
           <Label>Client</Label>
           <Select value={client} onValueChange={setClient}>
             <SelectTrigger data-testid="journal-client"><SelectValue /></SelectTrigger>
             <SelectContent><SelectItem value={TOUS}>Tous les clients</SelectItem>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.company || c.full_name}</SelectItem>)}</SelectContent>
           </Select>
-        </div>
+        </div>) : <div />}
         <div>
           <Label>Type</Label>
           <Select value={type} onValueChange={setType}>
@@ -96,7 +109,7 @@ export default function AdminJournalContacts() {
             {affichees.map((l) => (
               <TableRow key={l.id}>
                 <TableCell className="whitespace-nowrap text-sm">{new Date(l.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</TableCell>
-                <TableCell className="text-sm font-medium text-[#0B4F8A]">{nomClient[l.client_id] || l.client_id}</TableCell>
+                <TableCell className="text-sm font-medium text-[#0B4F8A]">{nomClient[l.client_id] || l.client_id || "—"}</TableCell>
                 <TableCell className="text-sm">{l.nom}<span className="block text-xs text-muted-foreground">{l.fonction}</span></TableCell>
                 <TableCell><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${COULEURS[l.type] || ""}`}>{TYPES[l.type] || l.type}{l.type === "connexion" && l.connexion ? ` (${l.connexion})` : ""}</span></TableCell>
                 <TableCell className="text-xs"><span className="font-mono">{l.methode} {l.chemin}</span>{l.motif && <span className="block text-red-700">{l.motif}</span>}</TableCell>
