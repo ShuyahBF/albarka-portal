@@ -17,15 +17,15 @@ const LIBELLES_ROLES = { direction: "Direction", secretariat: "Secrétariat", ad
 
 // Règle 15 — un champ modifiable n'est JAMAIS enregistré « en silence » à la sortie : le bouton ✓ Enregistrer apparaît (actif) dès que la valeur a changé,
 // avec la mention « modifié, non enregistré » ; sans changement, il est grisé.
-function ChampEnregistrable({ valeur, min, max, largeur = "w-24", surEnregistrer, libelle }) {
+function ChampEnregistrable({ valeur, min, max, largeur = "w-24", surEnregistrer, libelle, type = "number" }) {
   const [saisie, setSaisie] = useState(String(valeur ?? ""));
   useEffect(() => { setSaisie(String(valeur ?? "")); }, [valeur]);
   const modifie = saisie !== String(valeur ?? "") && saisie !== "";
-  const valide = modifie && Number(saisie) >= (min ?? 0) && (max === undefined || Number(saisie) <= max);
+  const valide = modifie && (type === "text" ? saisie.trim().length > 0 : Number(saisie) >= (min ?? 0) && (max === undefined || Number(saisie) <= max));
   return (
     <div className="inline-flex flex-col items-end gap-0.5">
       <div className="inline-flex items-center gap-1">
-        <Input className={`${largeur} text-right tabular-nums`} type="number" min={min} max={max} value={saisie} onChange={(e) => setSaisie(e.target.value)} aria-label={libelle} />
+        <Input className={type === "text" ? largeur : `${largeur} text-right tabular-nums`} type={type} min={min} max={max} value={saisie} onChange={(e) => setSaisie(e.target.value)} aria-label={libelle} />
         <Button size="sm" variant={valide ? "default" : "outline"} disabled={!valide} onClick={() => surEnregistrer(saisie)} title={`Enregistrer : ${libelle}`} aria-label={`Enregistrer : ${libelle}`}><Save className="w-4 h-4" /></Button>
       </div>
       {modifie && <span className="text-[11px] text-orange-700">modifié, non enregistré</span>}
@@ -59,7 +59,8 @@ export default function ServicesWebPanel() {
   // Modification d'une valeur (montant ou échéance) enregistrée à la sortie du champ
   const modifier = async (s, champ, valeur) => {
     try {
-      await apiClient.put(`/admin/services-web/${s.id}`, { [champ]: Number(valeur) });
+      await apiClient.put(`/admin/services-web/${s.id}`, { [champ]: champ === "service" ? String(valeur).trim() : Number(valeur) });
+      toast.success(champ === "service" ? "Nom du service enregistré" : "Modification enregistrée");
       charger();
     } catch (e) { toast.error(extractError(e)); }
   };
@@ -136,7 +137,7 @@ export default function ServicesWebPanel() {
           <tbody>
             {services.map((s) => (
               <tr key={s.id} className="border-b last:border-0">
-                <td className="p-3 font-medium">{s.service}</td>
+                <td className="p-3 font-medium"><ChampEnregistrable type="text" valeur={s.service} largeur="w-56" libelle={`nom du service ${s.service}`} surEnregistrer={(v) => modifier(s, "service", v)} /></td>
                 <td className="p-3 text-right"><ChampEnregistrable valeur={s.montant} min={0} largeur="w-28" libelle={`montant de ${s.service}`} surEnregistrer={(v) => modifier(s, "montant", v)} /></td>
                 <td className="p-3">{s.mode === "unique" ? <span className="text-xs text-muted-foreground">Montant unique</span> : <ChampEnregistrable valeur={s.jour_du_mois} min={1} max={31} largeur="w-16" libelle={`jour du mois de ${s.service}`} surEnregistrer={(v) => modifier(s, "jour_du_mois", v)} />}</td>
                 <td className="p-3">{s.payable_avant ? new Date(`${s.payable_avant}T00:00:00`).toLocaleDateString("fr-FR") : "—"}</td>

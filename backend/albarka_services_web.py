@@ -169,6 +169,17 @@ def mois_suivant(d: date, jour_du_mois: int) -> date:
     return occurrence(annee, mois, jour_du_mois)
 
 
+def prochaine_apres_reglement(echeance_reglee: date, date_reglement: date, jour: int) -> date:
+    """Prochaine échéance d'un service mensuel après un règlement (lot 95) : recalculée d'après la DATE DE RÈGLEMENT, toujours sur le jour du mois précisé.
+    C'est la plus tardive de deux dates : le mois qui suit l'échéance réglée (un paiement fait en avance ne règle pas deux fois la même échéance) et la première
+    occurrence du jour du mois STRICTEMENT après la date de règlement (un paiement fait en retard repart de sa date : réglé le 20/11, jour 8 → prochaine échéance le 08/12)."""
+    suivante = mois_suivant(echeance_reglee, jour)
+    candidate = occurrence(date_reglement.year, date_reglement.month, jour)
+    if candidate <= date_reglement:
+        candidate = mois_suivant(candidate, jour)
+    return max(suivante, candidate)
+
+
 def jour_du_service(doc: dict) -> int:
     """Jour du mois de l'échéance (les anciens services à date unique gardent le jour de leur date)."""
     if doc.get("jour_du_mois"):
@@ -180,6 +191,8 @@ def echeance_courante(doc: dict) -> date:
     """Échéance en cours = la première non réglée : la 1re échéance du service si rien n'est réglé, sinon le mois qui suit
     la dernière échéance réglée (`echeance_payee`). Un impayé ancien reste donc l'échéance en cours (et en retard)."""
     jour = jour_du_service(doc)
+    if doc.get("prochaine_echeance"):                  # lot 95 : échéance recalculée d'après la date du dernier règlement
+        return date.fromisoformat(doc["prochaine_echeance"])
     if doc.get("echeance_payee"):
         return mois_suivant(date.fromisoformat(doc["echeance_payee"]), jour)
     if doc.get("premiere_echeance"):
@@ -378,6 +391,10 @@ async def admin_modifier(service_id: str, payload: ServiceModif, user: dict = De
         maj.pop("jour_du_mois", None)                    # lot 94 : pas de jour du mois pour un montant unique
     if "service" in maj:
         maj["service"] = maj["service"].strip()
+    if "jour_du_mois" in maj and doc.get("prochaine_echeance"):
+        # Lot 95 : la prochaine échéance recalculée garde son mois et prend le nouveau jour du mois
+        p = date.fromisoformat(doc["prochaine_echeance"])
+        maj["prochaine_echeance"] = occurrence(p.year, p.month, maj["jour_du_mois"]).isoformat()
     if "jour_du_mois" in maj and not doc.get("echeance_payee"):
         # Rien encore réglé : la 1re échéance suit le nouveau jour (même mois que l'ancienne échéance en cours)
         ancienne = echeance_courante(doc)
@@ -408,10 +425,14 @@ async def admin_paiement(service_id: str, payload: PaiementCorps, user: dict = D
            "dernier_paiement_reference": payload.reference.strip()}
     if not est_unique(doc):
         entree["echeance_avant"] = doc.get("echeance_payee")           # pour pouvoir annuler ce paiement (lot 94)
+        entree["prochaine_avant"] = doc.get("prochaine_echeance")
         if payload.echeance_reglee:
-            maj["echeance_payee"] = echeance_courante(doc).isoformat()
+            reglee = echeance_courante(doc)
+            maj["echeance_payee"] = reglee.isoformat()
             if not doc.get("premiere_echeance"):
-                maj["premiere_echeance"] = echeance_courante(doc).isoformat()
+                maj["premiere_echeance"] = reglee.isoformat()
+            # Lot 95 : la prochaine échéance se recalcule d'après la date de règlement, sur le jour du mois précisé
+            maj["prochaine_echeance"] = prochaine_apres_reglement(reglee, date.fromisoformat(payload.paye_le[:10]), jour_du_service(doc)).isoformat()
     await db.services_web.update_one({"id": service_id}, {"$set": maj, "$push": {"paiements": entree}})
     return _vue(await db.services_web.find_one({"id": service_id}, {"_id": 0}))
 
@@ -475,13 +496,17 @@ async def admin_utiliser_paiements_sms(service_id: str, payload: SmsCorps, user:
         entree = {"id": str(uuid.uuid4()), "paye_le": t["recu_le"], "montant": t["montant"], "reference": t["reference_proposee"], "source": "sms", "sms_id": t["id"]}
         if not est_unique(courant):
             entree["echeance_avant"] = courant.get("echeance_payee")
-            courant["echeance_payee"] = echeance_courante(courant).isoformat()                       # chaque paiement règle l'échéance en cours
+            entree["prochaine_avant"] = courant.get("prochaine_echeance")
+            reglee = echeance_courante(courant)                                                     # chaque paiement règle l'échéance en cours
+            courant["echeance_payee"] = reglee.isoformat()
+            courant["prochaine_echeance"] = prochaine_apres_reglement(reglee, date.fromisoformat(t["recu_le"][:10]), jour_du_service(courant)).isoformat()
             courant.setdefault("premiere_echeance", courant["echeance_payee"])
         nouvelles.append(entree)
     dernier = nouvelles[-1]
     maj = {"dernier_paiement_le": dernier["paye_le"], "dernier_paiement_montant": dernier["montant"], "dernier_paiement_reference": dernier["reference"]}
     if not est_unique(doc):
         maj["echeance_payee"] = courant["echeance_payee"]
+        maj["prochaine_echeance"] = courant["prochaine_echeance"]
         if not doc.get("premiere_echeance"):
             maj["premiere_echeance"] = courant["premiere_echeance"]
     await db.services_web.update_one({"id": service_id}, {"$set": maj, "$push": {"paiements": {"$each": nouvelles}}})
@@ -505,6 +530,7 @@ async def admin_annuler_paiement(service_id: str, paiement_id: str, user: dict =
         if index != len(liste) - 1:
             raise HTTPException(status_code=409, detail="Annulez d'abord les paiements plus récents : seul le dernier paiement d'un service mensuel peut être annulé")
         maj["echeance_payee"] = liste[index].get("echeance_avant")
+        maj["prochaine_echeance"] = liste[index].get("prochaine_avant")
     reste = liste[:index] + liste[index + 1:]
     dernier = reste[-1] if reste else None
     maj.update({"paiements": reste, "dernier_paiement_le": dernier.get("paye_le") if dernier else None,
