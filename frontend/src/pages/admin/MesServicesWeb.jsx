@@ -5,9 +5,9 @@
   API : GET /me/services-web (albarka_services_web.py) — refusé à tout autre rôle que le DG.
 */
 import React, { useEffect, useState } from "react";
-import { Globe, AlertTriangle, CheckCircle2, Clock, Printer } from "lucide-react";
+import { Globe, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
-import { imprimerRecu } from "@/lib/recuServiceWeb";
+import TableauPaiementsServices from "@/components/TableauPaiementsServices";
 
 const fmtDate = (d) => (d ? new Date(`${d}T00:00:00`).toLocaleDateString("fr-FR") : "—");
 const fmtHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Aucun paiement enregistré");
@@ -46,35 +46,30 @@ export default function MesServicesWeb() {
       <div className="albarka-card overflow-x-auto">
         <table className="w-full text-sm tableau">
           <thead>
-            <tr className="text-left border-b">
+            <tr className="text-left border-b bg-emerald-50 text-emerald-900">
               <th className="p-3">Service</th>
-              <th className="p-3 text-right">Montant</th>
-              <th className="p-3">Payable le</th>
+              <th className="p-3 text-right text-emerald-800">Montant</th>
+              <th className="p-3 text-orange-800">Payable le</th>
               <th className="p-3">État</th>
               <th className="p-3">Dernier paiement</th>
               <th className="p-3 text-right">Montant payé</th>
-              <th className="p-3">Référence</th>
+              <th className="p-3 text-sky-800">Référence</th>
               <th className="p-3 text-right">Reste à payer</th>
             </tr>
           </thead>
           <tbody>
             {services.map((s) => (
               <tr key={s.id} className="border-b last:border-0" data-testid={`service-${s.id}`}>
-                <td className="p-3 font-medium whitespace-pre-line">{s.service}</td>
-                <td className="p-3 text-right tabular-nums">{fmtMontant(s.montant, s.devise)}</td>
+                <td className="p-3 font-medium text-[#0F3D2E] whitespace-pre-line">{s.service}</td>
+                <td className="p-3 text-right tabular-nums font-semibold text-emerald-800">{fmtMontant(s.montant, s.devise)}</td>
                 <td className="p-3">{s.mode === "unique" ? <>Montant unique<div className="text-xs text-muted-foreground">réglé en une ou plusieurs fois</div></> : <>Le {s.jour_du_mois} de chaque mois<div className="text-xs text-muted-foreground">Prochaine échéance : {fmtDate(s.payable_avant)}</div></>}</td>
                 <td className="p-3"><EtatService s={s} /></td>
                 <td className="p-3">{fmtHeure(s.dernier_paiement_le)}</td>
-                <td className="p-3 text-right tabular-nums">{s.dernier_paiement_le ? fmtMontant(s.dernier_paiement_montant, s.devise) : "—"}</td>
-                <td className="p-3 font-mono text-xs">{s.dernier_paiement_reference || "—"}</td>
+                <td className="p-3 text-right tabular-nums font-semibold text-emerald-700">{s.dernier_paiement_le ? fmtMontant(s.dernier_paiement_montant, s.devise) : "—"}</td>
+                <td className="p-3 font-mono text-xs font-semibold text-sky-700 break-all">{s.dernier_paiement_reference || "—"}</td>
                 <td className="p-3 text-right tabular-nums">
                   {s.mode === "unique" ? (<><span className={s.reste_a_payer > 0 ? "font-semibold text-red-700" : "text-green-700"}>{fmtMontant(s.reste_a_payer, s.devise)}</span>
                     <div className="text-xs text-muted-foreground">payé {fmtMontant(s.total_paye, s.devise)}</div></>) : "—"}
-                  {(s.paiements || []).length > 0 && (
-                    <details className="text-left text-xs mt-1"><summary className="cursor-pointer text-muted-foreground">{s.paiements.length} paiement(s) — imprimer un reçu</summary>
-                      <ul className="mt-1 space-y-0.5">{s.paiements.map((p) => (<li key={p.id} className="flex flex-wrap items-center gap-2">{new Date(p.paye_le).toLocaleDateString("fr-FR")} · {fmtMontant(p.montant, s.devise)} · {p.reference}
-                        <button type="button" className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5" onClick={() => imprimerRecu(`/me/services-web/${s.id}/paiements/${p.id}/recu`).catch((e) => window.alert(extractError(e)))} title="Imprimer le reçu de ce paiement" aria-label="Imprimer le reçu de ce paiement"><Printer className="w-3 h-3" /> Imprimer le reçu</button></li>))}</ul></details>
-                  )}
                 </td>
               </tr>
             ))}
@@ -82,6 +77,8 @@ export default function MesServicesWeb() {
           </tbody>
         </table>
       </div>
+      {/* Lot 98 : paiements avec la référence et le bouton bleu « Imprimer le reçu » bien visibles */}
+      <TableauPaiementsServices services={services} cheminRecu={(sv, p) => `/me/services-web/${sv.id}/paiements/${p.id}/recu`} titre="Mes paiements et reçus" />
     </div>
   );
 }

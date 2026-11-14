@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EtatService } from "@/pages/admin/MesServicesWeb";
 import { imprimerRecu } from "@/lib/recuServiceWeb";
+import TableauPaiementsServices from "@/components/TableauPaiementsServices";
 
 const vide = { service: "", mode: "mensuel", montant: "", jour_du_mois: "" };
 const LIBELLES_ROLES = { direction: "Direction", secretariat: "Secrétariat", administrateur: "Administrateur", fiscaliste: "Fiscaliste", comptable: "Comptable", aide_comptable: "Aide-comptable", rh: "Ressources humaines", communication: "Communication" };
@@ -154,9 +155,9 @@ export default function ServicesWebPanel() {
     try { await apiClient.post(`/admin/services-web/${detail}/paiements-sms`, { sms_ids: choix }); toast.success(`${choix.length} paiement(s) SMS utilisé(s)`); setChoix([]); await charger(); await chargerSms(); }
     catch (e) { toast.error(extractError(e)); await chargerSms(); }
   };
-  const annulerPaiement = async (p) => {
+  const annulerPaiement = async (p, serviceId = detail) => {
     if (!window.confirm("Annuler ce paiement ? (un paiement reçu par SMS redevient disponible)")) return;
-    try { await apiClient.delete(`/admin/services-web/${detail}/paiements/${p.id}`); await charger(); await chargerSms(); } catch (e) { toast.error(extractError(e)); }
+    try { await apiClient.delete(`/admin/services-web/${serviceId}/paiements/${p.id}`); await charger(); await chargerSms(); } catch (e) { toast.error(extractError(e)); }
   };
 
   const supprimer = async (s) => {
@@ -186,9 +187,9 @@ export default function ServicesWebPanel() {
 
       <div className="albarka-card overflow-x-auto">
         <table className="w-full text-sm tableau">
-          <thead><tr className="text-left border-b">
-            <th className="p-3">Service</th><th className="p-3 text-right">Montant</th><th className="p-3">Jour du mois</th><th className="p-3">Prochaine échéance</th>
-            <th className="p-3">État</th><th className="p-3">Dernier paiement</th><th className="p-3 text-right">Actions</th>
+          <thead><tr className="text-left border-b bg-emerald-50 text-emerald-900">
+            <th className="p-3">Service</th><th className="p-3 text-right text-emerald-800">Montant</th><th className="p-3">Jour du mois</th><th className="p-3 text-orange-800">Prochaine échéance</th>
+            <th className="p-3">État</th><th className="p-3 text-sky-800">Dernier paiement et reçu</th><th className="p-3 text-right">Actions</th>
           </tr></thead>
           <tbody>
             {services.map((s) => (
@@ -196,9 +197,19 @@ export default function ServicesWebPanel() {
                 <td className="p-3 font-medium"><ChampEnregistrable type="textarea" longueurMax={250} valeur={s.service} largeur="w-64" libelle={`nom du service ${s.service}`} surEnregistrer={(v) => modifier(s, "service", v)} /></td>
                 <td className="p-3 text-right"><ChampEnregistrable valeur={s.montant} min={0} largeur="w-28" libelle={`montant de ${s.service}`} surEnregistrer={(v) => modifier(s, "montant", v)} /></td>
                 <td className="p-3">{s.mode === "unique" ? <span className="text-xs text-muted-foreground">Montant unique</span> : <ChampEnregistrable valeur={s.jour_du_mois} min={1} max={31} largeur="w-16" libelle={`jour du mois de ${s.service}`} surEnregistrer={(v) => modifier(s, "jour_du_mois", v)} />}</td>
-                <td className="p-3">{s.payable_avant ? new Date(`${s.payable_avant}T00:00:00`).toLocaleDateString("fr-FR") : "—"}</td>
+                <td className={`p-3 font-semibold ${s.etat === "en_retard" ? "text-red-700" : s.etat === "aujourdhui" || s.etat === "bientot" ? "text-orange-700" : "text-slate-700"}`}>{s.payable_avant ? new Date(`${s.payable_avant}T00:00:00`).toLocaleDateString("fr-FR") : "—"}</td>
                 <td className="p-3"><EtatService s={s} />{s.mode === "unique" && <div className="text-xs tabular-nums mt-0.5">Reste à payer : <b>{Number(s.reste_a_payer || 0).toLocaleString("fr-FR")}</b> sur {Number(s.montant).toLocaleString("fr-FR")}</div>}</td>
-                <td className="p-3 text-xs">{s.dernier_paiement_le ? `${new Date(s.dernier_paiement_le).toLocaleString("fr-FR")} — ${Number(s.dernier_paiement_montant).toLocaleString("fr-FR")} — ${s.dernier_paiement_reference}` : "—"}</td>
+                <td className="p-3 text-xs">{s.dernier_paiement_le ? (
+                  <div className="space-y-1">
+                    <div className="text-slate-600">{new Date(s.dernier_paiement_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</div>
+                    <div className="font-semibold tabular-nums text-emerald-700">{Number(s.dernier_paiement_montant).toLocaleString("fr-FR")} {s.devise}</div>
+                    <div className="font-mono font-semibold text-sky-700 break-all">{s.dernier_paiement_reference}</div>
+                    {(s.paiements || []).length > 0 && (
+                      <button type="button" onClick={() => imprimerRecu(`/admin/services-web/${s.id}/paiements/${s.paiements[s.paiements.length - 1].id}/recu`).catch((e) => toast.error(extractError(e)))}
+                        className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-sky-700" title="Imprimer le reçu du dernier paiement" aria-label="Imprimer le reçu du dernier paiement">
+                        <Printer className="h-3.5 w-3.5" /> Imprimer le reçu
+                      </button>)}
+                  </div>) : "—"}</td>
                 <td className="p-3 text-right whitespace-nowrap">
                   <Button size="sm" variant="outline" onClick={() => { setDetail(null); setPaiement({ id: s.id, paye_le: "", montant: s.mode === "unique" ? "" : s.montant, reference: "" }); }}><Banknote className="w-4 h-4 mr-1" /> Paiement</Button>
                   <Button size="sm" variant="outline" className="ml-1" onClick={() => ouvrirDetail(s)} data-testid={`btn-paiements-${s.id}`}><Smartphone className="w-4 h-4 mr-1" /> Paiements SMS</Button>
@@ -263,6 +274,9 @@ export default function ServicesWebPanel() {
           </div>
         );
       })()}
+
+      {/* Lot 98 : TOUS les paiements, avec la référence et le bouton bleu « Imprimer le reçu » bien visibles */}
+      <TableauPaiementsServices services={services} cheminRecu={(sv, p) => `/admin/services-web/${sv.id}/paiements/${p.id}/recu`} surAnnuler={(sv, p) => annulerPaiement(p, sv.id)} />
 
       {/* Lot 97 : historique des impressions de reçus (super-admin) */}
       <HistoriqueImpressions services={services} />
