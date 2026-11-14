@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import ImportContactsButton from "@/pages/admin/ImportContactsButton";
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 import AccesContact from "@/pages/admin/AccesContact";      // lot 101 : accès d'un contact au portail
 import { useAuth } from "@/contexts/AuthContext";
 import { ContactGroupsPanel } from "@/pages/admin/ContactGroupsPanel";
@@ -344,7 +345,7 @@ export default function AdminContacts() {
               <SelectContent>
                 {clients.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
-                    {c.full_name} {c.company ? `— ${c.company}` : ""}
+                    <NomClient client={c} />
                   </SelectItem>
                 ))}
               </SelectContent>

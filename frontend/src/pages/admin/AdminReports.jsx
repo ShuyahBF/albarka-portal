@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 import { toast } from "sonner";
 import { FileDown, Send, PenTool, Trash2, Plus, Search, Calendar as CalIcon, FileText as FileTextIcon, Users2, MessageCircle, ShieldCheck } from "lucide-react";
 import { apiClient, extractError, API } from "@/lib/api";
@@ -654,18 +655,16 @@ export default function AdminReports() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Client</TableHead>
-                      <TableHead>Entreprise</TableHead>
                       <TableHead>Email</TableHead>
                       <TableHead className="text-right">Rapports</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {loading && <TableRow><TableCell colSpan={4} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-                    {!loading && filtered.length === 0 && <TableRow><TableCell colSpan={4} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
+                    {loading && <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+                    {!loading && filtered.length === 0 && <TableRow><TableCell colSpan={3} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
                     {filtered.map((c) => (
                       <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
-                        <TableCell className="font-medium">{c.full_name}</TableCell>
-                        <TableCell className="text-sm">{c.company || "—"}</TableCell>
+                        <TableCell><NomClient client={c} /></TableCell>
                         <TableCell className="text-sm">{c.email}</TableCell>
                         <TableCell className="text-right">
                           <Button size="sm" onClick={() => setSelectedClient(c)} className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" data-testid={`open-reports-${c.id}`}>
@@ -682,8 +681,7 @@ export default function AdminReports() {
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-xs text-muted-foreground">Rapports de</div>
-                  <div className="font-display text-2xl">{selectedClient.full_name}</div>
-                  {selectedClient.company && <div className="text-sm text-muted-foreground">{selectedClient.company}</div>}
+                  <div className="font-display text-2xl"><NomClient client={selectedClient} /></div>
                 </div>
                 <Button variant="outline" onClick={() => setSelectedClient(null)} data-testid="back-to-client-list-btn">
                   <Ico15ArrowLeft className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Retour à la liste</Button>

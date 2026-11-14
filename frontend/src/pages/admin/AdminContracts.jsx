@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 import { toast } from "sonner";
 import { Plus, Trash2, FileSignature, Pencil, Paperclip, Download } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
@@ -59,7 +60,7 @@ export default function AdminContracts({ tenantId = null }) {
   const cibleFichier = useRef(null);                             // contrat visé par le sélecteur
 
   const clientNames = React.useMemo(
-    () => Object.fromEntries(clients.map((c) => [c.id, `${c.full_name}${c.company ? ` — ${c.company}` : ""}`])),
+    () => Object.fromEntries(clients.map((c) => [c.id, c])),
     [clients],
   );
 
@@ -332,7 +333,7 @@ export default function AdminContracts({ tenantId = null }) {
                 </TableCell>
                 {!tenantId && (
                   <TableCell className="text-xs">
-                    <div className="font-medium text-foreground text-sm">{clientNames[c.tenant_id] || "Client inconnu"}</div>
+                    <div className="font-medium text-foreground text-sm">{clientNames[c.tenant_id] ? <NomClient client={clientNames[c.tenant_id]} /> : "Client inconnu"}</div>
                     <div className="font-mono text-muted-foreground">{c.tenant_id.slice(0, 10)}…</div>
                   </TableCell>
                 )}

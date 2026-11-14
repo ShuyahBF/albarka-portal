@@ -1,3 +1,4 @@
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 /*
   MultiClientUpload — « Dépôt » en mode « Plusieurs clients » :
   le MÊME document (ex. une note des impôts) est déposé en une fois dans
@@ -109,8 +110,7 @@ export default function MultiClientUpload() {
               {shown.map((c) => (
                 <label key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50" data-testid={`mc-client-${c.id}`}>
                   <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggle(c.id)} />
-                  <span className="font-medium">{c.full_name}</span>
-                  <span className="text-muted-foreground truncate">{c.company || c.email || ""}</span>
+                  <NomClient client={c} className="truncate" />
                 </label>
               ))}
             </div>

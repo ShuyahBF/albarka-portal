@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 import { toast } from "sonner";
 import { Plus, Copy, Pencil, ShieldCheck, KeyRound, Search } from "lucide-react";
 import PinWhatsAppDialog from "@/components/PinWhatsAppDialog";   // lot 19 : connexion des clients par WhatsApp
@@ -268,9 +269,8 @@ export default function AdminClients() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Nom</TableHead>
+              <TableHead>Client</TableHead>
               <TableHead>Email</TableHead>
-              <TableHead>Entreprise</TableHead>
               <TableHead>Téléphone</TableHead>
               <TableHead>WhatsApp</TableHead>
               <TableHead>Statut</TableHead>
@@ -280,17 +280,16 @@ export default function AdminClients() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
-            {!loading && items.length === 0 && <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
-            {!loading && items.length > 0 && affiches.length === 0 && <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground" data-testid="clients-search-vide">Aucun client ne correspond à « {recherche.trim()} ».</TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Chargement…</TableCell></TableRow>}
+            {!loading && items.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">Aucun client.</TableCell></TableRow>}
+            {!loading && items.length > 0 && affiches.length === 0 && <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground" data-testid="clients-search-vide">Aucun client ne correspond à « {recherche.trim()} ».</TableCell></TableRow>}
             {affiches.map((c) => (
               <TableRow key={c.id} className="hover:bg-[#0F6B4A]/5">
-                <TableCell className="font-medium">{c.full_name}</TableCell>
+                <TableCell><NomClient client={c} /></TableCell>
                 <TableCell className="text-sm">
                   {c.sans_email ? <span className="text-xs text-muted-foreground">WhatsApp seulement</span> : c.email}
                   {pins[c.id] && <span className="ml-1 albarka-chip bg-emerald-100 text-emerald-800 text-[10px]">PIN WhatsApp</span>}
                 </TableCell>
-                <TableCell className="text-sm">{c.company || "—"}</TableCell>
                 <TableCell className="text-sm">
                   <div>{c.phone || "—"}</div>
                   {c.phone && canVerifyPhone && (

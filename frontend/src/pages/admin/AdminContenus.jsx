@@ -3,6 +3,7 @@
   titre, thème, format (vidéo en lien YouTube/Vimeo, audio, PDF, lien), vignette, prix (0 = gratuit),
   publication immédiate ou brouillon. Les vidéos restent chez YouTube/Vimeo pour ne pas saturer le stockage.
 */
+import NomClient from "@/components/NomClient";   // client = STRUCTURE en gras bleu - responsable
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2, Eye, EyeOff, ListVideo, KeyRound, Send, ArrowUp, ArrowDown, BarChart3, MessageCircle } from "lucide-react";
@@ -245,7 +246,7 @@ export default function AdminContenus() {
           <div className="flex gap-2 items-center text-sm">
             <Select value={clientChoisi} onValueChange={setClientChoisi}>
               <SelectTrigger data-testid="acces-client"><SelectValue placeholder="Choisir un client" /></SelectTrigger>
-              <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}>{c.company || c.full_name}</SelectItem>)}</SelectContent>
+              <SelectContent>{clients.map((c) => <SelectItem key={c.id} value={c.id}><NomClient client={c} /></SelectItem>)}</SelectContent>
             </Select>
             <Button onClick={accorder} className="bg-[#0F6B4A] hover:bg-[#0B5A3E]" data-testid="acces-accorder"><Ico15Check className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Accorder</Button>
           </div>
