@@ -13,6 +13,18 @@ import re
 from typing import Any, Optional
 
 
+# Titres de civilité connus (liste finie -> liste déroulante à l'écran, règle 10). Même liste que frontend/src/lib/noms.js.
+TITRES = ["Mr", "Mme", "Mlle", "Dr", "Pr", "Me", "Ing.", "Arch.", "Hon.", "Sr", "Fr", "Abbé", "Père", "Pasteur",
+          "Imam", "El Hadj", "Hadja", "Chef", "Mgr", "Cdt", "Col", "Gén.", "Lt", "Cpt"]
+
+
+def formater_titre(titre: Optional[str]) -> str:
+    """Titre : espaces nettoyés ; un titre connu est remis à son écriture officielle (« mme » -> « Mme »)."""
+    t = re.sub(r"\s+", " ", (titre or "").strip())
+    connus = {x.casefold(): x for x in TITRES}
+    return connus.get(t.casefold(), t)
+
+
 def formater_nom(nom: Optional[str]) -> str:
     """NOM de famille : espaces nettoyés, tout en MAJUSCULES (« de la Fontaine » -> « DE LA FONTAINE »)."""
     return re.sub(r"\s+", " ", (nom or "").strip()).upper()
@@ -32,9 +44,18 @@ def formater_prenoms(prenoms: Optional[str]) -> str:
     return " ".join(_majuscule_mot(m) for m in re.sub(r"\s+", " ", (prenoms or "").strip()).split(" ") if m)
 
 
-def assembler(nom: Optional[str], prenoms: Optional[str]) -> str:
-    """Nom complet = NOM + espace + Prénoms (l'un ou l'autre peut manquer)."""
-    return " ".join(x for x in (formater_nom(nom), formater_prenoms(prenoms)) if x)
+def assembler(nom: Optional[str], prenoms: Optional[str], titre: Optional[str] = None) -> str:
+    """Nom complet = Titre + NOM + Prénoms (chaque élément peut manquer), séparés par une espace."""
+    return " ".join(x for x in (formater_titre(titre), formater_nom(nom), formater_prenoms(prenoms)) if x)
+
+
+def extraire_titre(nom_complet: Optional[str]) -> tuple[str, str]:
+    """Si le Nom complet commence par un titre connu (« Mme SANA Azize »), renvoie (titre, reste)."""
+    texte = re.sub(r"\s+", " ", (nom_complet or "").strip())
+    for t in sorted(TITRES, key=len, reverse=True):
+        if texte.casefold().startswith(t.casefold() + " "):
+            return t, texte[len(t) + 1:]
+    return "", texte
 
 
 def separer(nom_complet: Optional[str]) -> tuple[str, str]:
@@ -56,16 +77,20 @@ def normaliser_entree(data: Any) -> Any:
     """Pré-validateur Pydantic (mode « before ») des formulaires de création / modification.
     Si `nom` ou `prenoms` est fourni : on corrige l'orthographe des deux champs ET on recalcule
     `full_name` (concaténation). Sinon rien ne change (anciens clients de l'API)."""
-    if isinstance(data, dict) and (data.get("nom") is not None or data.get("prenoms") is not None):
+    if isinstance(data, dict) and (data.get("nom") is not None or data.get("prenoms") is not None
+                                   or data.get("titre") is not None):
         data = dict(data)
+        data["titre"] = formater_titre(data.get("titre"))
         data["nom"] = formater_nom(data.get("nom"))
         data["prenoms"] = formater_prenoms(data.get("prenoms"))
-        data["full_name"] = assembler(data["nom"], data["prenoms"])
+        data["full_name"] = assembler(data["nom"], data["prenoms"], data["titre"])
     return data
 
 
 def completer_document(doc: dict) -> dict:
     """Ajoute `nom` / `prenoms` à un document lu en base s'ils manquent (comptes anciens), sans l'écrire."""
     if doc is not None and "full_name" in doc and not (doc.get("nom") or doc.get("prenoms")):
-        doc["nom"], doc["prenoms"] = separer(doc.get("full_name"))
+        titre, reste = extraire_titre(doc.get("full_name"))
+        doc["titre"] = doc.get("titre") or titre
+        doc["nom"], doc["prenoms"] = separer(reste)
     return doc

@@ -45,6 +45,7 @@ class ClientCreate(BaseModel):
     email: Optional[EmailStr] = None
     full_name: str = Field("", max_length=200)
     # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    titre: Optional[str] = Field(None, max_length=30)   # Mr, Mme, Mlle, Dr, Pr, Sr…
     nom: Optional[str] = Field(None, max_length=120)
     prenoms: Optional[str] = Field(None, max_length=160)
 
@@ -69,6 +70,7 @@ class StaffCreate(BaseModel):
     email: Optional[EmailStr] = None
     full_name: str = Field("", max_length=200)
     # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    titre: Optional[str] = Field(None, max_length=30)   # Mr, Mme, Mlle, Dr, Pr, Sr…
     nom: Optional[str] = Field(None, max_length=120)
     prenoms: Optional[str] = Field(None, max_length=160)
 
@@ -113,6 +115,7 @@ async def _identites(ids: List[str]) -> dict:
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    titre: Optional[str] = Field(None, max_length=30)   # Mr, Mme, Mlle, Dr, Pr, Sr…
     nom: Optional[str] = Field(None, max_length=120)
     prenoms: Optional[str] = Field(None, max_length=160)
 
@@ -242,7 +245,7 @@ async def create_client(payload: ClientCreate, user: dict = Depends(require_role
         "email": email,
         "password_hash": hash_password(mot_de_passe),
         "full_name": payload.full_name,
-        "nom": payload.nom, "prenoms": payload.prenoms,
+        "titre": payload.titre, "nom": payload.nom, "prenoms": payload.prenoms,
         "roles": ["client"],
         "company": payload.company,
         "phone": payload.phone,
@@ -294,7 +297,7 @@ async def create_staff(payload: StaffCreate, user: dict = Depends(require_roles(
         "email": email,
         "password_hash": hash_password(mot_de_passe),
         "full_name": payload.full_name,
-        "nom": payload.nom, "prenoms": payload.prenoms,
+        "titre": payload.titre, "nom": payload.nom, "prenoms": payload.prenoms,
         "roles": payload.roles,
         "company": payload.company,
         "phone": payload.phone,

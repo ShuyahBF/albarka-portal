@@ -62,6 +62,7 @@ MAX_KYC_UPLOAD_BYTES = 8 * 1024 * 1024  # 8 Mo
 class AccountUpdate(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=200)
     # Règle 14/11/2026 : NOM (majuscules) + Prénoms (initiales) -> full_name = concaténation (albarka_noms.py)
+    titre: Optional[str] = Field(None, max_length=30)   # Mr, Mme, Mlle, Dr, Pr, Sr…
     nom: Optional[str] = Field(None, max_length=120)
     prenoms: Optional[str] = Field(None, max_length=160)
 

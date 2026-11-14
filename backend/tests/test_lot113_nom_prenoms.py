@@ -42,3 +42,14 @@ def test_les_formulaires_assemblent_le_nom_complet():
 def test_ancien_format_sans_nom_ni_prenoms_inchange():
     assert ClientCreate(full_name="sana azize", email="a@b.com").full_name == "sana azize"
     assert ContactUpdate(function="autre").full_name is None
+
+
+def test_titre_dans_le_nom_complet():
+    from albarka_noms import extraire_titre
+    assert assembler("sana", "azize", "mme") == "Mme SANA Azize"
+    assert ClientCreate(titre="dr", nom="sana", prenoms="azize", email="a@b.com").full_name == "Dr SANA Azize"
+    assert UserUpdate(titre="Pr").full_name == "Pr"
+    assert extraire_titre("Mme SANA Azize") == ("Mme", "SANA Azize")
+    assert extraire_titre("El Hadj OUEDRAOGO Issa") == ("El Hadj", "OUEDRAOGO Issa")
+    assert completer_document({"full_name": "Mlle SANA Awa"})["titre"] == "Mlle"
+    assert completer_document({"full_name": "Mlle SANA Awa"})["nom"] == "SANA"

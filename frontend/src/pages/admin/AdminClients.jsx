@@ -29,7 +29,7 @@ import { nomDepuisFiche, assemblerNom } from "@/lib/noms";
 const VERIFY_PHONE_ROLES = ["administrateur", "superviseur", "dg", "direction"];
 
 const emptyForm = () => ({
-  email: "", nom: "", prenoms: "", full_name: "", company: "", phone: "", whatsapp_number: "", password: "",
+  email: "", titre: "", nom: "", prenoms: "", full_name: "", company: "", phone: "", whatsapp_number: "", password: "",
   ifu: "", rccm: "", cnss_number: "",     // lot 30 : identité de la société, reprise sur les bulletins de paie
   can_receive_notifications: true, is_active: true,
 });
@@ -97,12 +97,12 @@ export default function AdminClients() {
 
   const submit = async () => {
     if (editing) {
-      if (!assemblerNom(form.nom, form.prenoms)) {
+      if (!assemblerNom(form.nom, form.prenoms, form.titre)) {
         toast.error("Nom requis"); return;
       }
       try {
         await apiClient.patch(`/clients/${editing.id}`, {
-          nom: form.nom, prenoms: form.prenoms,   // le serveur corrige l'orthographe et assemble le nom complet
+          titre: form.titre, nom: form.nom, prenoms: form.prenoms,   // le serveur corrige l'orthographe et assemble le nom complet
           company: form.company || null,
           phone: form.phone || null,
           whatsapp_number: form.whatsapp_number || null,
@@ -122,7 +122,7 @@ export default function AdminClients() {
       return;
     }
     // Lot 19 : e-mail OU numéro WhatsApp ; mot de passe seulement avec un e-mail (sinon connexion WhatsApp + PIN)
-    if (!assemblerNom(form.nom, form.prenoms)) { toast.error("Nom requis"); return; }
+    if (!assemblerNom(form.nom, form.prenoms, form.titre)) { toast.error("Nom requis"); return; }
     if (!form.email && !form.whatsapp_number && !form.phone) {
       toast.error("Renseignez l'e-mail ou le numéro WhatsApp du client"); return;
     }
@@ -198,7 +198,8 @@ export default function AdminClients() {
                   data-testid="client-email-input"
                 />
               </div>
-              <ChampsNom form={form} setForm={setForm} testid="client" />
+              <ChampsNom form={form} setForm={setForm} testid="client"
+                onSave={editing ? async (v) => { await apiClient.patch(`/clients/${editing.id}`, v); await load(); } : undefined} />
               <div><Label>Entreprise</Label><Input value={form.company} onChange={(e) => setForm({ ...form, company: e.target.value })} data-testid="client-company-input" /></div>
               <div><Label>Téléphone</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} data-testid="client-phone-input" /></div>
               <div>
