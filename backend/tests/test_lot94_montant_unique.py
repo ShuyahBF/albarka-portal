@@ -169,3 +169,23 @@ def test_recu_avec_prochaine_echeance_et_droits(env):
     assert env.get(f"/api/me/services-web/{m['id']}/paiements/{pid}/recu", headers={"X-User": "dg"}).status_code == 200
     assert env.get(f"/api/admin/services-web/{m['id']}/paiements/{pid}/recu", headers={"X-User": "dg"}).status_code == 403
     assert env.get(f"/api/admin/services-web/{m['id']}/paiements/inconnu/recu", headers=H).status_code == 404
+
+
+def test_ancien_service_sans_historique_suit_son_dernier_paiement(env):
+    """Cas de la capture du propriétaire : dernier paiement le 18/10, jour 15 → échéance le 15/11 (et non le 15/12), même pour un service créé avant le lot 94."""
+    import asyncio
+    base = db_module.db
+    s = env.post("/api/admin/services-web", json={"service": "Frais META", "montant": 20000, "jour_du_mois": 15}, headers=H).json()
+    asyncio.get_event_loop().run_until_complete(sw.db.services_web.update_one(
+        {"id": s["id"]}, {"$set": {"dernier_paiement_le": "2026-10-18T19:54", "dernier_paiement_montant": 20000, "dernier_paiement_reference": "PP1", "prochaine_echeance": "2026-12-15", "echeance_payee": "2026-11-15"}}))
+    v = env.get("/api/admin/services-web", headers=H).json()["services"][0]
+    assert v["payable_avant"] == "2026-11-15" and v["jour_du_mois"] == 15
+
+
+def test_nom_de_service_250_caracteres(env):
+    long = "Hébergement de la plateforme et des bases de données — " * 4
+    assert 120 < len(long) <= 250
+    r = env.post("/api/admin/services-web", json={"service": long, "montant": 1000, "mode": "unique"}, headers=H)
+    assert r.status_code == 200 and r.json()["service"] == long.strip()
+    assert env.post("/api/admin/services-web", json={"service": "x" * 251, "montant": 1, "mode": "unique"}, headers=H).status_code == 422
+    assert env.put(f"/api/admin/services-web/{r.json()['id']}", json={"service": "y" * 251}, headers=H).status_code == 422

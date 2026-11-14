@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "96"
-LOT_LIBELLE = "Services Web : échéance = 1 mois après le dernier paiement constaté sur le jour du mois ; retard calculé depuis cette échéance ; reçu imprimable pour chaque paiement avec la prochaine échéance."
+LOT = "96.1"
+LOT_LIBELLE = "Services Web : échéance toujours calculée d'après le dernier paiement (anciens services compris) ; nom du service jusqu'à 250 caractères sur plusieurs lignes."

@@ -18,17 +18,24 @@ const LIBELLES_ROLES = { direction: "Direction", secretariat: "Secrétariat", ad
 
 // Règle 15 — un champ modifiable n'est JAMAIS enregistré « en silence » à la sortie : le bouton ✓ Enregistrer apparaît (actif) dès que la valeur a changé,
 // avec la mention « modifié, non enregistré » ; sans changement, il est grisé.
-function ChampEnregistrable({ valeur, min, max, largeur = "w-24", surEnregistrer, libelle, type = "number" }) {
+function ChampEnregistrable({ valeur, min, max, largeur = "w-24", surEnregistrer, libelle, type = "number", longueurMax }) {
   const [saisie, setSaisie] = useState(String(valeur ?? ""));
   useEffect(() => { setSaisie(String(valeur ?? "")); }, [valeur]);
   const modifie = saisie !== String(valeur ?? "") && saisie !== "";
-  const valide = modifie && (type === "text" ? saisie.trim().length > 0 : Number(saisie) >= (min ?? 0) && (max === undefined || Number(saisie) <= max));
+  const valide = modifie && (type === "text" || type === "textarea" ? saisie.trim().length > 0 : Number(saisie) >= (min ?? 0) && (max === undefined || Number(saisie) <= max));
   return (
     <div className="inline-flex flex-col items-end gap-0.5">
       <div className="inline-flex items-center gap-1">
-        <Input className={type === "text" ? largeur : `${largeur} text-right tabular-nums`} type={type} min={min} max={max} value={saisie} onChange={(e) => setSaisie(e.target.value)} aria-label={libelle} />
+        {type === "textarea" ? (
+          /* Nom du service : jusqu'à 250 caractères, affiché sur PLUSIEURS LIGNES comme à la saisie (la hauteur suit le texte) */
+          <textarea className={`${largeur} rounded-md border border-input bg-background px-3 py-2 text-sm leading-snug`} rows={Math.max(2, Math.min(8, Math.ceil(saisie.length / 28) + (saisie.split("\n").length - 1)))}
+            maxLength={longueurMax} value={saisie} onChange={(e) => setSaisie(e.target.value)} aria-label={libelle} data-testid="champ-nom-service" />
+        ) : (
+          <Input className={type === "text" ? largeur : `${largeur} text-right tabular-nums`} type={type} min={min} max={max} value={saisie} onChange={(e) => setSaisie(e.target.value)} aria-label={libelle} />
+        )}
         <Button size="sm" variant={valide ? "default" : "outline"} disabled={!valide} onClick={() => surEnregistrer(saisie)} title={`Enregistrer : ${libelle}`} aria-label={`Enregistrer : ${libelle}`}><Save className="w-4 h-4" /></Button>
       </div>
+      {type === "textarea" && <span className="text-[11px] text-muted-foreground">{saisie.length}/{longueurMax} caractères</span>}
       {modifie && <span className="text-[11px] text-orange-700">modifié, non enregistré</span>}
     </div>
   );
@@ -118,7 +125,7 @@ export default function ServicesWebPanel() {
       </p>
 
       <div className="albarka-card p-4 grid gap-3 sm:grid-cols-5 items-end">
-        <div><Label>Service</Label><Input value={nouveau.service} onChange={(e) => setNouveau({ ...nouveau, service: e.target.value })} placeholder="Ex. Hébergement Render" /></div>
+        <div><Label>Service (250 caractères au plus)</Label><textarea className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-snug" rows={2} maxLength={250} value={nouveau.service} onChange={(e) => setNouveau({ ...nouveau, service: e.target.value })} placeholder="Ex. Hébergement Render" data-testid="input-nom-service" /><span className="text-[11px] text-muted-foreground">{nouveau.service.length}/250 caractères</span></div>
         <div><Label>Type de paiement</Label>
           <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={nouveau.mode} onChange={(e) => setNouveau({ ...nouveau, mode: e.target.value })} data-testid="select-mode">
             <option value="mensuel">Mensuel (récurrent)</option><option value="unique">Montant unique</option></select></div>
@@ -138,7 +145,7 @@ export default function ServicesWebPanel() {
           <tbody>
             {services.map((s) => (
               <tr key={s.id} className="border-b last:border-0">
-                <td className="p-3 font-medium"><ChampEnregistrable type="text" valeur={s.service} largeur="w-56" libelle={`nom du service ${s.service}`} surEnregistrer={(v) => modifier(s, "service", v)} /></td>
+                <td className="p-3 font-medium"><ChampEnregistrable type="textarea" longueurMax={250} valeur={s.service} largeur="w-64" libelle={`nom du service ${s.service}`} surEnregistrer={(v) => modifier(s, "service", v)} /></td>
                 <td className="p-3 text-right"><ChampEnregistrable valeur={s.montant} min={0} largeur="w-28" libelle={`montant de ${s.service}`} surEnregistrer={(v) => modifier(s, "montant", v)} /></td>
                 <td className="p-3">{s.mode === "unique" ? <span className="text-xs text-muted-foreground">Montant unique</span> : <ChampEnregistrable valeur={s.jour_du_mois} min={1} max={31} largeur="w-16" libelle={`jour du mois de ${s.service}`} surEnregistrer={(v) => modifier(s, "jour_du_mois", v)} />}</td>
                 <td className="p-3">{s.payable_avant ? new Date(`${s.payable_avant}T00:00:00`).toLocaleDateString("fr-FR") : "—"}</td>
