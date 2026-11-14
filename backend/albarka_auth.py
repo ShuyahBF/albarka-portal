@@ -228,7 +228,7 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
     roles = set(user.get("roles") or [])
     if "client" in roles and len(roles) == 1 and await clients_sans_contrat_interdits():
         from albarka_contracts import has_active_contract
-        if not await has_active_contract(user["id"]):
+        if not await has_active_contract((user.get("contact_acces") or {}).get("client_id") or user["id"]):
             # Lot 77 : le code n'est PAS consommé par ce refus. Avant, il était déjà marqué « utilisé » : au deuxième essai
             # le client lisait « Session invalide ou expirée » et ne voyait plus la vraie raison (aucun contrat actif).
             await db.otps.update_one({"id": otp["id"]}, {"$set": {"used": False}})
@@ -244,6 +244,10 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
         {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
     )
     token = create_access_token(user["id"], not_after=access_until)
+    # Lot 104 : la connexion d'un CONTACT du client est tracée (le code reçu par e-mail ou par WhatsApp)
+    if user.get("contact_acces"):
+        from albarka_fonctions_contacts import journaliser_connexion
+        await journaliser_connexion(user, "code", request)
     return AuthTokenResponse(access_token=token, user=User(**user))
 
 

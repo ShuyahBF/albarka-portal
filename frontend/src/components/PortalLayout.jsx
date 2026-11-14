@@ -447,7 +447,7 @@ export default function PortalLayout({ admin = false }) {
         <div className="shrink-0 p-4 border-t border-white/10 bg-[#0B1912]">
           {/* Nom affiché + engrenage « Paramètres » à sa droite (libère une ligne du menu) */}
           <div className="flex items-center gap-2 mb-1">
-            <div className="text-xs text-white/70 truncate font-medium flex-1">{user?.full_name}</div>
+            <div className="text-xs text-white/70 truncate font-medium flex-1" title={user?.contact_nom ? `${user.contact_nom} (${user.contact_fonction}) pour ${user.full_name}` : undefined}>{user?.contact_nom ? `${user.contact_nom} · pour ${user.full_name}` : user?.full_name}</div>
             {admin && links.some((l) => l.to === "/admin/settings") && (
               <NavLink to="/admin/settings" onClick={() => setOpenSidebar(false)} title="Paramètres" aria-label="Paramètres"
                 className={({ isActive }) => `shrink-0 p-1.5 rounded-md hover:bg-white/10 ${isActive ? "bg-white/15 text-[#E5A24B]" : "text-white/70"}`}
@@ -553,7 +553,7 @@ export default function PortalLayout({ admin = false }) {
                   connecté (cabinet et espace client) ; caché si ALBARKA n'est pas relié à SAWALI */}
               <SupportSawali />
               <div className="hidden sm:block text-right">
-                <div className="text-sm font-medium text-foreground">{user?.full_name}</div>
+                <div className="text-sm font-medium text-foreground">{user?.contact_nom ? `${user.contact_nom} (pour ${user.full_name})` : user?.full_name}</div>
                 {user?.company && (
                   <div className="text-[11px] text-muted-foreground">{user.company}</div>
                 )}

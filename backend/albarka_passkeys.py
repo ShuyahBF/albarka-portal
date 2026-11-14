@@ -263,13 +263,16 @@ async def passkeys_login_verify(payload: DefiReponse, request: Request):
     roles = set(user.get("roles") or [])
     if "client" in roles and len(roles) == 1 and await clients_sans_contrat_interdits():
         from albarka_contracts import has_active_contract
-        if not await has_active_contract(user["id"]):
+        if not await has_active_contract((user.get("contact_acces") or {}).get("client_id") or user["id"]):
             raise HTTPException(status_code=403, detail="Aucun contrat actif — veuillez contacter votre cabinet ALBARKA pour activer votre accès.")
     maintenant = _iso(_maintenant())
     await db.users.update_one({"id": user["id"], "passkeys.id": identifiant}, {"$set": {
         "passkeys.$.sign_count": verifiee.new_sign_count, "passkeys.$.dernier_usage": maintenant, "last_login": maintenant}})
     user.pop("password_hash", None)
     user.pop("_id", None)
+    if user.get("contact_acces"):      # lot 104 : connexion d'un contact du client par empreinte, tracée
+        from albarka_fonctions_contacts import journaliser_connexion
+        await journaliser_connexion(user, "empreinte", request)
     return AuthTokenResponse(access_token=create_access_token(user["id"], not_after=access_until), user=User(**user))
 
 

@@ -20,7 +20,16 @@ EN RÉSUMÉ (pour un développeur WinDev)
         - refuse toute ÉCRITURE (POST / PUT / PATCH / DELETE) sur une rubrique sans la case « agir » (et sur toute route non reconnue : refus par défaut).
    4. RÉVOCATION : immédiate (le prochain clic est refusé). Date de fin : l'accès cesse à la fin de ce jour-là. « Rétablir » rouvre l'accès.
 
+LOTS 103-104 — CONNEXION ET JOURNAL
+   - Connexion : le contact se connecte comme un client — par e-mail + mot de passe provisoire + code, par WHATSAPP (le DG lui génère un PIN depuis la fiche d'accès :
+     route /staff-pin existante, puis numéro + PIN + code reçu par WhatsApp) ou par EMPREINTE (enrôlement par le DG, page « Empreintes digitales »).
+   - Journal (collection `journal_contacts`) : chaque connexion, chaque page / action et chaque REFUS d'un contact est tracé (contact, fonction, méthode, chemin, résultat,
+     adresse IP, heure). Une même page relue dans la minute n'est notée qu'une fois ; présence, notifications et jetons ne sont pas notés. 180 jours conservés.
+     Consultation par le DG et le super-admin : par contact (fiche d'accès) ou pour tout un client.
+
 ROUTES (sous /api)
+   GET    /contacts/{contact_id}/journal             — parcours d'un contact (DG, super-admin)
+   GET    /journal-contacts?client_id=&du=&au=&limit — parcours des contacts d'un client ou de tous (DG, super-admin)
    GET    /fonctions-contacts                        — fonctions + catalogue des options (tout le personnel)
    POST   /fonctions-contacts                        — créer {libelle, voir[], agir[]}            (DG, super-admin)
    PUT    /fonctions-contacts/{code}                 — modifier {libelle?, voir?, agir?}          (DG, super-admin)
@@ -35,7 +44,8 @@ from __future__ import annotations
 import re
 import secrets
 import unicodedata
-from datetime import date, datetime, timezone
+import time
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -143,30 +153,87 @@ def _gestionnaire(user: dict) -> None:
 
 
 # =====================================================================================
+# Journal des parcours des contacts (lot 104)
+# =====================================================================================
+
+JOURS_JOURNAL = 180
+SANS_JOURNAL = ("/api/presence", "/api/push", "/api/auth/me", "/api/version", "/api/health")     # sondages et jetons : pas de trace
+_derniere_page: Dict[str, float] = {}        # (contact + chemin) → instant de la dernière trace (une page relue dans la minute n'est notée qu'une fois)
+
+
+def a_journaliser(methode: str, chemin: str, maintenant: float, derniere: Dict[str, float], contact_id: str) -> bool:
+    """Faut-il noter cette requête ? Pas les sondages ; une lecture identique dans les 60 s n'est notée qu'une fois ; toute écriture est toujours notée."""
+    if chemin.startswith(SANS_JOURNAL):
+        return False
+    if methode.upper() in METHODES_ECRITURE:
+        return True
+    cle = f"{contact_id}|{chemin}"
+    if maintenant - derniere.get(cle, 0.0) < 60:
+        return False
+    derniere[cle] = maintenant
+    if len(derniere) > 5000:                  # borne la mémoire : on repart de zéro
+        derniere.clear()
+    return True
+
+
+async def journaliser(compte: dict, type_: str, methode: str = "", chemin: str = "", statut: int = 200, motif: str = "", request: Optional[Request] = None,
+                      methode_connexion: str = "") -> None:
+    """Ajoute une ligne au journal d'un contact. Ne bloque ni ne fait jamais échouer la requête."""
+    try:
+        from albarka_access import client_ip
+        acces = compte.get("contact_acces") or {}
+        await db.journal_contacts.insert_one({
+            "id": secrets.token_urlsafe(10), "at": datetime.now(timezone.utc).isoformat(), "contact_id": acces.get("contact_id"), "client_id": acces.get("client_id"),
+            "nom": compte.get("full_name"), "fonction": acces.get("fonction"), "type": type_, "methode": methode, "chemin": chemin[:200], "statut": statut,
+            "motif": motif[:200], "ip": client_ip(request)[:60] if request is not None else "", "connexion": methode_connexion,
+        })
+        if secrets.randbelow(100) == 0:      # nettoyage occasionnel des traces trop anciennes
+            limite = (datetime.now(timezone.utc) - timedelta(days=JOURS_JOURNAL)).isoformat()
+            await db.journal_contacts.delete_many({"at": {"$lt": limite}})
+    except Exception:  # noqa: BLE001 — le journal ne doit jamais casser une requête
+        pass
+
+
+async def journaliser_connexion(compte: dict, methode_connexion: str, request: Optional[Request] = None) -> None:
+    """Appelée après une connexion réussie (code, WhatsApp, empreinte) : seulement pour un compte de contact."""
+    if compte.get("contact_acces"):
+        await journaliser(compte, "connexion", "POST", "/api/auth", 200, request=request, methode_connexion=methode_connexion)
+
+
+# =====================================================================================
 # Contrôle à chaque requête (appelé par albarka_auth.get_current_user)
 # =====================================================================================
 
 async def appliquer_acces_contact(compte: dict, request: Optional[Request]) -> dict:
     """Si `compte` est le compte d'un CONTACT (champ `contact_acces`), rend la VUE DU CLIENT limitée à sa fonction ; lève 403 si l'accès est révoqué / échu / interdit.
-    Un compte ordinaire est rendu tel quel."""
+    Un compte ordinaire est rendu tel quel. Chaque page / action du contact (et chaque refus) est tracée dans le journal (lot 104)."""
     acces = compte.get("contact_acces")
     if not acces:
         return compte
+    methode = request.method if request is not None else "GET"
+    chemin = request.url.path if request is not None else ""
+
+    async def refuser(motif: str):
+        await journaliser(compte, "refus", methode, chemin, 403, motif, request)
+        raise HTTPException(status_code=403, detail=motif)
+
     motif = acces_en_vigueur(acces, date.today())
     if motif:
-        raise HTTPException(status_code=403, detail=motif)
+        await refuser(motif)
     fiche = await db.contacts.find_one({"id": acces.get("contact_id")}, {"_id": 0, "is_active": 1})
     if not fiche or fiche.get("is_active") is False:
-        raise HTTPException(status_code=403, detail="Votre fiche de contact est désactivée. Contactez le cabinet ALBARKA.")
+        await refuser("Votre fiche de contact est désactivée. Contactez le cabinet ALBARKA.")
     client = await db.users.find_one({"id": acces.get("client_id")}, {"_id": 0, "password_hash": 0})
     if not client or not client.get("is_active", True):
-        raise HTTPException(status_code=403, detail="Le compte du client est indisponible. Contactez le cabinet ALBARKA.")
+        await refuser("Le compte du client est indisponible. Contactez le cabinet ALBARKA.")
     fonction = await lire_fonction(acces.get("fonction") or "") or {"voir": [], "agir": []}
     ouverts = client_modules(client)
     voir = [m for m in ouverts if m in fonction.get("voir", [])]
     agir = [m for m in fonction.get("agir", []) if m in voir]
-    if request is not None and not ecriture_permise(request.method, request.url.path, agir):
-        raise HTTPException(status_code=403, detail="Votre fonction ne permet pas cette action (lecture seule sur cette rubrique).")
+    if request is not None and not ecriture_permise(methode, chemin, agir):
+        await refuser("Votre fonction ne permet pas cette action (lecture seule sur cette rubrique).")
+    if request is not None and a_journaliser(methode, chemin, time.monotonic(), _derniere_page, compte["id"]):
+        await journaliser(compte, "action" if methode.upper() in METHODES_ECRITURE else "page", methode, chemin, 200, request=request)
     return {**client, "portal_modules": voir, "contact_id": compte["id"], "contact_nom": compte.get("full_name"),
             "contact_fonction": acces.get("fonction"), "contact_agir": agir}
 
@@ -281,7 +348,7 @@ def _vue_acces(compte: Optional[dict]) -> Dict[str, Any]:
     a = compte["contact_acces"]
     motif = acces_en_vigueur(a, date.today())
     return {"ouvert": True, "actif": motif is None, "motif": motif, "fonction": a.get("fonction"), "acces_jusqua": a.get("acces_jusqua"),
-            "revoque": bool(a.get("revoque")), "email": compte.get("email"), "derniere_connexion": compte.get("last_login"), "ouvert_le": a.get("cree_le")}
+            "revoque": bool(a.get("revoque")), "compte_id": compte.get("id"), "whatsapp": bool(compte.get("whatsapp_number")), "email": compte.get("email"), "derniere_connexion": compte.get("last_login"), "ouvert_le": a.get("cree_le")}
 
 
 @router.get("/contacts/{contact_id}/acces")
@@ -345,3 +412,35 @@ async def modifier_acces(contact_id: str, payload: AccesMaj, user: dict = Depend
 @router.delete("/contacts/{contact_id}/acces")
 async def revoquer_acces(contact_id: str, user: dict = Depends(get_current_user)):
     return await modifier_acces(contact_id, AccesMaj(revoque=True), user)
+
+
+# =====================================================================================
+# Routes — journal des parcours (lot 104)
+# =====================================================================================
+
+async def _lire_journal(filtre: Dict[str, Any], limite: int) -> List[dict]:
+    return await db.journal_contacts.find(filtre, {"_id": 0}).sort("at", -1).to_list(max(1, min(limite, 500)))
+
+
+@router.get("/contacts/{contact_id}/journal")
+async def journal_du_contact(contact_id: str, limit: int = 100, user: dict = Depends(get_current_user)):
+    _gestionnaire(user)
+    await _contact_client(contact_id)
+    return {"journal": await _lire_journal({"contact_id": contact_id}, limit)}
+
+
+@router.get("/journal-contacts")
+async def journal_des_contacts(client_id: str = "", du: str = "", au: str = "", limit: int = 200, user: dict = Depends(get_current_user)):
+    """Parcours des contacts d'un client (ou de tous), sur une période (AAAA-MM-JJ, bornes incluses)."""
+    _gestionnaire(user)
+    filtre: Dict[str, Any] = {}
+    if client_id:
+        filtre["client_id"] = client_id
+    plage: Dict[str, str] = {}
+    if du:
+        plage["$gte"] = _date_fin(du) or ""
+    if au:
+        plage["$lt"] = (date.fromisoformat(_date_fin(au)) + timedelta(days=1)).isoformat()
+    if plage:
+        filtre["at"] = plage
+    return {"journal": await _lire_journal(filtre, limit)}
