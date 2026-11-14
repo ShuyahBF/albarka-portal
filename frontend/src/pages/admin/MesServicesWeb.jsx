@@ -60,7 +60,7 @@ export default function MesServicesWeb() {
           <tbody>
             {services.map((s) => (
               <tr key={s.id} className="border-b last:border-0" data-testid={`service-${s.id}`}>
-                <td className="p-3 font-medium">{s.service}</td>
+                <td className="p-3 font-medium whitespace-pre-line">{s.service}</td>
                 <td className="p-3 text-right tabular-nums">{fmtMontant(s.montant, s.devise)}</td>
                 <td className="p-3">{s.mode === "unique" ? <>Montant unique<div className="text-xs text-muted-foreground">réglé en une ou plusieurs fois</div></> : <>Le {s.jour_du_mois} de chaque mois<div className="text-xs text-muted-foreground">Prochaine échéance : {fmtDate(s.payable_avant)}</div></>}</td>
                 <td className="p-3"><EtatService s={s} /></td>
@@ -71,7 +71,7 @@ export default function MesServicesWeb() {
                   {s.mode === "unique" ? (<><span className={s.reste_a_payer > 0 ? "font-semibold text-red-700" : "text-green-700"}>{fmtMontant(s.reste_a_payer, s.devise)}</span>
                     <div className="text-xs text-muted-foreground">payé {fmtMontant(s.total_paye, s.devise)}</div></>) : "—"}
                   {(s.paiements || []).length > 0 && (
-                    <details className="text-left text-xs mt-1"><summary className="cursor-pointer text-muted-foreground">{s.paiements.length} paiement(s)</summary>
+                    <details className="text-left text-xs mt-1"><summary className="cursor-pointer text-muted-foreground">{s.paiements.length} paiement(s) — imprimer un reçu</summary>
                       <ul className="mt-1 space-y-0.5">{s.paiements.map((p) => (<li key={p.id} className="flex flex-wrap items-center gap-2">{new Date(p.paye_le).toLocaleDateString("fr-FR")} · {fmtMontant(p.montant, s.devise)} · {p.reference}
                         <button type="button" className="inline-flex items-center gap-1 rounded border px-1.5 py-0.5" onClick={() => imprimerRecu(`/me/services-web/${s.id}/paiements/${p.id}/recu`).catch((e) => window.alert(extractError(e)))} title="Imprimer le reçu de ce paiement" aria-label="Imprimer le reçu de ce paiement"><Printer className="w-3 h-3" /> Imprimer le reçu</button></li>))}</ul></details>
                   )}

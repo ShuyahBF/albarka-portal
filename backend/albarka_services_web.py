@@ -90,7 +90,7 @@ MODES = ("mensuel", "unique")     # lot 94 : paiement récurrent chaque mois, ou
 
 
 class ServiceCorps(BaseModel):
-    service: str = Field(..., min_length=1, max_length=120)
+    service: str = Field(..., min_length=1, max_length=250)
     montant: float = Field(..., ge=0)               # mensuel : montant de chaque échéance ; unique : montant TOTAL à payer
     devise: str = Field(default="FCFA", max_length=8)
     mode: str = Field(default="mensuel", max_length=10)
@@ -98,7 +98,7 @@ class ServiceCorps(BaseModel):
 
 
 class ServiceModif(BaseModel):
-    service: Optional[str] = Field(None, min_length=1, max_length=120)
+    service: Optional[str] = Field(None, min_length=1, max_length=250)
     montant: Optional[float] = Field(None, ge=0)
     devise: Optional[str] = Field(None, max_length=8)
     jour_du_mois: Optional[int] = Field(None, ge=1, le=31)
@@ -189,15 +189,16 @@ def prochaine_apres_paiement(date_paiement: date, jour: int) -> date:
     return min(candidates, key=lambda c: (abs((c - cible).days), -c.toordinal()))
 
 
-def echeance_depuis_historique(doc: dict) -> Optional[date]:
-    """Échéance d'après le DERNIER paiement constaté de l'historique (date de règlement la plus récente) ; None s'il n'y a aucun paiement enregistré."""
+def derniere_date_paiement(doc: dict) -> Optional[date]:
+    """Date du DERNIER paiement constaté : la plus récente de l'historique et de l'ancien champ « dernier paiement » (services d'avant le lot 94). None si aucun."""
     dates = []
-    for p in historique(doc):
+    candidats = [p.get("paye_le") for p in historique(doc)] + [doc.get("dernier_paiement_le")]
+    for v in candidats:
         try:
-            dates.append(date.fromisoformat(str(p.get("paye_le") or "")[:10]))
+            dates.append(date.fromisoformat(str(v or "")[:10]))
         except ValueError:
             continue
-    return prochaine_apres_paiement(max(dates), jour_du_service(doc)) if dates else None
+    return max(dates) if dates else None
 
 
 def jour_du_service(doc: dict) -> int:
@@ -211,8 +212,9 @@ def echeance_courante(doc: dict) -> date:
     """Échéance en cours = la première non réglée : la 1re échéance du service si rien n'est réglé, sinon le mois qui suit
     la dernière échéance réglée (`echeance_payee`). Un impayé ancien reste donc l'échéance en cours (et en retard)."""
     jour = jour_du_service(doc)
-    if doc.get("prochaine_echeance"):                  # lot 95 : échéance recalculée d'après la date du dernier règlement
-        return date.fromisoformat(doc["prochaine_echeance"])
+    derniere = derniere_date_paiement(doc)
+    if derniere:                                       # lot 96.1 : TOUJOURS 1 mois après le dernier paiement constaté, sur le jour du mois (jamais une valeur figée)
+        return prochaine_apres_paiement(derniere, jour)
     if doc.get("echeance_payee"):
         return mois_suivant(date.fromisoformat(doc["echeance_payee"]), jour)
     if doc.get("premiere_echeance"):
@@ -411,11 +413,6 @@ async def admin_modifier(service_id: str, payload: ServiceModif, user: dict = De
         maj.pop("jour_du_mois", None)                    # lot 94 : pas de jour du mois pour un montant unique
     if "service" in maj:
         maj["service"] = maj["service"].strip()
-    if "jour_du_mois" in maj and doc.get("prochaine_echeance"):
-        # Lot 96 : avec des paiements, la prochaine échéance = 1 mois après le dernier paiement sur le NOUVEAU jour ; sinon elle garde son mois
-        depuis = echeance_depuis_historique({**doc, "jour_du_mois": maj["jour_du_mois"]})
-        p = date.fromisoformat(doc["prochaine_echeance"])
-        maj["prochaine_echeance"] = (depuis or occurrence(p.year, p.month, maj["jour_du_mois"])).isoformat()
     if "jour_du_mois" in maj and not doc.get("echeance_payee"):
         # Rien encore réglé : la 1re échéance suit le nouveau jour (même mois que l'ancienne échéance en cours)
         ancienne = echeance_courante(doc)
@@ -451,8 +448,6 @@ async def admin_paiement(service_id: str, payload: PaiementCorps, user: dict = D
             maj["echeance_payee"] = reglee.isoformat()
             if not doc.get("premiere_echeance"):
                 maj["premiere_echeance"] = reglee.isoformat()
-            # Lot 96 : la prochaine échéance = 1 mois après le DERNIER paiement constaté (date la plus récente), sur le jour du mois précisé
-            maj["prochaine_echeance"] = echeance_depuis_historique({**doc, "paiements": historique(doc) + [entree]}).isoformat()
     await db.services_web.update_one({"id": service_id}, {"$set": maj, "$push": {"paiements": entree}})
     return _vue(await db.services_web.find_one({"id": service_id}, {"_id": 0}))
 
@@ -524,7 +519,6 @@ async def admin_utiliser_paiements_sms(service_id: str, payload: SmsCorps, user:
     maj = {"dernier_paiement_le": dernier["paye_le"], "dernier_paiement_montant": dernier["montant"], "dernier_paiement_reference": dernier["reference"]}
     if not est_unique(doc):
         maj["echeance_payee"] = courant["echeance_payee"]
-        maj["prochaine_echeance"] = echeance_depuis_historique({**doc, "paiements": historique(doc) + nouvelles}).isoformat()      # lot 96 : 1 mois après le dernier paiement constaté
         if not doc.get("premiere_echeance"):
             maj["premiere_echeance"] = courant["premiere_echeance"]
     await db.services_web.update_one({"id": service_id}, {"$set": maj, "$push": {"paiements": {"$each": nouvelles}}})
@@ -533,7 +527,7 @@ async def admin_utiliser_paiements_sms(service_id: str, payload: SmsCorps, user:
 
 @router.delete("/admin/services-web/{service_id}/paiements/{paiement_id}")
 async def admin_annuler_paiement(service_id: str, paiement_id: str, user: dict = Depends(get_current_user)):
-    """Lot 94 — annule un paiement enregistré par erreur (un paiement SMS redevient disponible). Service mensuel : la prochaine échéance est recalculée d'après les paiements qui restent."""
+    """Lot 94 — annule un paiement enregistré par erreur (un paiement SMS redevient disponible). Service mensuel : l'échéance suit les paiements qui restent."""
     _exiger_super_admin(user)
     doc = await db.services_web.find_one({"id": service_id}, {"_id": 0})
     if not doc:
@@ -545,14 +539,8 @@ async def admin_annuler_paiement(service_id: str, paiement_id: str, user: dict =
     maj: dict = {}
     reste = liste[:index] + liste[index + 1:]
     dernier = reste[-1] if reste else None
-    if not est_unique(doc):
-        # Lot 96 : la prochaine échéance suit les paiements qui restent ; plus aucun paiement → retour à l'état d'avant le tout premier
-        nouvelle = echeance_depuis_historique({**doc, "paiements": reste})
-        if nouvelle:
-            maj["prochaine_echeance"] = nouvelle.isoformat()
-        else:
-            maj["prochaine_echeance"] = None
-            maj["echeance_payee"] = liste[index].get("echeance_avant")
+    if not est_unique(doc) and not reste:
+        maj["echeance_payee"] = liste[index].get("echeance_avant")           # plus aucun paiement : retour à l'état d'avant le tout premier
     maj.update({"paiements": reste, "dernier_paiement_le": dernier.get("paye_le") if dernier else None,
                 "dernier_paiement_montant": dernier.get("montant") if dernier else None, "dernier_paiement_reference": dernier.get("reference") if dernier else None})
     await db.services_web.update_one({"id": service_id}, {"$set": maj})
