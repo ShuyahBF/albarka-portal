@@ -24,6 +24,7 @@ function ChampSecret({ id, value, onChange, visible, onToggle, testId, ...props 
     <div className="relative mt-1.5">
       <Lock className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
       <Input
+        sansOeil
         id={id}
         type={visible ? "text" : "password"}
         value={value}

@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "115"
-LOT_LIBELLE = "Fiche existante : le premier mot du Nom complet devient le NOM de famille, tout ce qui suit l'espace devient les Prénoms."
+LOT = "116"
+LOT_LIBELLE = "Pictogramme œil (afficher / masquer) sur toute saisie de mot de passe, de clé ou de phrase secrète (règle 22)."

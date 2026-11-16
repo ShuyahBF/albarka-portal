@@ -310,7 +310,7 @@ export default function AdminStaff() {
                 {!editing && !form.email && <p className="mt-1 text-[11px] text-muted-foreground">Sans e-mail, le collaborateur se connecte avec son numéro WhatsApp et un code PIN : générez-le ensuite avec le bouton « PIN ».</p>}
               </div>
               {!editing && form.email && (
-                <div><Label>Mot de passe</Label><div className="relative"><Input type={voirMdp ? "text" : "password"} className="pr-10" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="staff-password-input" /><BoutonOeil /></div></div>
+                <div><Label>Mot de passe</Label><div className="relative"><Input sansOeil type={voirMdp ? "text" : "password"} className="pr-10" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} data-testid="staff-password-input" /><BoutonOeil /></div></div>
               )}
               <div>
                 <Label>Rôles</Label>
@@ -512,7 +512,7 @@ export default function AdminStaff() {
                 Chaque compte reçoit une adresse « +alias » de l'e-mail ci-dessous : tous les codes de connexion arrivent dans cette boîte.
               </p>
               <div><Label>E-mail qui recevra les codes de connexion</Label><Input value={testForm.email} onChange={(e) => setTestForm({ ...testForm, email: e.target.value })} data-testid="test-email" /></div>
-              <div><Label>Mot de passe commun (8 caractères min.)</Label><div className="relative"><Input type={voirMdp ? "text" : "password"} className="pr-10" value={testForm.password} onChange={(e) => setTestForm({ ...testForm, password: e.target.value })} data-testid="test-password" /><BoutonOeil /></div></div>
+              <div><Label>Mot de passe commun (8 caractères min.)</Label><div className="relative"><Input sansOeil type={voirMdp ? "text" : "password"} className="pr-10" value={testForm.password} onChange={(e) => setTestForm({ ...testForm, password: e.target.value })} data-testid="test-password" /><BoutonOeil /></div></div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div><Label>WhatsApp Client 1 (+226…)</Label><Input value={testForm.client1_whatsapp} onChange={(e) => setTestForm({ ...testForm, client1_whatsapp: e.target.value })} placeholder="a écrit au cabinet < 24 h" /></div>
                 <div><Label>WhatsApp Client 2 (+226…)</Label><Input value={testForm.client2_whatsapp} onChange={(e) => setTestForm({ ...testForm, client2_whatsapp: e.target.value })} placeholder="n'a pas écrit depuis 24 h" /></div>
