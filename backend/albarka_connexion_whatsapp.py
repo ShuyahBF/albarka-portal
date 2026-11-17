@@ -240,6 +240,48 @@ async def retirer_pin_personnel(user_id: str, user: dict = Depends(require_roles
 # ---------------------------------------------------------------------------
 # Connexion par WhatsApp (page de connexion, sans authentification)
 # ---------------------------------------------------------------------------
+def _masquer(numero: str) -> str:
+    """Numéro masqué pour le journal : « +226 7•••• 2075 » (indicatif, premier et 4 derniers chiffres)."""
+    n = re.sub(r"\D", "", numero or "")
+    return f"+{n[:3]} {n[3:4]}•••• {n[-4:]}" if len(n) >= 9 else "numéro trop court"
+
+
+ACTEUR_INCONNU = {"id": "visiteur", "full_name": "Visiteur non identifié", "roles": []}
+
+
+async def tracer_connexion(action: str, numero: str = "", compte: Optional[dict] = None, **extra) -> None:
+    """Lot 118 — TRACE de chaque étape de la connexion (journal d'audit « platform_logs », page Journal de la plateforme) : IP et navigateur sont ajoutés
+    automatiquement. JAMAIS le PIN ni le code reçu ; le numéro est masqué. `action` = « login.wa_echec.<raison> » ou « login.otp_<issue> ».
+    Best-effort : une trace qui échoue ne bloque jamais la connexion."""
+    meta = {k: v for k, v in extra.items() if v is not None}
+    if numero:
+        meta["numero"] = _masquer(numero)
+    await _journal(compte or ACTEUR_INCONNU, action, (compte or {}).get("id"), meta)
+
+
+async def diagnostiquer_echec(numero: str) -> tuple[str, dict]:
+    """Raison EXACTE (pour le journal du cabinet seulement — le visiteur reçoit toujours le même message) d'un échec numéro + PIN.
+    Rend (raison, détails) : numero_inconnu | numero_non_whatsapp_du_compte | compte_exclu | aucun_pin | pin_incorrect."""
+    fin = numero[-8:]
+    chiffres = lambda v: re.sub(r"\D", "", v or "")[-8:]          # numéros comparés sur leurs 8 derniers chiffres (formats variés : espaces, 00226, +226)
+    candidats = [c async for c in db.users.find({}, {"_id": 0, "id": 1, "full_name": 1, "phone": 1, "whatsapp_number": 1, "roles": 1, "is_active": 1, "email": 1})
+                 if fin in (chiffres(c.get("phone")), chiffres(c.get("whatsapp_number")))][:10]
+    if not candidats:
+        return "numero_inconnu", {}
+    exacts = [c for c in candidats if numero_du_compte(c) == numero]
+    if not exacts:
+        # Le numéro tapé est le téléphone d'un compte, mais la connexion attend son numéro WhatsApp (champ distinct)
+        c = candidats[0]
+        return "numero_non_whatsapp_du_compte", {"nom_compte": c.get("full_name"), "numero_attendu": _masquer(numero_du_compte(c))}
+    actifs = [c for c in exacts if not motif_exclusion(c)]
+    if not actifs:
+        return "compte_exclu", {"motif": motif_exclusion(exacts[0]), "nb_comptes": len(exacts)}
+    avec_pin = [c for c in actifs if await db.pins_whatsapp.find_one({"user_id": c["id"]}, {"_id": 1})]
+    if not avec_pin:
+        return "aucun_pin", {"noms_comptes": [c.get("full_name") for c in actifs][:3]}
+    return "pin_incorrect", {"nom_compte": avec_pin[0].get("full_name"), "comptes_meme_numero": len(actifs)}
+
+
 class ConnexionWhatsapp(BaseModel):
     """Étape 1 de la connexion par WhatsApp : numéro WhatsApp et code PIN à 4 chiffres."""
     numero: str = Field(..., max_length=40)
@@ -256,17 +298,20 @@ async def connexion_whatsapp(demande: ConnexionWhatsapp):
     pin = (demande.pin or "").strip()
     refus = HTTPException(status_code=401, detail="Numéro WhatsApp ou code PIN incorrect")
     if not numero or not pin_valide(pin):
+        await tracer_connexion("login.wa_echec.format", numero, motif=("numéro invalide" if not numero else "PIN : 4 chiffres attendus"))
         raise refus
 
     # Trop d'essais de PIN faux pour ce numéro : suspension temporaire
     depuis = (_maintenant() - timedelta(minutes=FENETRE_ESSAIS_PIN_MINUTES)).isoformat()
     if await db.tentatives_pin_wa.count_documents({"numero": numero, "le": {"$gte": depuis}}) >= ESSAIS_PIN_MAX:
+        await tracer_connexion("login.wa_echec.suspendu", numero, motif=f"{ESSAIS_PIN_MAX} PIN faux en {FENETRE_ESSAIS_PIN_MINUTES} min")
         raise HTTPException(status_code=429, detail=(
             f"Trop d'essais de code PIN. Réessayez dans {FENETRE_ESSAIS_PIN_MINUTES} minutes "
             "ou connectez-vous avec votre e-mail."))
 
     captcha = await verify_recaptcha(demande.captcha_token)
     if not captcha["success"]:
+        await tracer_connexion("login.wa_echec.captcha", numero, motif=str(captcha.get("reason")))
         raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
 
     # Compte du personnel portant ce numéro et dont le PIN correspond
@@ -281,6 +326,9 @@ async def connexion_whatsapp(demande: ConnexionWhatsapp):
     if not trouve:
         # Essai faux mémorisé (sert au blocage 5 essais / 15 minutes)
         await db.tentatives_pin_wa.insert_one({"numero": numero, "le": _maintenant().isoformat()})
+        # Lot 118 : la RAISON exacte est tracée pour le cabinet (le visiteur reçoit toujours le même message)
+        raison, details = await diagnostiquer_echec(numero)
+        await tracer_connexion(f"login.wa_echec.{raison}", numero, **details)
         raise refus
 
     from albarka_maintenance import refuser_connexion_si_maintenance   # lot 44 : connexions suspendues (sauf super-admin)
@@ -301,7 +349,7 @@ async def connexion_whatsapp(demande: ConnexionWhatsapp):
     })
     resultat = await envoyer_whatsapp(
         numero, f"Votre code de connexion ALBARKA : {code} (valable {OTP_EXPIRE_MINUTES} minutes).")
-    await _journal(trouve, "login.whatsapp_code_envoye", trouve["id"], {"envoye": bool(resultat.get("ok"))})
+    await _journal(trouve, "login.whatsapp_code_envoye", trouve["id"], {"envoye": bool(resultat.get("ok")), "numero": _masquer(numero), "erreur": (None if resultat.get("ok") else str(resultat.get("error") or resultat.get("detail") or "")[:200])})
     if not resultat.get("ok"):
         # Code inutilisable : on l'annule et on propose la connexion par e-mail
         await db.otps.update_one({"session_token": session_token}, {"$set": {"used": True, "annule": True}})

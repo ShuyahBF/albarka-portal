@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import DetailDemandeModal from "@/components/DetailDemandeModal";   // lot 118 : 20 premiers caractères + « Détails » (modale)
+import GanttEnchainement from "@/components/GanttEnchainement";   // lot 118 : enchaînement, points morts des demandes non terminées
 import GanttDemande from "@/components/GanttDemande";   // lot 117 : diagramme de Gantt (dernière colonne)
 import { bornesGantt } from "@/lib/ganttDemandes";
 
@@ -100,6 +102,12 @@ export default function DemandesSawaliPanel() {
   const bornes = bornesGantt(data.demandes);                    // axe du temps COMMUN à toutes les barres du tableau
   return (
     <div className="space-y-5" data-testid="demandes-sawali-panel">
+      {/* Lot 118 : vue d'ensemble des demandes NON terminées (enchaînement, points morts) — repliée par défaut */}
+      <details className="rounded-lg border p-3" data-testid="vue-enchainement">
+        <summary className="cursor-pointer font-semibold">📈 Enchaînement des demandes non terminées (points morts, retards)</summary>
+        <div className="mt-3"><GanttEnchainement demandes={data.demandes} /></div>
+      </details>
+
       {/* Zone de recherche EN HAUT : texte, commentaire, numéro, statut — refusées comprises */}
       <div className="relative max-w-xl">
         <Search className="w-4 h-4 absolute left-3 top-3 text-muted-foreground" />
@@ -153,7 +161,7 @@ export default function DemandesSawaliPanel() {
                 <td className="p-3 whitespace-nowrap">{fmt(d.demandee_le)}</td>
                 <td className="p-3 font-mono text-xs">{d.numero_sawali || "—"}</td>
                 <td className="p-3">{d.type_libelle}</td>
-                <td className="p-3 max-w-md">{d.texte}</td>
+                <td className="p-3 max-w-md"><DetailDemandeModal d={d} /></td>
                 <td className={`p-3 font-medium ${COULEUR[d.statut] || ""}`}>{d.statut_libelle}</td>
                 <td className="p-3"><Suivi d={d} /></td>
                 <td className="p-3 text-right whitespace-nowrap">
