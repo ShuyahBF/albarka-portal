@@ -187,3 +187,26 @@ def test_pastille_demandes_par_utilisateur(env, monkeypatch):
     assert asyncio.run(base.demandes_sawali.count_documents({"modifiee_sawali_le": {"$exists": True}})) == 0
     env.post("/api/demandes-sawali/relire", headers=H)                   # SAWALI a réalisé la demande : pastille
     assert asyncio.run(base.demandes_sawali.count_documents({"modifiee_sawali_le": {"$exists": True}})) == 1
+
+
+def test_statuts_en_cours_point_mort_et_duree_relus_de_sawali(env, monkeypatch):
+    """Lot 120 : « En cours », « Point mort », durée estimée, début prévu et historique viennent de SAWALI et sont affichés."""
+    a = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Première demande"}, headers=H).json()
+    b = env.post("/api/demandes-sawali", json={"type": "nouveaute", "texte": "Deuxième demande"}, headers=H).json()
+
+    async def faux_sawali(chemin, corps, delai=15):
+        return {"demandes": [
+            {"ref_locale": a["id"], "numero": "DEM-ALB-0001", "statut": "en_cours", "prevue_le": "2026-11-24", "debut_prevu_le": "2026-11-17",
+             "duree_valeur": 1, "duree_unite": "semaine", "historique": [{"statut": "en_cours", "le": "2026-11-17T08:00:00+00:00"}]},
+            {"ref_locale": b["id"], "numero": "DEM-ALB-0002", "statut": "point_mort", "commentaire": "Attente des données", "debut_prevu_le": "2026-11-10"},
+        ]}
+    monkeypatch.setattr(albarka_support_sawali, "appeler_sawali", faux_sawali)
+    assert env.post("/api/demandes-sawali/envoyer", headers=H).status_code == 200
+    liste = env.get("/api/demandes-sawali", headers=H).json()
+    par = {d["id"]: d for d in liste["demandes"]}
+    assert par[a["id"]]["statut"] == "en_cours" and par[a["id"]]["statut_libelle"] == "En cours"
+    assert par[a["id"]]["duree_valeur"] == 1 and par[a["id"]]["duree_unite"] == "semaine" and par[a["id"]]["debut_prevu_le"] == "2026-11-17"
+    assert par[a["id"]]["historique"][0]["statut"] == "en_cours"
+    assert par[b["id"]]["statut_libelle"] == "Point mort" and liste["compteurs"]["en_cours"] == 1 and liste["compteurs"]["point_mort"] == 1
+    # Recherche par statut : « point mort » retrouve la demande
+    assert env.get("/api/demandes-sawali?q=point mort", headers=H).json()["demandes"][0]["id"] == b["id"]

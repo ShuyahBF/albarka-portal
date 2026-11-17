@@ -7,7 +7,7 @@
 */
 import React, { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Search, Send, Plus, Trash2, RefreshCw, Pencil, Save, X } from "lucide-react";
+import { Search, Send, Plus, Trash2, RefreshCw, Pencil, Save, X, Play, OctagonAlert, Clock } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +20,10 @@ import { bornesGantt } from "@/lib/ganttDemandes";
 
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const fmtJour = (d) => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString("fr-FR") : null);
-const COULEUR = { a_remonter: "text-gray-600", remontee: "text-orange-700", realisee: "text-green-700", refusee: "text-red-700" };
+const COULEUR = { a_remonter: "text-gray-600", remontee: "text-orange-700", en_cours: "text-sky-700", point_mort: "text-slate-900", realisee: "text-green-700", refusee: "text-red-700" };
+const PICTO = { remontee: Clock, en_cours: Play, point_mort: OctagonAlert };   // lot 120 : jamais la couleur seule
+const UNITE = { jour: "jour(s)", semaine: "semaine(s)", mois: "mois", annee: "an(s)" };
+const duree = (d) => (d.duree_valeur && UNITE[d.duree_unite] ? `${d.duree_valeur} ${UNITE[d.duree_unite]}` : null);
 
 // Colonne « Suivi » : réalisée le … / prévue le … / commentaire de SAWALI
 function Suivi({ d }) {
@@ -28,6 +31,9 @@ function Suivi({ d }) {
     <div className="space-y-0.5">
       {d.statut === "realisee" && <div className="text-green-700">Réalisée le {fmtJour(d.realisee_le) || "—"}</div>}
       {d.statut === "remontee" && <div className="text-orange-700">{d.prevue_le ? `Prévue le ${fmtJour(d.prevue_le)}` : "Date de réalisation à venir"}</div>}
+      {d.statut === "en_cours" && <div className="text-sky-700">{d.prevue_le ? `En cours · fin prévue le ${fmtJour(d.prevue_le)}` : "En cours"}</div>}
+      {d.statut === "point_mort" && <div className="text-slate-900">Travail arrêté : voir le commentaire de SAWALI</div>}
+      {duree(d) && <div className="text-muted-foreground">Durée estimée : {duree(d)}{d.debut_prevu_le && d.prevue_le ? ` · du ${fmtJour(d.debut_prevu_le)} au ${fmtJour(d.prevue_le)}` : ""}</div>}
       {d.commentaire && <div className="text-muted-foreground">{d.commentaire}</div>}
     </div>
   );
@@ -115,7 +121,7 @@ export default function DemandesSawaliPanel() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span>{data.total} demande(s) : {c.a_remonter || 0} à remonter · {c.remontee || 0} en attente · {c.realisee || 0} réalisée(s) · {c.refusee || 0} refusée(s)</span>
+        <span>{data.total} demande(s) : {c.a_remonter || 0} à remonter · {c.remontee || 0} en attente · {c.en_cours || 0} en cours · {c.point_mort || 0} point(s) mort(s) · {c.realisee || 0} réalisée(s) · {c.refusee || 0} refusée(s)</span>
         <Button onClick={envoyer} disabled={envoi} data-testid="btn-envoyer-sawali"><Send className="w-4 h-4 mr-1" /> Envoyer à SAWALI</Button>
         <Button variant="outline" onClick={actualiser} disabled={relecture} title="Relire le statut des demandes chez SAWALI" data-testid="btn-actualiser-sawali"><RefreshCw className={`w-4 h-4 mr-1 ${relecture ? "animate-spin" : ""}`} /> Actualiser</Button>
       </div>
@@ -162,7 +168,7 @@ export default function DemandesSawaliPanel() {
                 <td className="p-3 font-mono text-xs">{d.numero_sawali || "—"}</td>
                 <td className="p-3">{d.type_libelle}</td>
                 <td className="p-3 max-w-md"><DetailDemandeModal d={d} /></td>
-                <td className={`p-3 font-medium ${COULEUR[d.statut] || ""}`}>{d.statut_libelle}</td>
+                <td className={`p-3 font-medium ${COULEUR[d.statut] || ""}`}>{(() => { const P = PICTO[d.statut]; return <>{P && <P className="mr-1 inline-block h-3.5 w-3.5" aria-hidden="true" />}{d.statut_libelle}</>; })()}</td>
                 <td className="p-3"><Suivi d={d} /></td>
                 <td className="p-3 text-right whitespace-nowrap">
                   {(d.statut === "a_remonter" || d.statut === "remontee") && (
