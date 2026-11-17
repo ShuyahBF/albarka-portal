@@ -30,8 +30,10 @@ Collection `demandes_sawali` (quelques dizaines de documents).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -292,6 +294,40 @@ async def envoyer(user: dict = Depends(get_current_user)):
     """Remonte les demandes « à remonter » à SAWALI puis relit le numéro, le statut et le commentaire de toutes les demandes."""
     _exiger_super_admin(user)
     return await synchroniser(remonter=True)
+
+
+# Relecture à la CONNEXION (lot 120.4) : au plus une toutes les 60 secondes pour tout le serveur, même si dix collaborateurs se connectent ensemble
+_DERNIERE_RELECTURE_CONNEXION = 0.0
+INTERVALLE_RELECTURE_CONNEXION_S = 60
+
+
+def est_client_seul(user: dict) -> bool:
+    """Vrai pour un compte client (rôle « client » seul) : lui ne déclenche jamais d'échange avec SAWALI."""
+    roles = user.get("roles") or []
+    return "client" in roles and len(roles) == 1
+
+
+async def _relire_en_arriere_plan() -> None:
+    """Relecture des statuts chez SAWALI, hors requête (règle 7) : une erreur (SAWALI injoignable…) ne gêne jamais personne."""
+    try:
+        await releve_automatique()
+    except Exception as e:   # noqa: BLE001
+        logging.getLogger(__name__).warning("Relecture des demandes à SAWALI à la connexion : %s", e)
+
+
+@router.post("/relire-connexion")
+async def relire_connexion(user: dict = Depends(get_current_user)):
+    """Appelée automatiquement par le portail à la connexion de TOUT collaborateur (jamais d'un client) : lance en ARRIÈRE-PLAN la relecture des statuts
+    et du planning (durées, dates prévues) chez SAWALI, pour que le diagramme de Gantt soit à jour sans cliquer. Répond tout de suite."""
+    global _DERNIERE_RELECTURE_CONNEXION
+    if est_client_seul(user):
+        raise HTTPException(status_code=403, detail="Réservé aux collaborateurs")
+    maintenant = time.monotonic()
+    if maintenant - _DERNIERE_RELECTURE_CONNEXION < INTERVALLE_RELECTURE_CONNEXION_S:
+        return {"lancee": False}
+    _DERNIERE_RELECTURE_CONNEXION = maintenant
+    asyncio.create_task(_relire_en_arriere_plan())
+    return {"lancee": True}
 
 
 @router.post("/relire")

@@ -25,6 +25,7 @@ USERS = {
     "dg": {"id": "u-dg", "email": "dg@albarka.bf", "full_name": "DG", "roles": ["dg"]},
     "dir": {"id": "u-dir", "email": "dir@albarka.bf", "full_name": "Direction", "roles": ["direction"]},
     "secr": {"id": "u-secr", "email": "secr@albarka.bf", "full_name": "Secrétaire", "roles": ["secretariat"]},
+    "client": {"id": "u-cli", "email": "cli@x.bf", "full_name": "Client", "roles": ["client"]},
     "compta": {"id": "u-compta", "email": "c@albarka.bf", "full_name": "Comptable", "roles": ["comptable"]},
 }
 
@@ -254,3 +255,26 @@ def test_pieces_envoyees_a_sawali_et_alerte_si_refusees(env, monkeypatch):
     assert "place épuisée" in d["alerte_pieces"] and len(d["pieces"]) == 1                    # nos pièces restent, l'alerte l'explique
     # après l'envoi, les pièces ne se modifient plus
     assert env.put(f"/api/demandes-sawali/{a['id']}", json={"type": "correction", "texte": "Texte modifié", "pieces": []}, headers=H).status_code == 409
+
+
+def test_relecture_a_la_connexion_en_arriere_plan_sauf_clients(env, monkeypatch):
+    """Lot 120.4 : tout collaborateur (pas un client) déclenche la relecture ; elle répond tout de suite, ne repart pas avant 60 s."""
+    import time
+    appels = []
+
+    async def faux_sawali(chemin, corps, delai=15):
+        appels.append(chemin)
+        return {"demandes": []}
+    monkeypatch.setattr(albarka_support_sawali, "appeler_sawali", faux_sawali)
+    # une demande déjà remontée : la relecture a quelque chose à suivre
+    d = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Une demande à suivre"}, headers=H).json()
+    import asyncio
+    asyncio.get_event_loop_policy()  # (le client de test fait tourner la boucle)
+    asyncio.run(dm.db.demandes_sawali.update_one({"id": d["id"]}, {"$set": {"statut": "remontee"}}))
+    assert env.post("/api/demandes-sawali/relire-connexion", headers={"X-User": "client"}).status_code == 403      # jamais un client
+    monkeypatch.setattr(dm, "_DERNIERE_RELECTURE_CONNEXION", 0.0)
+    debut = time.monotonic()
+    r = env.post("/api/demandes-sawali/relire-connexion", headers={"X-User": "compta"})                          # tout autre collaborateur
+    assert r.status_code == 200 and r.json()["lancee"] is True and time.monotonic() - debut < 1
+    r2 = env.post("/api/demandes-sawali/relire-connexion", headers={"X-User": "dg"})                              # trop tôt : rien de relancé
+    assert r2.status_code == 200 and r2.json()["lancee"] is False
