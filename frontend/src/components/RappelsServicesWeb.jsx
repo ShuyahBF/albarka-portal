@@ -24,8 +24,23 @@ export default function RappelsServicesWeb({ onFini }) {
   const [envoi, setEnvoi] = useState(false);
 
   // Au chargement du portail : y a-t-il des rappels à acquitter ?
+  // Lot 120.8 : ROBUSTE aux coupures. Si le serveur est indisponible au moment de la connexion (redéploiement en cours, réseau instable), on RÉESSAIE (4 fois, toutes les 5 s)
+  // au lieu d'abandonner en silence ; la fenêtre suivante ne s'ouvre qu'après la réponse définitive.
   useEffect(() => {
-    apiClient.get("/me/services-web/rappels").then(({ data }) => { const vus = lireVus(); const a = (data.rappels || []).filter((r) => !(String(r.cle).includes(":retard") && vus.includes(r.cle))); setRappels(a); if (!a.length) onFini?.(); }).catch(() => { onFini?.(); });
+    let vivant = true; let minuterie; let essais = 0;
+    const lire = () => apiClient.get("/me/services-web/rappels").then(({ data }) => {
+      if (!vivant) return;
+      const vus = lireVus();
+      const a = (data.rappels || []).filter((r) => !(String(r.cle).includes(":retard") && vus.includes(r.cle)));
+      setRappels(a); if (!a.length) onFini?.();
+    }).catch(() => {
+      if (!vivant) return;
+      essais += 1;
+      if (essais < 4) minuterie = setTimeout(lire, 5000); else onFini?.();
+    });
+    lire();
+    return () => { vivant = false; clearTimeout(minuterie); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Échap ne ferme rien : on neutralise la touche tant que la fenêtre est ouverte
