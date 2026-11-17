@@ -296,7 +296,8 @@ def rappels_a_afficher(docs: List[dict], jour: Optional[date] = None) -> List[di
         if palier is None:
             continue
         cle = f"{etat_service(d, jour)['echeance']}:{palier}"
-        if cle in (d.get("acquittements") or []):
+        # Lot 120.6 : un service EN RETARD est rappelé à CHAQUE connexion du DG tant qu'il n'est pas payé (jamais « acquitté pour la journée ») ; les paliers 7 j, 3 j et jour même restent acquittés une fois
+        if not str(palier).startswith("retard") and cle in (d.get("acquittements") or []):
             continue
         v = _vue(d, jour)
         v["cle"] = cle
@@ -343,7 +344,7 @@ async def acquitter(payload: AckCorps, user: dict = Depends(get_current_user)):
     valides = {f"{etat_service(d)['echeance']}:{palier_courant(d)}": d["id"] for d in docs if palier_courant(d)}
     for cle in payload.cles:
         sid = valides.get(cle)
-        if sid:
+        if sid and ":retard" not in cle:      # un rappel de retard n'est pas enregistré comme acquitté (voir rappels_a_afficher)
             await db.services_web.update_one({"id": sid}, {"$addToSet": {"acquittements": cle}})
     return {"ok": True}
 
