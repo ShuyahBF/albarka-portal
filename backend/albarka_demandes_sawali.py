@@ -36,7 +36,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from albarka_auth import get_current_user
@@ -62,16 +62,58 @@ def _exiger_super_admin(user: dict) -> None:
         raise HTTPException(status_code=403, detail="Réservé au DG, à la Direction et au Secrétariat")
 
 
+# Pièces jointes (lot 120.1) : MÊMES limites que SAWALI (qui les range sans nouvelle collection) : 5 par demande, 400 Ko chacune, images JPEG / PNG / WebP ou PDF.
+# Le navigateur réduit et recompresse les images avant l'envoi ; ici on RE-contrôle tout (le navigateur n'est jamais cru sur parole).
+PIECES_MAX = 5
+PIECE_MAX_OCTETS = 400 * 1024
+SIGNATURES_PIECES = {"image/jpeg": (b"\xff\xd8\xff",), "image/png": (b"\x89PNG\r\n\x1a\n",), "image/webp": (b"RIFF",), "application/pdf": (b"%PDF-",)}
+
+
+def nettoyer_pieces(brut: Any) -> tuple:
+    """Pièces reçues (base64) → (pièces valides, motif de refus ou None). Une seule mauvaise pièce refuse TOUTE la liste. Logique pure, testée."""
+    import base64
+    import binascii
+    if not brut:
+        return [], None
+    if not isinstance(brut, list) or len(brut) > PIECES_MAX:
+        return [], f"{PIECES_MAX} pièces jointes au plus par demande"
+    sortie: List[Dict[str, Any]] = []
+    for p in brut:
+        if not isinstance(p, dict):
+            return [], "Pièce jointe illisible"
+        nom = re.sub(r"[^\w .()\-]", "_", str(p.get("nom") or "piece"))[:80] or "piece"
+        type_ = p.get("type")
+        if type_ not in SIGNATURES_PIECES:
+            return [], f"« {nom} » : type non accepté (images JPEG, PNG, WebP ou PDF)"
+        try:
+            octets = base64.b64decode(str(p.get("data") or ""), validate=True)
+        except (binascii.Error, ValueError):
+            return [], f"« {nom} » : contenu illisible"
+        if not octets or len(octets) > PIECE_MAX_OCTETS:
+            return [], f"« {nom} » : {PIECE_MAX_OCTETS // 1024} Ko au plus par pièce"
+        if not octets.startswith(SIGNATURES_PIECES[type_]) or (type_ == "image/webp" and octets[8:12] != b"WEBP"):
+            return [], f"« {nom} » : le fichier ne correspond pas à son type"
+        sortie.append({"id": str(p.get("id") or uuid.uuid4())[:40], "nom": nom, "type": type_, "taille": len(octets), "data": base64.b64encode(octets).decode()})
+    return sortie, None
+
+
+def sans_contenu(pieces: Any) -> List[Dict[str, Any]]:
+    """Pièces SANS leur contenu : ce que les listes renvoient."""
+    return [{k: p.get(k) for k in ("id", "nom", "type", "taille")} for p in pieces or []]
+
+
 class DemandeCorps(BaseModel):
     type: str
     texte: str = Field(..., min_length=3, max_length=2000)
+    pieces: Optional[List[Dict[str, Any]]] = None       # [{ nom, type, data (base64) }] ; None = ne pas toucher aux pièces
 
 
 def _vue(d: dict) -> dict:
     """Une demande telle qu'affichée (jamais d'identifiant interne de base)."""
     sortie = {k: d.get(k) for k in ("id", "type", "texte", "demandee_le", "demandee_par", "statut", "numero_sawali",
                                     "commentaire", "realisee_le", "prevue_le", "remontee_le", "maj_sawali_le",
-                                    "duree_valeur", "duree_unite", "debut_prevu_le", "historique")}
+                                    "duree_valeur", "duree_unite", "debut_prevu_le", "historique", "alerte_pieces")}
+    sortie["pieces"] = sans_contenu(d.get("pieces"))
     sortie["type_libelle"] = TYPES.get(d.get("type"), d.get("type"))
     sortie["statut_libelle"] = STATUTS.get(d.get("statut"), d.get("statut"))
     return sortie
@@ -130,12 +172,28 @@ async def lister(q: str = Query(default="", max_length=200), user: dict = Depend
     return {"demandes": [_vue(d) for d in toutes if correspond(d, q)], "compteurs": compteurs, "total": len(toutes)}
 
 
+@router.get("/{demande_id}/pieces/{piece_id}")
+async def piece(demande_id: str, piece_id: str, user: dict = Depends(get_current_user)):
+    """Contenu d'une pièce jointe (mêmes droits que la liste), servi en « inline » et sans devinette de type."""
+    import base64
+    _exiger_super_admin(user)
+    d = await db.demandes_sawali.find_one({"id": demande_id}, {"_id": 0})
+    p = next((x for x in (d or {}).get("pieces") or [] if x.get("id") == piece_id), None)
+    if not p:
+        raise HTTPException(status_code=404, detail="Pièce jointe introuvable")
+    return Response(content=base64.b64decode(p["data"]), media_type=p["type"],
+                    headers={"Content-Disposition": f'inline; filename="{p["nom"]}"', "X-Content-Type-Options": "nosniff", "Cache-Control": "private, no-store"})
+
+
 @router.post("")
 async def creer(payload: DemandeCorps, user: dict = Depends(get_current_user)):
     _exiger_super_admin(user)
     if payload.type not in TYPES:
         raise HTTPException(status_code=422, detail="Type attendu : correction ou nouveaute")
-    doc = {"id": str(uuid.uuid4()), "type": payload.type, "texte": payload.texte.strip(),
+    pieces, motif = nettoyer_pieces(payload.pieces)
+    if motif:
+        raise HTTPException(status_code=422, detail=motif)
+    doc = {"id": str(uuid.uuid4()), "type": payload.type, "texte": payload.texte.strip(), "pieces": pieces,
            "demandee_le": datetime.now(timezone.utc).isoformat(), "demandee_par": user.get("full_name") or user.get("email"),
            "statut": "a_remonter", "numero_sawali": None, "commentaire": None, "realisee_le": None, "prevue_le": None,
            "remontee_le": None, "maj_sawali_le": None}
@@ -171,9 +229,16 @@ async def modifier(demande_id: str, payload: DemandeCorps, user: dict = Depends(
         raise HTTPException(status_code=404, detail="Demande introuvable")
     if _validee(d):
         raise HTTPException(status_code=409, detail="Demande déjà validée par SAWALI : elle ne peut plus être modifiée")
+    maj = {"type": payload.type, "texte": payload.texte.strip()}
+    if payload.pieces is not None:
+        if d.get("statut") != "a_remonter":
+            raise HTTPException(status_code=409, detail="Les pièces jointes ne se modifient plus une fois la demande envoyée à SAWALI")
+        maj["pieces"], motif = nettoyer_pieces(payload.pieces)
+        if motif:
+            raise HTTPException(status_code=422, detail=motif)
     if d.get("statut") != "a_remonter":    # déjà remontée : SAWALI d'abord
         await _relayer({"demandes": [], "modifications": [{"ref_locale": demande_id, "type": payload.type, "texte": payload.texte.strip()}]}, demande_id)
-    await db.demandes_sawali.update_one({"id": demande_id}, {"$set": {"type": payload.type, "texte": payload.texte.strip()}})
+    await db.demandes_sawali.update_one({"id": demande_id}, {"$set": maj})
     return _vue(await db.demandes_sawali.find_one({"id": demande_id}, {"_id": 0}))
 
 
@@ -198,11 +263,15 @@ async def synchroniser(remonter: bool = True) -> Dict[str, int]:
     toutes = await db.demandes_sawali.find({}, {"_id": 0}).to_list(2000)
     a_envoyer = [d for d in toutes if d.get("statut") == "a_remonter"] if remonter else []
     corps = {"demandes": [{"ref_locale": d["id"], "type": d["type"], "texte": d["texte"], "demandee_le": d["demandee_le"],
-                           "demandee_par": d.get("demandee_par")} for d in a_envoyer]}
+                           "demandee_par": d.get("demandee_par"), "pieces": d.get("pieces") or []} for d in a_envoyer]}
     reponse = await appeler_sawali(CHEMIN_SAWALI, corps)
     maj = marquer_changements(toutes, appliquer_reponse(toutes, reponse.get("demandes") or []))
     maintenant = datetime.now(timezone.utc).isoformat()
     envoyees = {d["id"] for d in a_envoyer}
+    # SAWALI a pu enregistrer une demande SANS ses pièces (refusées) : on garde nos pièces et on l'écrit clairement
+    for refus in reponse.get("refus") or []:
+        if refus.get("ref_locale") in envoyees:
+            await db.demandes_sawali.update_one({"id": refus["ref_locale"]}, {"$set": {"alerte_pieces": f"SAWALI n'a pas gardé les pièces jointes : {refus.get('motif') or 'refusées'}"}})
     for ref, champs in maj.items():
         if ref in envoyees:
             champs["remontee_le"] = maintenant

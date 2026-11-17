@@ -210,3 +210,47 @@ def test_statuts_en_cours_point_mort_et_duree_relus_de_sawali(env, monkeypatch):
     assert par[b["id"]]["statut_libelle"] == "Point mort" and liste["compteurs"]["en_cours"] == 1 and liste["compteurs"]["point_mort"] == 1
     # Recherche par statut : « point mort » retrouve la demande
     assert env.get("/api/demandes-sawali?q=point mort", headers=H).json()["demandes"][0]["id"] == b["id"]
+
+
+# ---- Lot 120.1 : pièces jointes
+import base64 as _b64  # noqa: E402
+
+_PNG = b"\x89PNG\r\n\x1a\n" + b"x" * 100
+
+
+def _piece(octets=_PNG, type_="image/png", nom="capture.png"):
+    return {"nom": nom, "type": type_, "data": _b64.b64encode(octets).decode()}
+
+
+def test_pieces_validees_listees_sans_contenu_et_lues(env):
+    r = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Bug visible sur la capture", "pieces": [_piece()]}, headers=H)
+    assert r.status_code == 200 and r.json()["pieces"][0]["nom"] == "capture.png" and "data" not in r.json()["pieces"][0]
+    did, pid = r.json()["id"], r.json()["pieces"][0]["id"]
+    assert all("data" not in p for d in env.get("/api/demandes-sawali", headers=H).json()["demandes"] for p in d["pieces"])
+    f = env.get(f"/api/demandes-sawali/{did}/pieces/{pid}", headers=H)
+    assert f.status_code == 200 and f.content == _PNG and f.headers["x-content-type-options"] == "nosniff"
+    assert env.get(f"/api/demandes-sawali/{did}/pieces/inconnue", headers=H).status_code == 404
+    assert env.get(f"/api/demandes-sawali/{did}/pieces/{pid}", headers={"X-User": "compta"}).status_code == 403
+
+
+def test_pieces_refusees_a_la_creation(env):
+    for mauvaise in (_piece(b"MZ" + b"0" * 50, "image/png"), _piece(_PNG, "application/x-msdownload"), _piece(b"x" * (dm.PIECE_MAX_OCTETS + 1), "application/pdf", "g.pdf")):
+        assert env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Avec pièce", "pieces": [mauvaise]}, headers=H).status_code == 422
+    assert env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Trop", "pieces": [_piece()] * 6}, headers=H).status_code == 422
+
+
+def test_pieces_envoyees_a_sawali_et_alerte_si_refusees(env, monkeypatch):
+    a = env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Une demande avec capture", "pieces": [_piece()]}, headers=H).json()
+    vu = {}
+
+    async def faux_sawali(chemin, corps, delai=15):
+        vu["corps"] = corps
+        return {"demandes": [{"ref_locale": a["id"], "numero": "DEM-ALB-0009", "statut": "remontee"}],
+                "refus": [{"ref_locale": a["id"], "motif": "Pièces jointes refusées : place épuisée"}]}
+    monkeypatch.setattr(albarka_support_sawali, "appeler_sawali", faux_sawali)
+    assert env.post("/api/demandes-sawali/envoyer", headers=H).status_code == 200
+    assert vu["corps"]["demandes"][0]["pieces"][0]["data"]                                    # le contenu est bien transmis à SAWALI
+    d = env.get("/api/demandes-sawali", headers=H).json()["demandes"][0]
+    assert "place épuisée" in d["alerte_pieces"] and len(d["pieces"]) == 1                    # nos pièces restent, l'alerte l'explique
+    # après l'envoi, les pièces ne se modifient plus
+    assert env.put(f"/api/demandes-sawali/{a['id']}", json={"type": "correction", "texte": "Texte modifié", "pieces": []}, headers=H).status_code == 409
