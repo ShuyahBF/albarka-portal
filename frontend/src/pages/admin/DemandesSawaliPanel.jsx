@@ -116,7 +116,7 @@ export default function DemandesSawaliPanel() {
   return (
     <div className="space-y-5" data-testid="demandes-sawali-panel">
       {/* Lot 118 : vue d'ensemble des demandes NON terminées (enchaînement, points morts) — repliée par défaut */}
-      <details className="rounded-lg border p-3" data-testid="vue-enchainement">
+      <details open className="rounded-lg border p-3" data-testid="vue-enchainement">
         <summary className="cursor-pointer font-semibold">📈 Enchaînement des demandes non terminées (points morts, retards)</summary>
         <div className="mt-3"><GanttEnchainement demandes={data.demandes} /></div>
       </details>

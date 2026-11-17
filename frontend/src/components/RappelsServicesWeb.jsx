@@ -13,13 +13,14 @@ import { EtatService } from "@/pages/admin/MesServicesWeb";
 
 const fmtDate = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("fr-FR");
 
-export default function RappelsServicesWeb() {
+/** `onFini` : appelée quand il n'y a plus (ou pas) de rappel à montrer, pour que la fenêtre suivante (« Du nouveau chez SAWALI ») puisse s'ouvrir À SA SUITE. */
+export default function RappelsServicesWeb({ onFini }) {
   const [rappels, setRappels] = useState([]);
   const [envoi, setEnvoi] = useState(false);
 
   // Au chargement du portail : y a-t-il des rappels à acquitter ?
   useEffect(() => {
-    apiClient.get("/me/services-web/rappels").then(({ data }) => setRappels(data.rappels || [])).catch(() => {});
+    apiClient.get("/me/services-web/rappels").then(({ data }) => { setRappels(data.rappels || []); if (!(data.rappels || []).length) onFini?.(); }).catch(() => { onFini?.(); });
   }, []);
 
   // Échap ne ferme rien : on neutralise la touche tant que la fenêtre est ouverte
@@ -40,6 +41,7 @@ export default function RappelsServicesWeb() {
     } catch { /* en cas d'échec réseau, la fenêtre se fermera mais reviendra au prochain chargement */ }
     setRappels([]);
     setEnvoi(false);
+    onFini?.();                                                    // la fenêtre suivante peut s'ouvrir
   };
 
   // Aucun gestionnaire de clic sur le fond : cliquer à l'extérieur ne fait rien

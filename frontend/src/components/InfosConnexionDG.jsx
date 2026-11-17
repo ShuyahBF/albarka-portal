@@ -23,7 +23,8 @@ export function libelleSuivi(d) {
   return d.prevue_le ? `Prévue le ${fmtJour(d.prevue_le)}` : "Date de réalisation à venir";
 }
 
-export default function InfosConnexionDG() {
+/** `actif` : faux tant que le rappel des services web est affiché (une seule fenêtre à la fois : l'une cachait l'autre). */
+export default function InfosConnexionDG({ actif = true }) {
   const [infos, setInfos] = useState(null);
   const [envoi, setEnvoi] = useState(false);
   const navigate = useNavigate();
@@ -31,6 +32,7 @@ export default function InfosConnexionDG() {
 
   // À l'arrivée : lecture, puis jusqu'à 3 relectures espacées de 6 s tant que les paiements sont « en cours de lecture » chez SAWALI
   useEffect(() => {
+    if (!actif) return undefined;
     let vivant = true; let minuterie;
     const lire = () => apiClient.get("/me/infos-connexion").then(({ data }) => {
       if (!vivant) return;
@@ -39,7 +41,7 @@ export default function InfosConnexionDG() {
     }).catch(() => {});
     lire();
     return () => { vivant = false; clearTimeout(minuterie); };
-  }, []);
+  }, [actif]);
 
   const ouverte = !!infos && (infos.paiements.length > 0 || infos.demandes.length > 0);
 
