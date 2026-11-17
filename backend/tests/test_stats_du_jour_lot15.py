@@ -208,3 +208,20 @@ def test_retours_existants_inchanges(base, liluvine):
     assert doc["statut"] == "delivered"
     brut, entetes = _signe({"type": "inconnu"})
     assert client.post(URL_RETOUR, content=brut, headers=entetes).status_code == 422
+
+
+def test_signal_demandes_maj_lance_la_relecture_en_arriere_plan(base, liluvine, monkeypatch):
+    """Lot 120.5 — SAWALI prévient d'un traitement : signal signé « demandes_maj » → relecture lancée (sans remontée), réponse immédiate ; signature fausse → 401."""
+    import albarka_demandes_sawali as dm
+    appels = []
+
+    async def espion(remonter):
+        appels.append(remonter)
+    monkeypatch.setattr(dm, "_synchroniser_en_arriere_plan", espion)
+    client = _client_api()
+    brut, entetes = _signe({"type": "demandes_maj"})
+    r = client.post(URL_RETOUR, content=brut, headers=entetes)
+    assert r.status_code == 200 and r.json()["type"] == "demandes_maj"
+    assert appels == [False]                                        # relecture seulement : rien n'est remonté par ce signal
+    brut, entetes = _signe({"type": "demandes_maj"}, cle="mauvaise")
+    assert client.post(URL_RETOUR, content=brut, headers=entetes).status_code == 401

@@ -758,6 +758,12 @@ async def recevoir_retour(request: Request):
     # même URL). Lecture seule ; période invalide -> 422 ; jamais de 500.
     if str(corps.get("type") or "").strip() == "stats_du_jour":
         return await _repondre_stats_du_jour(corps)
+    # Lot 120.5 — TEMPS RÉEL : SAWALI vient de traiter une demande d'ALBARKA ; signal sans donnée, ALBARKA relit ses demandes par son canal signé habituel, en arrière-plan.
+    if str(corps.get("type") or "").strip() == "demandes_maj":
+        import asyncio
+        from albarka_demandes_sawali import _synchroniser_en_arriere_plan
+        asyncio.create_task(_synchroniser_en_arriere_plan(remonter=False))
+        return {"ok": True, "type": "demandes_maj"}
     try:
         res = await traiter_retour(corps)
     except Exception as exc:  # noqa: BLE001 — SAWALI réessaiera
