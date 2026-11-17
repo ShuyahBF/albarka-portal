@@ -123,6 +123,22 @@ def test_impaye_reste_en_retard_et_rappele(env):
     assert env.get("/api/me/services-web/rappels", headers={"X-User": "dg"}).json()["rappels"][0]["palier"].startswith("retard-")
 
 
+def test_retard_rappele_a_chaque_connexion_meme_apres_j_ai_compris(env):
+    """Lot 120.6 — un service en retard n'est jamais « acquitté pour la journée » : il revient à chaque connexion du DG tant qu'il n'est pas payé ;
+    un acquittement ancien déjà enregistré pour le jour n'empêche pas non plus le rappel. Les autres paliers restent acquittés une fois."""
+    asyncio.run(env.db.services_web.insert_one({
+        "id": "s10", "service": "Hébergement", "montant": 20000, "devise": "FCFA", "jour_du_mois": 8,
+        "premiere_echeance": (date.today() - timedelta(days=5)).isoformat(), "echeance_payee": None, "acquittements": []}))
+    h = {"X-User": "dg"}
+    rap = env.get("/api/me/services-web/rappels", headers=h).json()["rappels"]
+    assert len(rap) == 1 and rap[0]["palier"].startswith("retard-")
+    assert env.post("/api/me/services-web/rappels/ack", json={"cles": [rap[0]["cle"]]}, headers=h).status_code == 200   # « J'ai compris »
+    assert len(env.get("/api/me/services-web/rappels", headers=h).json()["rappels"]) == 1                              # revient à la connexion suivante
+    # un ancien acquittement du jour (enregistré avant ce lot) ne cache pas non plus le retard
+    asyncio.run(env.db.services_web.update_one({"id": "s10"}, {"$set": {"acquittements": [rap[0]["cle"]]}}))
+    assert len(env.get("/api/me/services-web/rappels", headers=h).json()["rappels"]) == 1
+
+
 def test_ancien_service_a_date_unique_reste_lisible(env):
     asyncio.run(env.db.services_web.insert_one({
         "id": "old", "service": "Ancien", "montant": 1, "devise": "FCFA", "payable_avant": (date.today() + timedelta(days=2)).isoformat(),

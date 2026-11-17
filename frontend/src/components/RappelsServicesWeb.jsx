@@ -11,6 +11,10 @@ import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { EtatService } from "@/pages/admin/MesServicesWeb";
 
+// Lot 120.6 : un rappel de RETARD revient à chaque connexion ; dans la même session (onglet / application ouverte) il n'est pas remontré après « J'ai compris » (rechargement de page compris)
+const CLE_VUS = "rappels_sw_retard_vus";
+const lireVus = () => { try { return JSON.parse(sessionStorage.getItem(CLE_VUS) || "[]"); } catch { return []; } };
+const noterVus = (cles) => { try { sessionStorage.setItem(CLE_VUS, JSON.stringify([...new Set([...lireVus(), ...cles])])); } catch { /* stockage indisponible */ } };
 const fmtDate = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("fr-FR");
 
 /** `onFini` : appelée quand il n'y a plus (ou pas) de rappel à montrer, pour que la fenêtre suivante (« Du nouveau chez SAWALI ») puisse s'ouvrir À SA SUITE. */
@@ -20,7 +24,7 @@ export default function RappelsServicesWeb({ onFini }) {
 
   // Au chargement du portail : y a-t-il des rappels à acquitter ?
   useEffect(() => {
-    apiClient.get("/me/services-web/rappels").then(({ data }) => { setRappels(data.rappels || []); if (!(data.rappels || []).length) onFini?.(); }).catch(() => { onFini?.(); });
+    apiClient.get("/me/services-web/rappels").then(({ data }) => { const vus = lireVus(); const a = (data.rappels || []).filter((r) => !(String(r.cle).includes(":retard") && vus.includes(r.cle))); setRappels(a); if (!a.length) onFini?.(); }).catch(() => { onFini?.(); });
   }, []);
 
   // Échap ne ferme rien : on neutralise la touche tant que la fenêtre est ouverte
@@ -39,6 +43,7 @@ export default function RappelsServicesWeb({ onFini }) {
     try {
       await apiClient.post("/me/services-web/rappels/ack", { cles: rappels.map((r) => r.cle) });
     } catch { /* en cas d'échec réseau, la fenêtre se fermera mais reviendra au prochain chargement */ }
+    noterVus(rappels.map((r) => r.cle));
     setRappels([]);
     setEnvoi(false);
     onFini?.();                                                    // la fenêtre suivante peut s'ouvrir
