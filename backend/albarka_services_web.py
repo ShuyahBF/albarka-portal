@@ -250,8 +250,9 @@ def palier_courant(doc: dict, jour: Optional[date] = None) -> Optional[str]:
     """Palier de rappel à afficher aujourd'hui : « 7 » (de 7 à 4 jours), « 3 » (de 3 à 1 jour), « 0 » (jour même),
     « retard-AAAA-MM-JJ » (chaque jour de retard) ; None si échéance lointaine."""
     jour = jour or aujourdhui()
-    if est_unique(doc):                                  # lot 94 : aucun rappel mensuel pour un montant unique
-        return None
+    if est_unique(doc):                                  # lot 94 : aucun rappel mensuel pour un montant unique ;
+        # lot 120.7 : mais un RELIQUAT (partiellement payé : une partie réglée, le reste dû) est rappelé à chaque connexion du DG jusqu'au solde
+        return "reliquat" if etat_service(doc, jour)["etat"] == "partiel" else None
     e = etat_service(doc, jour)
     if e["etat"] == "a_jour":
         return None
@@ -297,13 +298,14 @@ def rappels_a_afficher(docs: List[dict], jour: Optional[date] = None) -> List[di
             continue
         cle = f"{etat_service(d, jour)['echeance']}:{palier}"
         # Lot 120.6 : un service EN RETARD est rappelé à CHAQUE connexion du DG tant qu'il n'est pas payé (jamais « acquitté pour la journée ») ; les paliers 7 j, 3 j et jour même restent acquittés une fois
-        if not str(palier).startswith("retard") and cle in (d.get("acquittements") or []):
+        if not (str(palier).startswith("retard") or palier == "reliquat") and cle in (d.get("acquittements") or []):
             continue
         v = _vue(d, jour)
         v["cle"] = cle
         v["palier"] = palier
         sortie.append(v)
-    sortie.sort(key=lambda x: x["jours_restants"])
+    # échéances les plus proches d'abord ; les reliquats (sans échéance) à la suite, du plus gros reste à payer au plus petit
+    sortie.sort(key=lambda x: (x["jours_restants"] is None, x["jours_restants"] if x["jours_restants"] is not None else 0, -(x.get("reste_a_payer") or 0)))
     return sortie
 
 
@@ -344,7 +346,7 @@ async def acquitter(payload: AckCorps, user: dict = Depends(get_current_user)):
     valides = {f"{etat_service(d)['echeance']}:{palier_courant(d)}": d["id"] for d in docs if palier_courant(d)}
     for cle in payload.cles:
         sid = valides.get(cle)
-        if sid and ":retard" not in cle:      # un rappel de retard n'est pas enregistré comme acquitté (voir rappels_a_afficher)
+        if sid and ":retard" not in cle and not cle.endswith(":reliquat"):      # un rappel de retard n'est pas enregistré comme acquitté (voir rappels_a_afficher)
             await db.services_web.update_one({"id": sid}, {"$addToSet": {"acquittements": cle}})
     return {"ok": True}
 

@@ -154,3 +154,17 @@ def test_validations(env):
     assert env.post(f"/api/admin/services-web/{s['id']}/paiement", json={"paye_le": "hier", "montant": 1, "reference": "r"}, headers={"X-User": "sup"}).status_code == 422
     assert env.put(f"/api/admin/services-web/{s['id']}", json={"jour_du_mois": 15}, headers={"X-User": "sup"}).json()["jour_du_mois"] == 15
     assert env.delete(f"/api/admin/services-web/{s['id']}", headers={"X-User": "sup"}).status_code == 200
+
+
+def test_reliquat_partiel_rappele_a_chaque_connexion_jusqu_au_solde(env):
+    """Lot 120.7 — un service à montant unique PARTIELLEMENT payé est rappelé (reliquat) à chaque connexion du DG ; rien payé ou soldé : pas de rappel."""
+    h = {"X-User": "dg"}
+    base = {"service": "Site", "devise": "FCFA", "mode": "unique", "acquittements": []}
+    asyncio.run(env.db.services_web.insert_many([
+        {**base, "id": "u1", "service": "Site ALBARKA", "montant": 780000, "paiements": [{"id": "p", "paye_le": "2026-08-31", "montant": 200000}]},
+        {**base, "id": "u2", "service": "Rien payé", "montant": 50000, "paiements": []},
+        {**base, "id": "u3", "service": "Soldé", "montant": 60000, "paiements": [{"id": "q", "paye_le": "2026-09-01", "montant": 60000}]}]))
+    rap = env.get("/api/me/services-web/rappels", headers=h).json()["rappels"]
+    assert [r["service"] for r in rap] == ["Site ALBARKA"] and rap[0]["palier"] == "reliquat" and rap[0]["reste_a_payer"] == 580000
+    assert env.post("/api/me/services-web/rappels/ack", json={"cles": [rap[0]["cle"]]}, headers=h).status_code == 200
+    assert len(env.get("/api/me/services-web/rappels", headers=h).json()["rappels"]) == 1            # revient tant que le reliquat n'est pas soldé

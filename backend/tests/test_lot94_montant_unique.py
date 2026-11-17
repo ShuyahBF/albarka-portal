@@ -68,8 +68,9 @@ def test_service_a_montant_unique_et_reste_a_payer(env):
     # un 5e paiement solde le service
     v = env.post(f"/api/admin/services-web/{s['id']}/paiements-sms", json={"sms_ids": ["t5"]}, headers=H).json()
     assert v["total_paye"] == 225000 and v["reste_a_payer"] == 25000
-    # pas de rappel mensuel pour un montant unique
-    assert env.get("/api/me/services-web/rappels", headers={"X-User": "dg"}).json() == {"rappels": []}
+    # pas de rappel MENSUEL pour un montant unique ; depuis le lot 120.7 le RELIQUAT (225 000 payés sur 250 000) est rappelé à chaque connexion jusqu'au solde
+    rap = env.get("/api/me/services-web/rappels", headers={"X-User": "dg"}).json()["rappels"]
+    assert len(rap) == 1 and rap[0]["palier"] == "reliquat" and rap[0]["reste_a_payer"] == 25000
     assert env.post("/api/me/services-web/rappels/ack", json={"cles": ["x"]}, headers={"X-User": "dg"}).status_code == 200
 
 
