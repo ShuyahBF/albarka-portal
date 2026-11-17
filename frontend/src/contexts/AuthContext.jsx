@@ -79,7 +79,6 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     localStorage.removeItem("albarka_token");
-    try { sessionStorage.removeItem("rappels_sw_retard_vus"); } catch { /* stockage indisponible */ }   // lot 120.8 : après une déconnexion, les rappels du DG reviennent à la connexion suivante
     setUser(null);
   };
 

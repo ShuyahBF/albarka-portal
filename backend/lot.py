@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "120.8"
-LOT_LIBELLE = "Rappel du DG robuste : nouvel essai si le serveur est indisponible à la connexion (redéploiement), mémoire « déjà vu » effacée à la déconnexion."
+LOT = "120.9"
+LOT_LIBELLE = "Rappel du DG : plus de mémoire « déjà vu » côté écran, les retards et reliquats reviennent à chaque ouverture du portail tant qu'ils ne sont pas payés."

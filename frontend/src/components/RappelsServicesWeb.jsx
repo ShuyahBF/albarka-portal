@@ -11,10 +11,6 @@ import { apiClient } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { EtatService } from "@/pages/admin/MesServicesWeb";
 
-// Lot 120.6 : un rappel de RETARD revient à chaque connexion ; dans la même session (onglet / application ouverte) il n'est pas remontré après « J'ai compris » (rechargement de page compris)
-const CLE_VUS = "rappels_sw_retard_vus";
-const lireVus = () => { try { return JSON.parse(sessionStorage.getItem(CLE_VUS) || "[]"); } catch { return []; } };
-const noterVus = (cles) => { try { sessionStorage.setItem(CLE_VUS, JSON.stringify([...new Set([...lireVus(), ...cles])])); } catch { /* stockage indisponible */ } };
 const COULEUR_TEXTE = "#0277B5";   // bleu clair lisible (règle 16 : contraste ≥ 4,5:1)
 const fmtDate = (d) => new Date(`${d}T00:00:00`).toLocaleDateString("fr-FR");
 
@@ -30,8 +26,8 @@ export default function RappelsServicesWeb({ onFini }) {
     let vivant = true; let minuterie; let essais = 0;
     const lire = () => apiClient.get("/me/services-web/rappels").then(({ data }) => {
       if (!vivant) return;
-      const vus = lireVus();
-      const a = (data.rappels || []).filter((r) => !(String(r.cle).includes(":retard") && vus.includes(r.cle)));
+      // Lot 120.9 : AUCUNE mémoire « déjà vu » côté écran : le serveur décide (un retard ou un reliquat revient à chaque ouverture du portail tant qu'il n'est pas payé)
+      const a = data.rappels || [];
       setRappels(a); if (!a.length) onFini?.();
     }).catch(() => {
       if (!vivant) return;
@@ -59,7 +55,6 @@ export default function RappelsServicesWeb({ onFini }) {
     try {
       await apiClient.post("/me/services-web/rappels/ack", { cles: rappels.map((r) => r.cle) });
     } catch { /* en cas d'échec réseau, la fenêtre se fermera mais reviendra au prochain chargement */ }
-    noterVus(rappels.map((r) => r.cle));
     setRappels([]);
     setEnvoi(false);
     onFini?.();                                                    // la fenêtre suivante peut s'ouvrir
