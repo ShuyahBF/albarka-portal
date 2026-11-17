@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "118"
-LOT_LIBELLE = "Connexion par PIN : chaque échec est tracé avec sa raison (journal de la plateforme) ; Demandes à SAWALI : 20 premiers caractères + bouton Détails (modale) ; vue d'enchaînement des demandes non terminées (points morts, retards)."
+LOT = "119"
+LOT_LIBELLE = "Les fenêtres modales (détail d'une demande…) ne font plus changer la largeur de la page à leur ouverture."

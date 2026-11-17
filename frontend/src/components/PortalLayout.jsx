@@ -358,7 +358,7 @@ export default function PortalLayout({ admin = false }) {
         // navigateur, sans dépendre d'aucune unité de viewport. En `md:sticky`
         // (desktop), on revient à `h-screen`, sans le souci de barre d'adresse
         // mobile qui rétrécit/agrandit la fenêtre visible.
-        className={`fixed md:sticky top-0 bottom-0 md:bottom-auto md:h-screen z-40 w-64 bg-[#0B1912] text-white flex-shrink-0 flex flex-col transition-transform md:translate-x-0 ${
+        className={`fixed md:sticky top-0 bottom-0 md:bottom-auto md:h-screen z-40 w-64 min-w-[16rem] max-w-[16rem] bg-[#0B1912] text-white flex-shrink-0 flex flex-col transition-transform md:translate-x-0 ${
           openSidebar ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -381,7 +381,7 @@ export default function PortalLayout({ admin = false }) {
             (les badges passent sur plusieurs lignes) ne fait plus recouvrir
             les derniers liens (ex. "Paramètres") par ce bloc, qui était
             positionné en `absolute` par-dessus le menu. */}
-        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1 [scrollbar-gutter:stable]">
           {links.filter((l) => l.to !== "/admin/settings").map((link, index) => {
             const count = link.badgeKey ? badges[link.badgeKey] : 0;
             // Lot 18 : les liens du groupe « Traitements » sont dessinés sous un seul titre dépliable,
