@@ -54,6 +54,7 @@ import InstallerApplication from "@/components/InstallerApplication";
 import BandeauContrat from "@/components/BandeauContrat";   // lot 21 : contrat SAWALI
 import SupportSawali from "@/components/SupportSawali";   // lot 23 : pictogramme « Assistance » (support SAWALI)
 import RappelsServicesWeb from "@/components/RappelsServicesWeb";
+import InfosConnexionDG from "@/components/InfosConnexionDG";   // lot 117 : paiements et réponses SAWALI montrés au DG à sa connexion
 import { Globe, Fingerprint, ChevronDown, Layers, Landmark, Calculator, UsersRound } from "lucide-react";   // lot 18 : menu « Traitements »
 import { TRAITEMENTS } from "@/lib/traitements";
 import { jouerBip, sonActif } from "@/lib/sonNotification";   // lot 62 : bip sur toutes les pages
@@ -581,6 +582,8 @@ export default function PortalLayout({ admin = false }) {
           {!leaveDashboard && !closedModulePage && <Outlet />}
           {/* Lot 90 : fenêtre de rappel des services web — DG seul */}
           {admin && (user?.roles || []).includes("dg") && <RappelsServicesWeb />}
+          {/* Lot 117 : nouveaux paiements reçus et réponses de SAWALI à ses demandes — DG seul */}
+          {admin && (user?.roles || []).includes("dg") && <InfosConnexionDG />}
         </main>
       </div>
       {/* Chat interne — strictement réservé aux collaborateurs, jamais aux clients */}

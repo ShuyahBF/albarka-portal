@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "116"
-LOT_LIBELLE = "Pictogramme œil (afficher / masquer) sur toute saisie de mot de passe, de clé ou de phrase secrète (règle 22)."
+LOT = "117"
+LOT_LIBELLE = "Le DG est informé à sa connexion des nouveaux paiements reçus (SAWALI) et des réponses de SAWALI à ses demandes ; diagramme de Gantt (disponibilité estimée) dans « Demandes à SAWALI »."

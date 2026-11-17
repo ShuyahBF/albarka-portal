@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import GanttDemande from "@/components/GanttDemande";   // lot 117 : diagramme de Gantt (dernière colonne)
+import { bornesGantt } from "@/lib/ganttDemandes";
 
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const fmtJour = (d) => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString("fr-FR") : null);
@@ -95,6 +97,7 @@ export default function DemandesSawaliPanel() {
   };
 
   const c = data.compteurs || {};
+  const bornes = bornesGantt(data.demandes);                    // axe du temps COMMUN à toutes les barres du tableau
   return (
     <div className="space-y-5" data-testid="demandes-sawali-panel">
       {/* Zone de recherche EN HAUT : texte, commentaire, numéro, statut — refusées comprises */}
@@ -142,7 +145,7 @@ export default function DemandesSawaliPanel() {
         <table className="w-full text-sm tableau">
           <thead><tr className="text-left border-b">
             <th className="p-3">Demandée le</th><th className="p-3">N° SAWALI</th><th className="p-3">Type</th>
-            <th className="p-3">Demande</th><th className="p-3">Statut</th><th className="p-3">Suivi</th><th className="p-3" />
+            <th className="p-3">Demande</th><th className="p-3">Statut</th><th className="p-3">Suivi</th><th className="p-3" /><th className="p-3 whitespace-nowrap">Disponibilité estimée</th>
           </tr></thead>
           <tbody>
             {data.demandes.map((d) => (
@@ -161,9 +164,10 @@ export default function DemandesSawaliPanel() {
                     </>
                   )}
                 </td>
+                <td className="p-3"><GanttDemande demande={d} bornes={bornes} /></td>
               </tr>
             ))}
-            {data.demandes.length === 0 && <tr><td colSpan={7} className="p-4 text-center text-muted-foreground">Aucune demande{q ? " pour cette recherche" : ""}.</td></tr>}
+            {data.demandes.length === 0 && <tr><td colSpan={8} className="p-4 text-center text-muted-foreground">Aucune demande{q ? " pour cette recherche" : ""}.</td></tr>}
           </tbody>
         </table>
       </div>
