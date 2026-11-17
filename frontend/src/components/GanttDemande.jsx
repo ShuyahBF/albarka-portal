@@ -4,7 +4,7 @@
   gris hachuré = pas encore de date, gris = refusée.
 */
 import React from "react";
-import { CalendarClock, CheckCircle2, AlertTriangle, Ban, HelpCircle } from "lucide-react";
+import { CalendarClock, CheckCircle2, AlertTriangle, Ban, HelpCircle, OctagonAlert } from "lucide-react";
 import { barreGantt, positionAujourdhui } from "@/lib/ganttDemandes";
 
 const STYLE = {
@@ -12,6 +12,7 @@ const STYLE = {
   realisee: { fond: "bg-green-600", texte: "text-green-800", Picto: CheckCircle2 },
   en_retard: { fond: "bg-red-600", texte: "text-red-700", Picto: AlertTriangle },
   sans_date: { fond: "bg-gray-300", texte: "text-gray-600", Picto: HelpCircle, hachure: true },
+  point_mort: { fond: "bg-slate-800", texte: "text-slate-900", Picto: OctagonAlert, hachure: true },
   refusee: { fond: "bg-gray-400", texte: "text-gray-600", Picto: Ban },
   a_remonter: { fond: "", texte: "text-gray-500", Picto: HelpCircle },
 };

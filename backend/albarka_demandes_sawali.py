@@ -47,7 +47,9 @@ logger = logging.getLogger("albarka.demandes_sawali")
 router = APIRouter(prefix="/demandes-sawali", tags=["Demandes à SAWALI"])
 
 TYPES = {"correction": "Correction", "nouveaute": "Nouvelle fonctionnalité"}
-STATUTS = {"a_remonter": "À remonter", "remontee": "Remontée à SAWALI", "realisee": "Réalisée", "refusee": "Refusée"}
+# Lot 120 : « En cours » et « Point mort » viennent de SAWALI avec la durée estimée qui organise l'enchaînement des demandes (Gantt)
+STATUTS = {"a_remonter": "À remonter", "remontee": "En attente", "en_cours": "En cours", "point_mort": "Point mort", "realisee": "Réalisée", "refusee": "Refusée"}
+STATUTS_SAWALI = ("remontee", "en_cours", "point_mort", "realisee", "refusee")
 CHEMIN_SAWALI = "/webhook/plateforme-demandes"
 
 
@@ -68,7 +70,8 @@ class DemandeCorps(BaseModel):
 def _vue(d: dict) -> dict:
     """Une demande telle qu'affichée (jamais d'identifiant interne de base)."""
     sortie = {k: d.get(k) for k in ("id", "type", "texte", "demandee_le", "demandee_par", "statut", "numero_sawali",
-                                    "commentaire", "realisee_le", "prevue_le", "remontee_le", "maj_sawali_le")}
+                                    "commentaire", "realisee_le", "prevue_le", "remontee_le", "maj_sawali_le",
+                                    "duree_valeur", "duree_unite", "debut_prevu_le", "historique")}
     sortie["type_libelle"] = TYPES.get(d.get("type"), d.get("type"))
     sortie["statut_libelle"] = STATUTS.get(d.get("statut"), d.get("statut"))
     return sortie
@@ -93,14 +96,17 @@ def appliquer_reponse(locales: List[dict], distantes: List[dict]) -> Dict[str, D
         ref = r.get("ref_locale")
         if ref not in connus:
             continue
-        statut = r.get("statut") if r.get("statut") in ("realisee", "refusee", "remontee") else "remontee"
+        statut = r.get("statut") if r.get("statut") in STATUTS_SAWALI else "remontee"
         maj[ref] = {"numero_sawali": r.get("numero"), "statut": statut, "commentaire": (r.get("commentaire") or None),
                     "realisee_le": r.get("realisee_le"), "prevue_le": r.get("prevue_le"),
+                    # Planning calculé par SAWALI (durée estimée → début et fin prévus) et historique des changements de statut
+                    "duree_valeur": r.get("duree_valeur"), "duree_unite": r.get("duree_unite"), "debut_prevu_le": r.get("debut_prevu_le"),
+                    "historique": r.get("historique") if isinstance(r.get("historique"), list) else [],
                     "maj_sawali_le": datetime.now(timezone.utc).isoformat()}
     return maj
 
 
-CHAMPS_SUIVIS = ("numero_sawali", "statut", "commentaire", "realisee_le", "prevue_le")
+CHAMPS_SUIVIS = ("numero_sawali", "statut", "commentaire", "realisee_le", "prevue_le", "duree_valeur", "duree_unite")
 
 
 def marquer_changements(locales: List[dict], maj: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -207,7 +213,7 @@ async def synchroniser(remonter: bool = True) -> Dict[str, int]:
 async def releve_automatique() -> Optional[Dict[str, int]]:
     """RELECTURE AUTOMATIQUE (planificateur, toutes les 15 minutes) : seulement s'il existe des demandes remontées et pas encore validées (réalisée / refusée).
     Ne remonte rien de nouveau (c'est le bouton « Envoyer à SAWALI ») : elle ne fait que relire les statuts. Rend None si rien à suivre."""
-    if not await db.demandes_sawali.find_one({"statut": "remontee"}, {"_id": 1}):
+    if not await db.demandes_sawali.find_one({"statut": {"$in": ["remontee", "en_cours", "point_mort"]}}, {"_id": 1}):
         return None
     return await synchroniser(remonter=False)
 
