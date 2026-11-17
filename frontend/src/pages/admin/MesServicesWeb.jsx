@@ -40,7 +40,7 @@ export default function MesServicesWeb() {
       <div>
         <h1 className="text-2xl font-semibold flex items-center gap-2"><Globe className="w-6 h-6 text-[#0F6B4A]" /> Mes Services Web</h1>
         <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-          Frais des services web du cabinet. Paiements mensuels : vous êtes rappelé 7 jours avant, 3 jours avant et le jour même de l'échéance, chaque mois. Montant unique : le payé et le reste à payer sont affichés, sans rappel mensuel.
+          Frais des services web du cabinet. Paiements mensuels : vous êtes rappelé 7 jours avant, 3 jours avant et le jour même de l'échéance, chaque mois. Montant unique : le payé et le reste à payer sont affichés ; tant qu'il reste un reliquat après un paiement partiel, vous en êtes rappelé à chaque connexion.
         </p>
       </div>
       <div className="albarka-card overflow-x-auto">

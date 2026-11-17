@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "120.6"
-LOT_LIBELLE = "Services web en retard : le rappel du DG revient à chaque connexion tant que le service n'est pas payé (plus d'acquittement pour la journée)."
+LOT = "120.7"
+LOT_LIBELLE = "Rappel du DG : reliquats des services à montant unique partiellement payés ; fenêtre avec puce noire, texte bleu clair et montants en gras rouge alignés à droite."
