@@ -243,6 +243,10 @@ table tbody tr:has(> td:first-child input[type="checkbox"]:checked) > td :is(spa
    horizontalement ; si un contenu est plus large que l'écran (grand tableau), c'est la zone de contenu qui défile,
    pas toute la page. */
 html, body { max-width: 100%; overflow-x: clip; }
+/* Lot 119 — la page ne change plus de largeur à l'ouverture d'une fenêtre modale : la place de l'ascenseur est toujours réservée, et le blocage du défilement
+   des fenêtres (Radix / react-remove-scroll) n'ajoute plus de marge compensatoire (elle décalait le contenu de la largeur de l'ascenseur). */
+html { scrollbar-gutter: stable; }
+body[data-scroll-locked] { padding-right: 0 !important; margin-right: 0 !important; }
 body.portal-ui main { min-width: 0; max-width: 100%; overflow-x: auto; }
 body.portal-ui main img, body.portal-ui main video { max-width: 100%; height: auto; }
 
