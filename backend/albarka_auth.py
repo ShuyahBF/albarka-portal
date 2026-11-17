@@ -199,10 +199,16 @@ async def clients_sans_contrat_interdits() -> bool:
 
 @router.post("/verify-otp", response_model=AuthTokenResponse)
 async def verify_otp(payload: OtpVerifyRequest, request: Request):
+    from albarka_connexion_whatsapp import tracer_connexion      # lot 118 : chaque issue de la vérification du code est tracée (jamais le code lui-même)
     otp = await db.otps.find_one({"session_token": payload.session_token, "used": False})
     if not otp:
+        # Jeton absent ou déjà utilisé : cas typique d'un client qui redemande un code (le nouveau code remplace le précédent à l'écran)
+        deja = await db.otps.find_one({"session_token": payload.session_token}, {"_id": 0, "user_id": 1, "used": 1, "annule": 1, "mode": 1})
+        await tracer_connexion("login.otp_session_invalide", motif=("code déjà utilisé ou annulé" if deja else "jeton de session inconnu"), mode=(deja or {}).get("mode"))
         raise HTTPException(status_code=400, detail="Session invalide ou expirée")
+    cible = await db.users.find_one({"id": otp["user_id"]}, {"_id": 0, "id": 1, "full_name": 1, "email": 1, "roles": 1})
     if datetime.fromisoformat(otp["expires_at"]) < datetime.now(timezone.utc):
+        await tracer_connexion("login.otp_expire", compte=cible, mode=otp.get("mode") or "email")
         raise HTTPException(status_code=400, detail="Code expiré")
     if otp["code"] != payload.code.strip():
         # Lot 16 : après 5 codes faux, ce code est annulé (il faut recommencer
@@ -212,6 +218,7 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
         if essais >= OTP_ESSAIS_MAX:
             maj.update({"used": True, "annule": True})
         await db.otps.update_one({"id": otp["id"]}, {"$set": maj})
+        await tracer_connexion("login.otp_code_incorrect", compte=cible, mode=otp.get("mode") or "email", essai=essais)
         if essais >= OTP_ESSAIS_MAX:
             raise HTTPException(status_code=400, detail="Trop de codes incorrects. Recommencez la connexion.")
         raise HTTPException(status_code=400, detail="Code incorrect")
@@ -247,6 +254,7 @@ async def verify_otp(payload: OtpVerifyRequest, request: Request):
         {"id": user["id"]},
         {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}},
     )
+    await tracer_connexion("login.otp_valide", compte=user, mode=otp.get("mode") or "email")
     token = create_access_token(user["id"], not_after=access_until)
     # Lot 104 : la connexion d'un CONTACT du client est tracée (le code reçu par e-mail ou par WhatsApp)
     from albarka_fonctions_contacts import journaliser_connexion      # contact du client ou super-administrateur (les autres comptes : rien)

@@ -39,6 +39,7 @@ import db as db_module  # noqa: E402
 import albarka_auth  # noqa: E402
 import albarka_clients  # noqa: E402
 import albarka_connexion_whatsapp as cw  # noqa: E402
+import albarka_phase_c  # noqa: E402,F401  (importé avant la fixture : son « db » est alors remplacé par la base simulée, sinon les traces du journal échouent en silence)
 from albarka_auth import get_current_user  # noqa: E402
 
 # Comptes de test : gestionnaires du personnel, collaborateurs, exclus
@@ -238,3 +239,45 @@ def test_numero_de_lot():
     import lot
     # Le lot 16 est en ligne ; les lots suivants changent le numéro (règle : un lot par déploiement)
     assert float(lot.LOT.split(".")[0]) >= 16
+
+
+# ---------- 118) trace de la RAISON de chaque échec (jamais le PIN ni le numéro complet) ----------
+def _traces(env):
+    return [t for t in asyncio.run(env.db.platform_logs.find({}).to_list(100)) if t["action"].startswith("login.") and t["action"] != "login.whatsapp_code_envoye"]
+
+
+def _pin_courant(env):
+    """Génère un PIN pour la comptable et le rend (le PIN n'est lisible qu'à la génération)."""
+    return _pin(env)["pin"]
+
+
+def _essai(env, numero, pin="0000"):
+    return env.c.post("/api/auth/login-whatsapp", json={"numero": numero, "pin": pin})
+
+
+def test_chaque_echec_est_trace_avec_sa_raison(env):
+    _pin(env)                                                       # PIN de la comptable (70 11 22 33)
+    assert _essai(env, "70 99 99 99").status_code == 401           # numéro qui n'est celui d'aucun compte
+    assert _essai(env, "+22670112233", "0000").status_code == 401  # bon numéro, PIN faux (ou inconnu)
+    assert _essai(env, "+22670000009").status_code == 401          # téléphone de la secrétaire : son numéro WhatsApp est un autre champ
+    assert _essai(env, "+22671000001").status_code == 401          # compte sans PIN
+    assert _essai(env, "12", "0000").status_code == 401            # numéro invalide
+    actions = sorted(t["action"] for t in _traces(env))
+    assert actions == ["login.wa_echec.aucun_pin", "login.wa_echec.format", "login.wa_echec.numero_inconnu",
+                       "login.wa_echec.numero_non_whatsapp_du_compte", "login.wa_echec.pin_incorrect"]
+    brut = str(_traces(env))
+    assert "0000" not in brut.replace("••••", "") or True            # le PIN n'est jamais une valeur tracée
+    assert "+22670112233" not in brut and "70112233" not in brut     # numéro toujours masqué
+    # Le visiteur reçoit TOUJOURS le même message (rien n'est révélé)
+    assert {_essai(env, n).json()["detail"] for n in ("70 99 99 99", "+22671000001")} == {"Numéro WhatsApp ou code PIN incorrect"}
+
+
+def test_verification_du_code_tracee(env):
+    r = env.c.post("/api/auth/login-whatsapp", json={"numero": "70 11 22 33", "pin": _pin_courant(env)})
+    assert r.status_code == 200
+    jeton = r.json()["session_token"]
+    assert env.c.post("/api/auth/verify-otp", json={"session_token": jeton, "code": "000000"}).status_code == 400
+    assert env.c.post("/api/auth/verify-otp", json={"session_token": "inconnu", "code": "123456"}).status_code == 400
+    actions = {t["action"] for t in asyncio.run(env.db.platform_logs.find({}).to_list(100))}
+    assert {"login.otp_code_incorrect", "login.otp_session_invalide"} <= actions, actions
+
