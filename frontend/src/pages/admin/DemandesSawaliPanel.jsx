@@ -6,8 +6,9 @@
   API : /demandes-sawali (albarka_demandes_sawali.py)
 */
 import React, { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Search, Send, Plus, Trash2, RefreshCw, Pencil, Save, X, Play, OctagonAlert, Clock } from "lucide-react";
+import { Search, Send, Plus, Trash2, RefreshCw, Pencil, Save, X, Play, OctagonAlert, Clock, ArrowLeft } from "lucide-react";
 import { apiClient, extractError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import GanttEnchainement from "@/components/GanttEnchainement";   // lot 118 : e
 import PiecesJointes from "@/components/PiecesJointes";   // lot 120.1 : fichiers joints et annotés
 import GanttDemande from "@/components/GanttDemande";   // lot 117 : diagramme de Gantt (dernière colonne)
 import { bornesGantt } from "@/lib/ganttDemandes";
+import { surveillerSortie } from "@/lib/sortieAvecQuestion";   // lot 120.10 : question en quittant la fenêtre avec des modifications non envoyées
 
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const fmtJour = (d) => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString("fr-FR") : null);
@@ -79,6 +81,36 @@ export default function DemandesSawaliPanel() {
       charger();
     } catch (e) { toast.error(extractError(e)); charger(); }
   };
+  // ---- Lot 120.10 : MODIFICATIONS NON ENVOYÉES. En quittant la fenêtre : « Des modifications ont été apportées dans cette fenêtre. Les envoyer à SAWALI ? »
+  // Sont « non envoyées » : une nouvelle demande tapée mais pas ajoutée, une demande en cours de modification dont le texte ou le type a changé,
+  // et les demandes encore « à remonter » (envoi immédiat qui n'a pas abouti).
+  const navigate = useNavigate();
+  const [sortie, setSortie] = useState(null);          // destination demandée par le clic, en attendant la réponse
+  const [sortieOccupee, setSortieOccupee] = useState(false);
+  const brouillon = texte.trim().length > 0 || pieces.length > 0;
+  const originale = edition ? (data.demandes || []).find((x) => x.id === edition.id) : null;
+  const editionModifiee = !!edition && (!!edition.modifierPieces || (originale ? (edition.texte.trim() !== (originale.texte || "").trim() || edition.type !== originale.type) : false));
+  const nonEnvoye = brouillon || editionModifiee || (data.compteurs?.a_remonter || 0) > 0;
+  useEffect(() => surveillerSortie(nonEnvoye && !sortie, setSortie), [nonEnvoye, sortie]);
+
+  /** « Oui » : ajoute la demande tapée, enregistre la modification en cours, puis remonte tout à SAWALI ; ensuite seulement on quitte la fenêtre. */
+  const envoyerPuisPartir = async () => {
+    setSortieOccupee(true);
+    const attente = toast.loading("Envoi à SAWALI en cours…");
+    try {
+      if (brouillon && texte.trim()) await apiClient.post("/demandes-sawali", { type, texte, pieces: pieces.map(({ nom, type: t, data: d }) => ({ nom, type: t, data: d })) });
+      if (editionModifiee) await apiClient.put(`/demandes-sawali/${edition.id}`, { type: edition.type, texte: edition.texte,
+        ...(edition.modifierPieces ? { pieces: (edition.pieces || []).map(({ nom, type: t, data: d }) => ({ nom, type: t, data: d })) } : {}) });
+      const { data: r } = await apiClient.post("/demandes-sawali/envoyer");
+      toast.success(`Modifications envoyées à SAWALI (${r.envoyees} demande(s) remontée(s), ${r.mises_a_jour} mise(s) à jour)`, { id: attente });
+      const dest = sortie; setSortie(null); setTexte(""); setPieces([]); setEdition(null);
+      navigate(dest);
+    } catch (e) { toast.error(extractError(e), { id: attente }); }       // en cas d'échec on RESTE dans la fenêtre : rien n'est perdu
+    finally { setSortieOccupee(false); }
+  };
+  /** « Non » : on quitte sans envoyer (le texte tapé et la modification en cours sont abandonnés). */
+  const partirSansEnvoyer = () => { const dest = sortie; setSortie(null); setTexte(""); setPieces([]); setEdition(null); navigate(dest); };
+
   // Lot 120.5 — TEMPS RÉEL : tant que l'écran est visible, la liste LOCALE est relue toutes les 4 secondes (lecture de notre base seulement) ; SAWALI nous prévient
   // à l'instant d'un traitement (signal signé) et la mise à jour se voit alors presque tout de suite, utile en réunion.
   useEffect(() => {
@@ -123,6 +155,20 @@ export default function DemandesSawaliPanel() {
   const bornes = bornesGantt(data.demandes);                    // axe du temps COMMUN à toutes les barres du tableau
   return (
     <div className="space-y-5" data-testid="demandes-sawali-panel">
+      {/* Lot 120.10 — question en quittant la fenêtre avec des modifications non envoyées (règle 11 : fenêtre modale dimensionnée ; règle 15 : pictogrammes) */}
+      {sortie && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4" data-testid="question-sortie">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="titre-question-sortie" className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[85dvh] overflow-y-auto p-5 space-y-4">
+            <h2 id="titre-question-sortie" className="text-lg font-semibold flex items-center gap-2"><Send className="w-5 h-5 text-[#0F6B4A]" /> Modifications non envoyées</h2>
+            <p className="text-sm">Des modifications ont été apportées dans cette fenêtre. Les envoyer à SAWALI ?</p>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <Button variant="outline" onClick={() => setSortie(null)} disabled={sortieOccupee} data-testid="sortie-rester"><ArrowLeft className="w-4 h-4 mr-1" /> Rester ici</Button>
+              <Button variant="outline" onClick={partirSansEnvoyer} disabled={sortieOccupee} data-testid="sortie-non"><X className="w-4 h-4 mr-1" /> Non</Button>
+              <Button className="bg-[#0F6B4A] hover:bg-[#0A4E36] text-white" onClick={envoyerPuisPartir} disabled={sortieOccupee} data-testid="sortie-oui"><Send className="w-4 h-4 mr-1" /> {sortieOccupee ? "Envoi…" : "Oui"}</Button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Lot 118 : vue d'ensemble des demandes NON terminées (enchaînement, points morts) — repliée par défaut */}
       <details open className="rounded-lg border p-3" data-testid="vue-enchainement">
         <summary className="cursor-pointer font-semibold">📈 Enchaînement des demandes non terminées (points morts, retards)</summary>
