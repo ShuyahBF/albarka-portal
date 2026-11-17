@@ -79,6 +79,8 @@ export default function DemandesSawaliPanel() {
       charger();
     } catch (e) { toast.error(extractError(e)); charger(); }
   };
+  // À l'ouverture de l'écran : la relecture lancée à la connexion (en arrière-plan) a pu se terminer entre-temps, on recharge la liste après quelques secondes
+  useEffect(() => { const t = setTimeout(charger, 8000); return () => clearTimeout(t); }, [charger]);
   // RAFRAÎCHISSEMENT AUTOMATIQUE : tant que cet écran est ouvert, les statuts sont relus chez SAWALI toutes les 2 minutes (sans rien remonter), puis la liste est rechargée.
   // Le serveur fait aussi cette relecture toutes les 15 minutes même écran fermé.
   useEffect(() => {

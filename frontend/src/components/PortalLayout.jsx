@@ -229,6 +229,8 @@ export default function PortalLayout({ admin = false }) {
   // Keep-alive : signale au cabinet que ce compte (client ou collaborateur) est connecté
   usePresenceHeartbeat(!!user);
   const [openSidebar, setOpenSidebar] = useState(false);
+  // Lot 120.4 : à la connexion de tout collaborateur (jamais d'un client), le serveur relit en arrière-plan les statuts et le planning des demandes chez SAWALI
+  useEffect(() => { if (admin) apiClient.post("/demandes-sawali/relire-connexion").catch(() => {}); }, [admin]);
   const [rappelsFinis, setRappelsFinis] = useState(false);   // lot 120.3 : « Du nouveau chez SAWALI » s'ouvre APRÈS le rappel des services web
   // Lot 34 : numéro WhatsApp du cabinet affiché dans l'en-tête (mis en forme « +226 73 37 48 48 »)
   const [numeroCabinet, setNumeroCabinet] = useState("");
