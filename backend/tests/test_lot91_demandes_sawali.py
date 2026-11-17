@@ -37,6 +37,10 @@ def env(monkeypatch):
     for mod in list(sys.modules.values()):
         if getattr(mod, "db", None) is real_db and getattr(mod, "__name__", "").startswith(("albarka_", "db")):
             monkeypatch.setattr(mod, "db", mock_db)
+    vrai_echange = dm._synchroniser_en_arriere_plan      # gardé pour le test de l'échange immédiat
+    async def _rien(remonter):          # lot 120.5 : l'envoi immédiat est neutralisé ici ; testé à part (test_envoi_immediat…)
+        return None
+    monkeypatch.setattr(dm, "_synchroniser_en_arriere_plan", _rien)
     app = FastAPI()
     api = APIRouter(prefix="/api")
     api.include_router(dm.router)
@@ -47,7 +51,9 @@ def env(monkeypatch):
             raise HTTPException(status_code=401, detail="Non connecté")
         return USERS[x_user]
     app.dependency_overrides[dm.get_current_user] = fake_user
-    return TestClient(app)
+    c = TestClient(app)
+    c.vrai_echange = vrai_echange
+    return c
 
 
 H = {"X-User": "sup"}
@@ -278,3 +284,24 @@ def test_relecture_a_la_connexion_en_arriere_plan_sauf_clients(env, monkeypatch)
     assert r.status_code == 200 and r.json()["lancee"] is True and time.monotonic() - debut < 1
     r2 = env.post("/api/demandes-sawali/relire-connexion", headers={"X-User": "dg"})                              # trop tôt : rien de relancé
     assert r2.status_code == 200 and r2.json()["lancee"] is False
+
+
+def test_envoi_immediat_a_la_creation_et_erreur_jamais_montree(env, monkeypatch):
+    """Lot 120.5 — une nouvelle demande part chez SAWALI À L'INSTANT (en arrière-plan) ; si SAWALI est injoignable, rien n'est montré et la demande reste « à remonter »."""
+    import asyncio
+    appels = []
+
+    async def espion(remonter):
+        appels.append(remonter)
+    monkeypatch.setattr(dm, "_synchroniser_en_arriere_plan", espion)
+    assert env.post("/api/demandes-sawali", json={"type": "correction", "texte": "Envoi immédiat attendu"}, headers=H).status_code == 200
+    assert appels == [True]                                         # créé → échange lancé avec remontée
+
+    async def panne(chemin, corps, delai=15):
+        raise dm.HTTPException(status_code=503, detail="SAWALI injoignable")
+    monkeypatch.setattr(albarka_support_sawali, "appeler_sawali", panne)
+    # la vraie fonction (gardée par la fixture) avale l'erreur : SAWALI injoignable ne casse rien et la demande reste « à remonter »
+    import asyncio
+    asyncio.run(env.vrai_echange(True))
+    d = env.get("/api/demandes-sawali", headers=H).json()["demandes"][0]
+    assert d["statut"] == "a_remonter"

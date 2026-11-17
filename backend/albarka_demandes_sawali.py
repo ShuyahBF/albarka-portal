@@ -200,6 +200,7 @@ async def creer(payload: DemandeCorps, user: dict = Depends(get_current_user)):
            "statut": "a_remonter", "numero_sawali": None, "commentaire": None, "realisee_le": None, "prevue_le": None,
            "remontee_le": None, "maj_sawali_le": None}
     await db.demandes_sawali.insert_one(dict(doc))
+    asyncio.create_task(_synchroniser_en_arriere_plan(remonter=True))     # lot 120.5 : la demande part chez SAWALI À L'INSTANT (la réponse n'attend pas)
     return _vue(doc)
 
 
@@ -259,7 +260,25 @@ async def supprimer(demande_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+# Lot 120.5 : un seul échange à la fois (deux créations rapprochées ne doivent pas remonter deux fois la même demande)
+_VERROU_ECHANGE = asyncio.Lock()
+
+
+async def _synchroniser_en_arriere_plan(remonter: bool) -> None:
+    """Échange avec SAWALI hors requête (règle 7) ; une erreur (SAWALI injoignable…) n'est jamais montrée : la demande reste « à remonter » et partira à la
+    prochaine relecture ou au bouton « Envoyer à SAWALI »."""
+    try:
+        await synchroniser(remonter=remonter)
+    except Exception as e:   # noqa: BLE001
+        logging.getLogger(__name__).warning("Échange immédiat avec SAWALI impossible : %s", e)
+
+
 async def synchroniser(remonter: bool = True) -> Dict[str, int]:
+    async with _VERROU_ECHANGE:
+        return await _synchroniser_interne(remonter)
+
+
+async def _synchroniser_interne(remonter: bool = True) -> Dict[str, int]:
     """Échange avec SAWALI : remonte les demandes « à remonter » (si `remonter`) puis relit le numéro, le statut, le commentaire et les dates de TOUTES les demandes."""
     from albarka_support_sawali import appeler_sawali   # même canal signé que le support SAWALI
     toutes = await db.demandes_sawali.find({}, {"_id": 0}).to_list(2000)

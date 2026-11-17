@@ -79,6 +79,12 @@ export default function DemandesSawaliPanel() {
       charger();
     } catch (e) { toast.error(extractError(e)); charger(); }
   };
+  // Lot 120.5 — TEMPS RÉEL : tant que l'écran est visible, la liste LOCALE est relue toutes les 4 secondes (lecture de notre base seulement) ; SAWALI nous prévient
+  // à l'instant d'un traitement (signal signé) et la mise à jour se voit alors presque tout de suite, utile en réunion.
+  useEffect(() => {
+    const t = setInterval(() => { if (document.visibilityState === "visible") apiClient.get("/demandes-sawali", { params: { q } }).then(({ data: d }) => setData(d)).catch(() => {}); }, 4000);
+    return () => clearInterval(t);
+  }, [q]);
   // À l'ouverture de l'écran : la relecture lancée à la connexion (en arrière-plan) a pu se terminer entre-temps, on recharge la liste après quelques secondes
   useEffect(() => { const t = setTimeout(charger, 8000); return () => clearTimeout(t); }, [charger]);
   // RAFRAÎCHISSEMENT AUTOMATIQUE : tant que cet écran est ouvert, les statuts sont relus chez SAWALI toutes les 2 minutes (sans rien remonter), puis la liste est rechargée.
