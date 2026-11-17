@@ -229,6 +229,7 @@ export default function PortalLayout({ admin = false }) {
   // Keep-alive : signale au cabinet que ce compte (client ou collaborateur) est connecté
   usePresenceHeartbeat(!!user);
   const [openSidebar, setOpenSidebar] = useState(false);
+  const [rappelsFinis, setRappelsFinis] = useState(false);   // lot 120.3 : « Du nouveau chez SAWALI » s'ouvre APRÈS le rappel des services web
   // Lot 34 : numéro WhatsApp du cabinet affiché dans l'en-tête (mis en forme « +226 73 37 48 48 »)
   const [numeroCabinet, setNumeroCabinet] = useState("");
   useEffect(() => {
@@ -581,9 +582,9 @@ export default function PortalLayout({ admin = false }) {
               le tableau de bord ne s'ouvre pas, même un instant. */}
           {!leaveDashboard && !closedModulePage && <Outlet />}
           {/* Lot 90 : fenêtre de rappel des services web — DG seul */}
-          {admin && (user?.roles || []).includes("dg") && <RappelsServicesWeb />}
+          {admin && (user?.roles || []).includes("dg") && <RappelsServicesWeb onFini={() => setRappelsFinis(true)} />}
           {/* Lot 117 : nouveaux paiements reçus et réponses de SAWALI à ses demandes — DG seul */}
-          {admin && (user?.roles || []).includes("dg") && <InfosConnexionDG />}
+          {admin && (user?.roles || []).includes("dg") && <InfosConnexionDG actif={rappelsFinis} />}
         </main>
       </div>
       {/* Chat interne — strictement réservé aux collaborateurs, jamais aux clients */}
