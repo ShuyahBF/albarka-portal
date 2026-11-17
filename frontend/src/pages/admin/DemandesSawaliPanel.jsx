@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import DetailDemandeModal from "@/components/DetailDemandeModal";   // lot 118 : 20 premiers caractères + « Détails » (modale)
 import GanttEnchainement from "@/components/GanttEnchainement";   // lot 118 : enchaînement, points morts des demandes non terminées
+import PiecesJointes from "@/components/PiecesJointes";   // lot 120.1 : fichiers joints et annotés
 import GanttDemande from "@/components/GanttDemande";   // lot 117 : diagramme de Gantt (dernière colonne)
 import { bornesGantt } from "@/lib/ganttDemandes";
 
@@ -44,6 +45,7 @@ export default function DemandesSawaliPanel() {
   const [data, setData] = useState({ demandes: [], compteurs: {}, total: 0 });
   const [type, setType] = useState("correction");
   const [texte, setTexte] = useState("");
+  const [pieces, setPieces] = useState([]);       // pièces jointes de la nouvelle demande
   const [envoi, setEnvoi] = useState(false);
   const [edition, setEdition] = useState(null);   // { id, type, texte } : demande en cours de modification
 
@@ -51,10 +53,13 @@ export default function DemandesSawaliPanel() {
   const charger = useCallback(() => apiClient.get("/demandes-sawali", { params: { q } }).then(({ data: d }) => { setData(d); apiClient.post("/me/badges/mark-seen", { page: "demandes_sawali" }).catch(() => {}); }).catch((e) => toast.error(extractError(e))), [q]);
   useEffect(() => { const t = setTimeout(charger, 250); return () => clearTimeout(t); }, [charger]);   // recherche en direct
 
+  // Contenu d'une pièce jointe, lu À LA DEMANDE avec la session de l'utilisateur
+  const chargerPiece = (d, p) => apiClient.get(`/demandes-sawali/${d.id}/pieces/${p.id}`, { responseType: "blob" }).then((r) => r.data).catch((e) => { toast.error(extractError(e)); throw e; });
+
   const ajouter = async () => {
     try {
-      await apiClient.post("/demandes-sawali", { type, texte });
-      setTexte("");
+      await apiClient.post("/demandes-sawali", { type, texte, pieces: pieces.map(({ nom, type: t, data }) => ({ nom, type: t, data })) });
+      setTexte(""); setPieces([]);
       charger();
     } catch (e) { toast.error(extractError(e)); }
   };
@@ -66,7 +71,9 @@ export default function DemandesSawaliPanel() {
   // Modification du type et du texte (même règle)
   const enregistrerEdition = async () => {
     try {
-      await apiClient.put(`/demandes-sawali/${edition.id}`, { type: edition.type, texte: edition.texte });
+      await apiClient.put(`/demandes-sawali/${edition.id}`, { type: edition.type, texte: edition.texte,
+        // les pièces ne se modifient que tant que la demande n'est pas partie chez SAWALI
+        ...(edition.modifierPieces ? { pieces: (edition.pieces || []).map(({ nom, type: t, data }) => ({ nom, type: t, data })) } : {}) });
       setEdition(null);
       toast.success("Demande modifiée");
       charger();
@@ -136,6 +143,7 @@ export default function DemandesSawaliPanel() {
         </div>
         <div><Label>Demande</Label><Textarea rows={2} value={texte} onChange={(e) => setTexte(e.target.value)} placeholder="Décrivez la correction ou la fonctionnalité demandée" data-testid="demande-texte" /></div>
         <Button onClick={ajouter} disabled={texte.trim().length < 3} data-testid="btn-ajouter-demande"><Plus className="w-4 h-4 mr-1" /> Ajouter</Button>
+        <div className="sm:col-span-3"><PiecesJointes pieces={pieces} onChange={setPieces} /></div>
       </div>
 
       {edition && (
@@ -147,7 +155,14 @@ export default function DemandesSawaliPanel() {
               <option value="nouveaute">Nouvelle fonctionnalité</option>
             </select>
           </div>
-          <div><Label>Modifier la demande</Label><Textarea rows={2} value={edition.texte} onChange={(e) => setEdition({ ...edition, texte: e.target.value })} /></div>
+          <div><Label>Modifier la demande</Label><Textarea rows={2} value={edition.texte} onChange={(e) => setEdition({ ...edition, texte: e.target.value })} />
+            {edition.aRemonter ? (
+              <div className="mt-2 space-y-2">
+                <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={edition.modifierPieces} onChange={(e) => setEdition({ ...edition, modifierPieces: e.target.checked })} />Remplacer les pièces jointes actuelles ({edition.nbPieces})</label>
+                {edition.modifierPieces && <PiecesJointes pieces={edition.pieces} onChange={(l) => setEdition({ ...edition, pieces: l })} />}
+              </div>
+            ) : <p className="mt-1 text-xs text-muted-foreground">Les pièces jointes ne se modifient plus une fois la demande envoyée à SAWALI.</p>}
+          </div>
           <div className="flex gap-2">
             <Button onClick={enregistrerEdition} disabled={edition.texte.trim().length < 3}><Save className="w-4 h-4 mr-1" /> Enregistrer</Button>
             <Button variant="ghost" onClick={() => setEdition(null)}><X className="w-4 h-4 mr-1" /> Annuler</Button>
@@ -167,13 +182,13 @@ export default function DemandesSawaliPanel() {
                 <td className="p-3 whitespace-nowrap">{fmt(d.demandee_le)}</td>
                 <td className="p-3 font-mono text-xs">{d.numero_sawali || "—"}</td>
                 <td className="p-3">{d.type_libelle}</td>
-                <td className="p-3 max-w-md"><DetailDemandeModal d={d} /></td>
+                <td className="p-3 max-w-md"><DetailDemandeModal d={d} chargerPiece={chargerPiece} />{(d.pieces || []).length > 0 && <span className="ml-1 text-xs text-muted-foreground" title="Pièces jointes">📎 {d.pieces.length}</span>}</td>
                 <td className={`p-3 font-medium ${COULEUR[d.statut] || ""}`}>{(() => { const P = PICTO[d.statut]; return <>{P && <P className="mr-1 inline-block h-3.5 w-3.5" aria-hidden="true" />}{d.statut_libelle}</>; })()}</td>
                 <td className="p-3"><Suivi d={d} /></td>
                 <td className="p-3 text-right whitespace-nowrap">
                   {(d.statut === "a_remonter" || d.statut === "remontee") && (
                     <>
-                      <Button size="sm" variant="ghost" title="Modifier" onClick={() => setEdition({ id: d.id, type: d.type, texte: d.texte })} data-testid={`modifier-${d.id}`}><Pencil className="w-4 h-4 mr-1" /> Modifier</Button>
+                      <Button size="sm" variant="ghost" title="Modifier" onClick={() => setEdition({ id: d.id, type: d.type, texte: d.texte, modifierPieces: false, pieces: [], aRemonter: d.statut === "a_remonter", nbPieces: (d.pieces || []).length })} data-testid={`modifier-${d.id}`}><Pencil className="w-4 h-4 mr-1" /> Modifier</Button>
                       <Button size="sm" variant="ghost" title="Supprimer" className="text-red-700" onClick={() => supprimer(d)} data-testid={`supprimer-${d.id}`}><Trash2 className="w-4 h-4 mr-1" /> Supprimer</Button>
                     </>
                   )}
