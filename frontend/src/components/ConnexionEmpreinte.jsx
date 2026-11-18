@@ -67,18 +67,20 @@ export default function ConnexionEmpreinte({ onConnecte }) {
 
   return (
     <div className="space-y-2 mb-4" data-testid="connexion-empreinte">
-      <Button type="button" variant="outline" className="w-full" onClick={seConnecter} disabled={occupe} data-testid="btn-empreinte">
-        {occupe ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Fingerprint className="w-4 h-4 mr-2" />}
+      {/* Lot 120.13 : même violet que le bouton d'empreinte de SAWALI (bien visible), pleine largeur, juste au-dessus du bouton vert « Recevoir mon code » */}
+      <button type="button" onClick={seConnecter} disabled={occupe} data-testid="btn-empreinte"
+        className="w-full h-11 inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-4 text-sm font-medium transition disabled:opacity-50">
+        {occupe ? <Loader2 className="w-4 h-4 animate-spin" /> : <Fingerprint className="w-4 h-4" />}
         Se connecter avec mon empreinte
-      </Button>
+      </button>
       {!enrolement ? (
         <button type="button" className="block mx-auto text-xs text-muted-foreground hover:text-[#0F6B4A] underline" onClick={() => setEnrolement(true)} data-testid="lien-enrolement">
           <Ico15KeyRound className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />J'ai un code d'enrôlement</button>
       ) : (
         <div className="border rounded-lg p-3 space-y-2" data-testid="form-enrolement">
           <div className="text-xs text-muted-foreground">Saisissez le code remis par le DG, puis posez votre doigt quand l'appareil le demande.</div>
-          <Input placeholder="Code (ex. ABCD-2345)" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={10} data-testid="input-code-enrolement" />
-          <Input placeholder="Nom de cet appareil (ex. Mon téléphone)" value={nomAppareil} onChange={(e) => setNomAppareil(e.target.value)} maxLength={60} />
+          <Input placeholder="Code (ex. ABCD-2345)" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }} maxLength={10} data-testid="input-code-enrolement" />
+          <Input placeholder="Nom de cet appareil (ex. Mon téléphone)" value={nomAppareil} onChange={(e) => setNomAppareil(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }} maxLength={60} />
           <div className="flex gap-2">
             <Button type="button" size="sm" onClick={enroler} disabled={occupe} data-testid="btn-enroler"><Ico15Save className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Enregistrer cet appareil</Button>
             <Button type="button" size="sm" variant="ghost" onClick={() => setEnrolement(false)}><Ico15X className="inline-block h-4 w-4 shrink-0 mr-1" aria-hidden="true" />Annuler</Button>

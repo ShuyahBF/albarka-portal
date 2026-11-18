@@ -217,11 +217,6 @@ export default function Login() {
 
           {step === "credentials" ? (
             <>
-            {/* Lot 89 : connexion par empreinte digitale (visible seulement si le super-admin l'a activée) */}
-            <ConnexionEmpreinte onConnecte={(user) => {
-              const staff = !(user.roles?.length === 1 && user.roles[0] === "client");
-              navigate(staff ? "/admin" : "/portal", { replace: true });
-            }} />
             <form onSubmit={submitCredentials} className="space-y-5" data-testid="login-form">
               <div>
                 <div className="text-xs uppercase tracking-[0.2em] text-[#0F6B4A] mb-2">
@@ -326,6 +321,12 @@ export default function Login() {
               {captchaCfg.enabled && captchaCfg.site_key && (
                 <div ref={captchaRef} data-testid="recaptcha-widget" />
               )}
+              {/* Lot 89 / 120.13 : connexion par empreinte digitale (visible seulement si le super-admin l'a activée), TOUJOURS juste au-dessus du bouton vert,
+                  que l'on se connecte par e-mail ou par WhatsApp */}
+              <ConnexionEmpreinte onConnecte={(user) => {
+                const staff = !(user.roles?.length === 1 && user.roles[0] === "client");
+                navigate(staff ? "/admin" : "/portal", { replace: true });
+              }} />
               <Button
                 type="submit"
                 disabled={loading || (captchaCfg.enabled && !captchaToken)}
