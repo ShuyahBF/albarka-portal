@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "120.10"
-LOT_LIBELLE = "Demandes à SAWALI : en quittant la fenêtre avec des modifications non envoyées, question « Les envoyer à SAWALI ? » (Oui = envoi, Non = quitter, Rester ici)."
+LOT = "120.11"
+LOT_LIBELLE = "Demandes à SAWALI : statut « Déjà répondu » reçu de SAWALI (demande close, commentaire de SAWALI affiché)."

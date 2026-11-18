@@ -14,6 +14,7 @@ const STYLE = {
   sans_date: { fond: "bg-gray-300", texte: "text-gray-600", Picto: HelpCircle, hachure: true },
   point_mort: { fond: "bg-slate-800", texte: "text-slate-900", Picto: OctagonAlert, hachure: true },
   refusee: { fond: "bg-gray-400", texte: "text-gray-600", Picto: Ban },
+  deja_repondu: { fond: "bg-violet-400", texte: "text-violet-700", Picto: Ban },
   a_remonter: { fond: "", texte: "text-gray-500", Picto: HelpCircle },
 };
 

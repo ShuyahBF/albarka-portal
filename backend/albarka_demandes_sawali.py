@@ -12,7 +12,7 @@ EN RÉSUMÉ (pour un développeur WinDev)
       support SAWALI : variables LILUVINE_WA_HMAC / LILUVINE_WA_EMETTEUR). SAWALI répond pour CHAQUE demande de la plateforme :
       son numéro (DEM-…), son statut, son commentaire, la date de réalisation ou la date prévue.
    3. Le même bouton sert d'« Actualiser » : on renvoie les nouvelles demandes (il peut ne pas y en avoir) et on relit tous les statuts.
-   4. Statuts : « a_remonter » (pas encore envoyée), « remontee » (numérotée, en attente), « realisee », « refusee » (niée).
+   4. Statuts : « a_remonter » (pas encore envoyée), « remontee » (numérotée, en attente), « realisee », « refusee » (niée), « deja_repondu » (la réponse existe déjà : voir le commentaire de SAWALI).
    5. La recherche (zone en haut) parcourt le texte, le commentaire, le numéro et le statut, refusées comprises.
 
 DROITS (lot 92, 14/11/2026) : le DG, la Direction et le Secrétariat (mêmes droits, + le super-admin) ouvrent « Demandes à SAWALI » depuis la
@@ -50,8 +50,8 @@ router = APIRouter(prefix="/demandes-sawali", tags=["Demandes à SAWALI"])
 
 TYPES = {"correction": "Correction", "nouveaute": "Nouvelle fonctionnalité"}
 # Lot 120 : « En cours » et « Point mort » viennent de SAWALI avec la durée estimée qui organise l'enchaînement des demandes (Gantt)
-STATUTS = {"a_remonter": "À remonter", "remontee": "En attente", "en_cours": "En cours", "point_mort": "Point mort", "realisee": "Réalisée", "refusee": "Refusée"}
-STATUTS_SAWALI = ("remontee", "en_cours", "point_mort", "realisee", "refusee")
+STATUTS = {"a_remonter": "À remonter", "remontee": "En attente", "en_cours": "En cours", "point_mort": "Point mort", "realisee": "Réalisée", "refusee": "Refusée", "deja_repondu": "Déjà répondu"}
+STATUTS_SAWALI = ("remontee", "en_cours", "point_mort", "realisee", "refusee", "deja_repondu")
 CHEMIN_SAWALI = "/webhook/plateforme-demandes"
 
 
@@ -206,7 +206,7 @@ async def creer(payload: DemandeCorps, user: dict = Depends(get_current_user)):
 
 def _validee(d: dict) -> bool:
     """Validée côté SAWALI (réalisée ou refusée) : plus modifiable ni supprimable."""
-    return d.get("statut") in ("realisee", "refusee")
+    return d.get("statut") in ("realisee", "refusee", "deja_repondu")
 
 
 async def _relayer(corps: Dict[str, Any], ref: str) -> None:

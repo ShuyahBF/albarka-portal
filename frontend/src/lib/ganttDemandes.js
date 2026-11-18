@@ -50,6 +50,7 @@ export function barreGantt(d, b, maintenant = Date.now()) {
   const jourFr = (t) => new Date(t).toLocaleDateString("fr-FR");
   if (d.statut === "a_remonter") return { gauche, largeur: 0, etat: "a_remonter", libelle: "Pas encore envoyée à SAWALI", jours: null };
   if (d.statut === "refusee") return sortie(debut + JOUR, "refusee", "Refusée par SAWALI");
+  if (d.statut === "deja_repondu") return sortie(debut + JOUR, "deja_repondu", "Déjà répondu par SAWALI");
   if (d.statut === "point_mort") return sortie(maintenant, "point_mort", "Point mort : le travail est arrêté");
   const fin = dateEstimee(d);
   if (d.statut === "realisee") return sortie(fin ?? maintenant, "realisee", `Réalisée le ${jourFr(fin ?? maintenant)}`);
