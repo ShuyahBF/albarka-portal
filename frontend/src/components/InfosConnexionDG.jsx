@@ -20,6 +20,7 @@ const fmtHeure = (iso) => { try { return new Date(iso).toLocaleString("fr-FR", {
 export function libelleSuivi(d) {
   if (d.statut === "realisee") return `Réalisée le ${fmtJour(d.realisee_le) || "—"}`;
   if (d.statut === "refusee") return "Refusée";
+  if (d.statut === "deja_repondu") return "Déjà répondu";
   return d.prevue_le ? `Prévue le ${fmtJour(d.prevue_le)}` : "Date de réalisation à venir";
 }
 

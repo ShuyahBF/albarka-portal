@@ -305,3 +305,19 @@ def test_envoi_immediat_a_la_creation_et_erreur_jamais_montree(env, monkeypatch)
     asyncio.run(env.vrai_echange(True))
     d = env.get("/api/demandes-sawali", headers=H).json()["demandes"][0]
     assert d["statut"] == "a_remonter"
+
+
+def test_statut_deja_repondu_recu_de_sawali_demande_close(env, monkeypatch):
+    """Lot 120.11 — SAWALI peut répondre « Déjà répondu » : le statut est gardé tel quel (pas ramené à « en attente »), le commentaire s'affiche, la demande n'est plus modifiable ni supprimable."""
+    a = env.post("/api/demandes-sawali", json={"type": "nouveaute", "texte": "Export des paiements en Excel"}, headers=H).json()
+
+    async def faux_sawali(chemin, corps, delai=15):
+        return {"demandes": [{"ref_locale": a["id"], "numero": "DEM-ALB-0042", "statut": "deja_repondu", "commentaire": "Voir DEM-ALB-0011"}]}
+    monkeypatch.setattr(albarka_support_sawali, "appeler_sawali", faux_sawali)
+    assert env.post("/api/demandes-sawali/envoyer", headers=H).status_code == 200
+    liste = env.get("/api/demandes-sawali", headers=H).json()
+    d = liste["demandes"][0]
+    assert d["statut"] == "deja_repondu" and d["statut_libelle"] == "Déjà répondu" and d["commentaire"] == "Voir DEM-ALB-0011"
+    assert liste["compteurs"]["deja_repondu"] == 1
+    assert env.put(f"/api/demandes-sawali/{a['id']}", json={"type": "nouveaute", "texte": "Autre texte"}, headers=H).status_code == 409
+    assert env.delete(f"/api/demandes-sawali/{a['id']}", headers=H).status_code == 409

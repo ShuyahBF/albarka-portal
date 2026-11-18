@@ -23,7 +23,7 @@ import { surveillerSortie } from "@/lib/sortieAvecQuestion";   // lot 120.10 : q
 
 const fmt = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—");
 const fmtJour = (d) => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString("fr-FR") : null);
-const COULEUR = { a_remonter: "text-gray-600", remontee: "text-orange-700", en_cours: "text-sky-700", point_mort: "text-slate-900", realisee: "text-green-700", refusee: "text-red-700" };
+const COULEUR = { a_remonter: "text-gray-600", remontee: "text-orange-700", en_cours: "text-sky-700", point_mort: "text-slate-900", realisee: "text-green-700", refusee: "text-red-700", deja_repondu: "text-violet-700" };
 const PICTO = { remontee: Clock, en_cours: Play, point_mort: OctagonAlert };   // lot 120 : jamais la couleur seule
 const UNITE = { jour: "jour(s)", semaine: "semaine(s)", mois: "mois", annee: "an(s)" };
 const duree = (d) => (d.duree_valeur && UNITE[d.duree_unite] ? `${d.duree_valeur} ${UNITE[d.duree_unite]}` : null);
@@ -182,7 +182,7 @@ export default function DemandesSawaliPanel() {
       </div>
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
-        <span>{data.total} demande(s) : {c.a_remonter || 0} à remonter · {c.remontee || 0} en attente · {c.en_cours || 0} en cours · {c.point_mort || 0} point(s) mort(s) · {c.realisee || 0} réalisée(s) · {c.refusee || 0} refusée(s)</span>
+        <span>{data.total} demande(s) : {c.a_remonter || 0} à remonter · {c.remontee || 0} en attente · {c.en_cours || 0} en cours · {c.point_mort || 0} point(s) mort(s) · {c.realisee || 0} réalisée(s) · {c.refusee || 0} refusée(s) · {c.deja_repondu || 0} déjà répondue(s)</span>
         <Button onClick={envoyer} disabled={envoi} data-testid="btn-envoyer-sawali"><Send className="w-4 h-4 mr-1" /> Envoyer à SAWALI</Button>
         <Button variant="outline" onClick={actualiser} disabled={relecture} title="Relire le statut des demandes chez SAWALI" data-testid="btn-actualiser-sawali"><RefreshCw className={`w-4 h-4 mr-1 ${relecture ? "animate-spin" : ""}`} /> Actualiser</Button>
       </div>
