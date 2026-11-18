@@ -5,8 +5,10 @@ import "@/index.css";
 import App from "@/App";
 // Règle 9 — Ctrl + Espace / double-clic : reprendre le texte par défaut (gris) d'un champ pour le modifier
 import { installerValeurParDefaut } from "@/lib/valeurParDefaut";
+import { installerDefilementTableaux } from "@/lib/defilementTableaux";   // règle du 18/11/2026 : tableaux de plus de 30 lignes
 
 installerValeurParDefaut();
+installerDefilementTableaux();
 
 // Application installable (Android / PWABuilder) : le service worker est enregistré dès le démarrage du site
 // (page « Pas de connexion », notifications). Un échec (navigateur ancien, mode privé) est sans conséquence.

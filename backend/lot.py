@@ -7,5 +7,5 @@
 # Effet voulu : ce fichier étant dans le dossier backend, sa modification force
 # Render à redéployer le serveur, ce qui incrémente aussi le numéro de version
 # (1.N, compteur de déploiements, voir version_deploiement.py).
-LOT = "120.13"
-LOT_LIBELLE = "Connexion : bouton d'empreinte en violet (comme SAWALI), juste au-dessus du bouton vert, visible par e-mail comme par WhatsApp."
+LOT = "120.14"
+LOT_LIBELLE = "Tableaux de plus de 30 lignes : barre de défilement dans le tableau (page moins longue), en-tête collant."
