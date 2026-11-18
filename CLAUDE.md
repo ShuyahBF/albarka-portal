@@ -73,3 +73,8 @@
 - À son arrivée dans le portail, le DG SEUL voit la fenêtre « Du nouveau chez SAWALI » (`frontend/src/components/InfosConnexionDG.jsx`, serveur `backend/albarka_infos_connexion.py`) : les NOUVEAUX PAIEMENTS reçus lus par SAWALI dans les SMS et les RÉPONSES de SAWALI à ses demandes, depuis sa dernière lecture. Fermeture uniquement par « J'ai compris » ou « Voir les demandes » (comme le rappel des services web) ; l'acquittement ne marque comme lu que ce qui était affiché.
 - Règle 7 : la lecture des paiements chez SAWALI se fait EN ARRIÈRE-PLAN (relevé gardé 2 minutes), jamais dans la requête de la page ; SAWALI injoignable ne bloque jamais le portail.
 - « Demandes à SAWALI » : DERNIÈRE colonne = diagramme de Gantt « Disponibilité estimée » (`GanttDemande.jsx`, logique pure `lib/ganttDemandes.js`) : barre de la date de la demande à la date prévue (bleue), réalisée (verte), date dépassée (rouge), sans date (hachurée), refusée (grise), sur un axe commun avec la ligne « aujourd'hui ».
+
+## Tableaux de plus de 30 lignes : barre de défilement (règle 24, 18/11/2026 : « C'est une règle à considérer partout sur toutes les plateformes »)
+- Tout tableau qui présente PLUS DE 30 LIGNES défile dans son cadre (hauteur = 30 lignes + l'en-tête) au lieu d'allonger la page ; l'en-tête reste visible en haut pendant le défilement ;
+  à l'impression, toutes les lignes sortent. Exception possible : `<table data-sans-defilement>`.
+- Mise en œuvre ici : module global `frontend/src/lib/defilementTableaux.js` installé au démarrage du site (règles CSS dans `index.css`) : rien à ajouter tableau par tableau.
